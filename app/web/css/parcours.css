@@ -1,0 +1,170 @@
+/* ====================================================================
+   parcours.css — Accueil et choix de commune.
+
+   Ces deux écrans sont les seuls à respirer : peu d'éléments, de grandes
+   cibles, une question par écran. Tout le reste de l'application est un
+   document de relevé ; ceux-ci sont un guichet.
+   ==================================================================== */
+
+.parcours {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: calc(var(--pas) * 12) calc(var(--pas) * 5) calc(var(--pas) * 10);
+}
+@media (max-width: 700px) {
+  .parcours { padding-top: calc(var(--pas) * 7); }
+}
+
+.question {
+  font-family: var(--titres);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 calc(var(--pas) * 8);
+}
+@media (max-width: 700px) {
+  .question { font-size: 1.2rem; margin-bottom: calc(var(--pas) * 5); }
+}
+
+/* --- Les deux intentions ------------------------------------------- */
+
+.choix {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: calc(var(--pas) * 4);
+}
+
+.carte-choix {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pas) * 3);
+  padding: calc(var(--pas) * 6);
+  text-align: left;
+  font: inherit;
+  color: var(--encre);
+  background: var(--papier-carte);
+  border: 1px solid var(--trait-fort);
+  border-radius: var(--rayon);
+  border-left: 3px solid var(--pin);
+  cursor: pointer;
+}
+.carte-choix:hover {
+  background: #F4F7F5;
+  border-left-color: var(--atlantique);
+}
+
+.carte-titre {
+  font-family: var(--titres);
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+.carte-texte {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--encre-douce);
+}
+.carte-suite {
+  margin-top: auto;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--atlantique);
+}
+
+.note-accueil {
+  margin: calc(var(--pas) * 10) 0 0;
+  padding-top: calc(var(--pas) * 4);
+  border-top: 1px solid var(--trait);
+  font-size: 0.82rem;
+  color: var(--encre-douce);
+}
+
+/* --- Choix de la commune ------------------------------------------- */
+
+.champ-recherche { margin-bottom: calc(var(--pas) * 5); }
+.champ-recherche input {
+  font-size: 1.05rem;
+  min-height: 52px;                /* grande cible : on tape ici en premier */
+  padding: calc(var(--pas) * 3);
+}
+.champ-recherche .explication { margin: calc(var(--pas) * 2) 0 0; }
+
+.liste-communes { list-style: none; margin: 0; padding: 0; }
+.liste-communes + h3 { margin-top: calc(var(--pas) * 8); }
+
+#communes-connues h3 {
+  font-family: var(--titres);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--encre-douce);
+  margin: calc(var(--pas) * 8) 0 calc(var(--pas) * 3);
+  padding-bottom: var(--pas);
+  border-bottom: 1px solid var(--trait);
+}
+
+.commune {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--pas) * 3);
+  width: 100%;
+  padding: calc(var(--pas) * 3) calc(var(--pas) * 2);
+  font: inherit;
+  text-align: left;
+  color: var(--encre);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--papier-creux);
+  cursor: pointer;
+}
+.commune:hover { background: var(--papier-carte); }
+
+.commune-nom { font-family: var(--titres); font-weight: 500; font-size: 1rem; }
+.commune-detail { font-size: 0.8rem; color: var(--encre-douce); }
+.commune .pastille { margin-left: auto; }
+
+/* Une commune absente du cache demandera une moisson : on le dit avant,
+   pas après. */
+.pastille-a-chercher { border-color: var(--atlantique); color: var(--atlantique); }
+
+.vide-court {
+  padding: calc(var(--pas) * 4) calc(var(--pas) * 2);
+  font-size: 0.88rem;
+  color: var(--encre-douce);
+}
+
+/* --- Barre de contexte, en tête des écrans de résultats ------------- */
+
+.contexte {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--pas) * 3);
+  padding: calc(var(--pas) * 3) calc(var(--pas) * 4);
+  background: var(--papier-carte);
+  border-bottom: 1px solid var(--trait);
+  font-size: 0.82rem;
+  color: var(--encre-douce);
+}
+.contexte:empty { display: none; }
+
+.contexte-intention {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-weight: 600;
+  color: var(--pin);
+}
+.contexte-commune {
+  font-family: var(--titres);
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--encre);
+}
+.contexte [data-changer] { margin-left: auto; }
+
+/* La barre de contexte est déjà dans le flux de l'écran Réglages, qui a
+   son propre rembourrage : on ne le double pas. */
+.reglages > .contexte {
+  margin: calc(var(--pas) * -5) calc(var(--pas) * -5) calc(var(--pas) * 6);
+}

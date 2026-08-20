@@ -54,6 +54,12 @@ export const api = {
 
   communes: () => demander("/api/communes"),
 
+  chercherCommunes: (q) => demander(`/api/communes/recherche?${versParametres({ q })}`),
+
+  /** Rend une commune consultable : la moissonne si elle manque ou date. */
+  preparerCommune: (codeInsee) =>
+    demander(`/api/communes/${encodeURIComponent(codeInsee)}/preparer`, { method: "POST" }),
+
   veille: (filtres) => demander(`/api/veille?${versParametres(filtres)}`),
 
   urlExport: (filtres) => `/api/veille/export.csv?${versParametres(filtres)}`,
@@ -66,9 +72,6 @@ export const api = {
     }),
 
   lancerImport: () => demander("/api/import", { method: "POST" }),
-
-  /** Ne lance un import que si la dernière moisson est trop vieille. */
-  rafraichirSiPerime: () => demander("/api/import/si-perime", { method: "POST" }),
 
   ageImport: () => demander("/api/import/age"),
 

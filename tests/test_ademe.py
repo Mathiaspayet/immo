@@ -105,19 +105,24 @@ def test_le_nom_de_commune_ne_capture_pas_le_champ_insee():
     assert champs["code_insee"] == "code_insee_commune_actualise"
 
 
-def test_la_base_ancienne_se_filtre_par_code_insee():
+def test_les_trois_bases_se_filtrent_par_code_insee():
     """
+    Le code INSEE est le seul identifiant commun aux deux generations, et
+    c'est l'unite de travail de l'application : on consulte une commune, pas
+    un code postal — le 31140 en couvre sept, le 40200 en couvre cinq.
+
     PIEGE VERIFIE CONTRE L'API : la base ancienne n'a pas de colonne de code
     postal. La filtrer avec « 40200 » ne provoque aucune erreur — elle
     renvoie les logements de la commune dont le code INSEE vaut 40200
     (Moustey), au lieu de Mimizan (INSEE 40184).
     """
-    champs_anciens = associer_champs(SCHEMA_ANCIEN)
-    champ, nature = cle_de_filtrage("ancien", champs_anciens)
+    champ, nature = cle_de_filtrage("ancien", associer_champs(SCHEMA_ANCIEN))
     assert champ == "code_insee_commune_actualise"
     assert nature == "code INSEE"
 
-    champs_recents = associer_champs(schema("code_postal_ban", "adresse_ban", "numero_dpe"))
-    champ, nature = cle_de_filtrage("existant", champs_recents)
-    assert champ == "code_postal_ban"
-    assert nature == "code postal"
+    recents = associer_champs(schema("code_postal_ban", "code_insee_ban",
+                                     "adresse_ban", "numero_dpe"))
+    for jeu in ("existant", "neuf"):
+        champ, nature = cle_de_filtrage(jeu, recents)
+        assert champ == "code_insee_ban", jeu
+        assert nature == "code INSEE"

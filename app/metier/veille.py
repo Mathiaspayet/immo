@@ -87,8 +87,7 @@ def filtres_par_defaut():
     parametres = reglages.tous()
     return {
         "fenetre_jours": parametres["fenetre_jours"],
-        "commune": (parametres["communes"][0].get("commune") or "")
-                   if parametres["communes"] else "",
+        "commune": "",
         "code_insee": "",
         "type_batiment": parametres["type_batiment"],
         "surface_min": parametres["surface_min"],

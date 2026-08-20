@@ -20,26 +20,19 @@ routeur = APIRouter(prefix="/api/import", tags=["import"])
 
 
 @routeur.post("", status_code=202)
-def lancer():
-    """Demarre un import manuel."""
+def lancer(code_insee: str = None):
+    """
+    Force une moisson : une commune precise, ou tout le registre.
+
+    Sur le chemin normal, personne n'a besoin de ce bouton — consulter une
+    commune suffit a la mettre a jour. Il reste pour les reglages.
+    """
     try:
-        import_dpe.lancer_en_tache_de_fond(declencheur="manuel")
+        import_dpe.lancer_en_tache_de_fond(declencheur="manuel", code_insee=code_insee)
     except RuntimeError as erreur:
         # 409 : la demande est legitime, mais l'etat actuel l'empeche.
         raise HTTPException(status_code=409, detail=str(erreur)) from erreur
     return {"lance": True, "etat": import_dpe.etat()}
-
-
-@routeur.post("/si-perime", status_code=200)
-def si_perime():
-    """
-    Lance un import seulement si la derniere moisson est trop vieille.
-
-    Appelee par l'interface au lancement d'une recherche. Repond toujours
-    200, meme quand rien n'est lance : ce n'est pas une erreur, c'est le
-    cas courant. `raison` dit pourquoi.
-    """
-    return import_dpe.rafraichir_si_perime(declencheur="recherche")
 
 
 @routeur.get("/statut")

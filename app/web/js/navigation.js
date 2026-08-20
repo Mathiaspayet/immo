@@ -10,7 +10,7 @@ import { $ } from "./format.js";
 
 // La fiche n'est pas un onglet : on y entre depuis un relevé ou un
 // résultat d'identification, et on en revient.
-const VUES = ["veille", "identifier", "reglages", "fiche"];
+const VUES = ["accueil", "commune", "veille", "identifier", "reglages", "fiche"];
 
 const rappels = {};
 
@@ -27,6 +27,10 @@ export function changerVue(vue) {
   document.querySelectorAll("[data-vue]").forEach((bouton) => {
     bouton.setAttribute("aria-pressed", String(bouton.dataset.vue === vue));
   });
+
+  // Le bouton « Filtres » n'a de sens que devant une liste de résultats.
+  const filtres = $("#bascule-filtres");
+  if (filtres) filtres.hidden = vue !== "veille";
   if (rappels[vue]) rappels[vue]();
   window.scrollTo({ top: 0 });
 }

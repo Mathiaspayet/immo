@@ -12,7 +12,8 @@
 
 import { api } from "./api.js";
 import { ouvrirFiche } from "./fiche.js";
-import { auTermeDeLImport, rafraichirSiPerime } from "./import.js";
+import { auTermeDeLImport } from "./import.js";
+import { communeCourante, surCommunePrete } from "./parcours.js";
 import {
   $, afficherErreur, echapper, entierFr, etiquetteHtml, liensExternes,
   masquerErreur, mesure, nombreFr,
@@ -38,8 +39,8 @@ function lireFormulaire() {
       ges: valeur("#i-tol-ges") ?? undefined,
     },
     filtres: {
-      // Code INSEE : le nom de commune varie d'une base ADEME à l'autre.
-      code_insee: $("#i-commune").value,
+      // La commune vient du parcours : on l'a choisie avant d'arriver ici.
+      code_insee: communeCourante()?.code_insee ?? "",
       type_batiment: $("#i-type").value,
     },
   };
@@ -175,11 +176,6 @@ let derniereRecherche = null;
 
 async function chercher() {
   masquerErreur();
-  // Chercher, c'est demander des données à jour : si la dernière moisson
-  // remonte à plus de 24 h, elle repart en tâche de fond pendant que le
-  // classement s'affiche sur le cache existant.
-  rafraichirSiPerime();
-
   const corps = lireFormulaire();
   derniereRecherche = corps;
   const bouton = $("#i-chercher");
@@ -221,12 +217,12 @@ export function initialiserIdentification() {
     $("#i-tol-ges").placeholder = reglages.tolerances.ges;
   }).catch(() => { /* les tolérances du serveur s'appliqueront */ });
 
-  // Les communes réellement présentes en cache, avec leur volume.
-  api.communes().then(({ communes }) => {
-    $("#i-commune").innerHTML =
-      '<option value="">toutes les communes</option>' +
-      communes.map((commune) =>
-        `<option value="${echapper(commune.code_insee)}">` +
-        `${echapper(commune.nom)} (${entierFr.format(commune.dpe)})</option>`).join("");
-  }).catch(() => { /* la liste reste sur « toutes les communes » */ });
+  // Changer de commune vide le classement précédent : il portait sur
+  // d'autres logements.
+  surCommunePrete(() => {
+    derniereRecherche = null;
+    $("#entonnoir").innerHTML = "";
+    $("#diagnostic-identification").innerHTML = "";
+    $("#resultats-identification").innerHTML = "";
+  });
 }

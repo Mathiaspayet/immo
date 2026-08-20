@@ -1,8 +1,9 @@
 import { api, ErreurApi } from "./api.js";
 import { creerCarte } from "./carte.js";
+import { auTermeDeLImport, lancerImport, reprendreSuiviEventuel } from "./import.js";
 import {
-  auTermeDeLImport, lancerImport, rafraichirSiPerime, reprendreSuiviEventuel,
-} from "./import.js";
+  communeCourante, dessinerContexte, initialiserParcours, surCommunePrete,
+} from "./parcours.js";
 import { ouvrirFiche } from "./fiche.js";
 import { initialiserIdentification } from "./identifier.js";
 import { auChangement, changerVue } from "./navigation.js";
@@ -56,9 +57,10 @@ function lireFiltres() {
   const etiquette = formulaire.etiquettes.value;
   return {
     fenetre_jours: formulaire.fenetre_jours.value,
-    // Le code INSEE plutôt que le nom : l'ADEME écrit la même commune de
-    // plusieurs façons, et lui seul identifie sans ambiguïté.
-    code_insee: formulaire.code_insee.value,
+    // La commune vient du parcours, pas d'un filtre : on l'a choisie avant
+    // d'arriver ici. Par son code INSEE, l'ADEME écrivant le même nom de
+    // plusieurs façons.
+    code_insee: communeCourante()?.code_insee ?? "",
     zone: formulaire.zone.value,
     type_batiment: formulaire.type_batiment.value,
     surface_min: formulaire.surface_min.value,
@@ -107,7 +109,7 @@ function dessinerCompteurs(resume) {
     <span class="separation"></span>
     <span class="bloc">${etatImport}</span>
     <span class="separation"></span>
-    <span class="bloc"><span class="donnee">${resume.total_base}</span> DPE en cache</span>`;
+    <span class="bloc"><span class="donnee">${entierFr.format(resume.total_base)}</span> DPE en cache</span>`;
 }
 
 function dessinerListe(resultats, resume) {
@@ -172,19 +174,10 @@ function selectionner(numero) {
   }
 }
 
-/**
- * Charge la liste. `recherche` distingue une vraie recherche — ouverture de
- * l'application, changement de filtre — d'un simple rechargement après
- * import : seule la première peut déclencher une moisson (CDC §4).
- */
-async function charger({ recherche = false } = {}) {
+async function charger() {
   masquerErreur();
   etat.filtres = lireFiltres();
   $("#export-csv").href = api.urlExport(etat.filtres);
-
-  // Lancé sans attendre : les données déjà en cache s'affichent tout de
-  // suite, la moisson tourne derrière et rappellera charger() en finissant.
-  if (recherche) rafraichirSiPerime();
 
   try {
     const reponse = await api.veille(etat.filtres);
@@ -204,18 +197,6 @@ async function charger({ recherche = false } = {}) {
 //  Écran Réglages
 // --------------------------------------------------------------------
 
-function communesVersTexte(communes) {
-  return communes.map((c) => `${c.code_postal} ${c.commune || ""}`.trim()).join("\n");
-}
-
-function texteVersCommunes(texte) {
-  return texte.split("\n").map((ligne) => ligne.trim()).filter(Boolean)
-    .map((ligne) => {
-      const [code, ...reste] = ligne.split(/\s+/);
-      return { code_postal: code, commune: reste.join(" ") };
-    });
-}
-
 function zonesVersTexte(zones) {
   return Object.entries(zones).map(([nom, p]) => `${nom} ${p[0]} ${p[1]}`).join("\n");
 }
@@ -233,39 +214,25 @@ function texteVersZones(texte) {
 }
 
 /**
- * Remplit les listes de communes à partir de ce que le cache contient
- * réellement — plutôt que de faire deviner une orthographe.
+ * Ajuste ce qui dépend du contenu réel du cache : le sous-titre, la barre
+ * de contexte, et le filtre par secteur — qui n'a de sens que là où des
+ * secteurs ont été définis.
  */
-async function chargerCommunes() {
+async function chargerContexte() {
+  const commune = communeCourante();
   try {
     const { communes, zones } = await api.communes();
-    const selecteur = $("#f-commune");
-    const choisi = selecteur.value;
-    selecteur.innerHTML =
-      '<option value="">toutes les communes</option>' +
-      communes.map((commune) =>
-        `<option value="${echapper(commune.code_insee)}">` +
-        `${echapper(commune.nom)} (${entierFr.format(commune.dpe)})</option>`).join("");
-    selecteur.value = choisi;
+    const ici = communes.find((c) => c.code_insee === commune?.code_insee);
 
-    // Le sous-titre dit ce qui est réellement surveillé : « Mimizan et
-    // communes voisines » était écrit en dur et devenait faux dès qu'on
-    // ajoutait un autre code postal.
-    const sousTitre = $("#sous-titre");
-    if (communes.length === 0) {
-      sousTitre.textContent = "DPE récents";
-    } else if (communes.length <= 3) {
-      sousTitre.textContent = "DPE récents · " +
-        communes.map((c) => c.nom).join(", ");
-    } else {
-      sousTitre.textContent = `DPE récents · ${communes[0].nom} ` +
-        `et ${communes.length - 1} communes voisines`;
-    }
-    // Le filtre par secteur ne s'affiche que s'il a de quoi filtrer : les
-    // secteurs sont propres à une commune, et disparaissent dès qu'on
-    // surveille un autre territoire.
-    const champSecteur = $("#f-zone").closest(".champ");
+    $("#sous-titre").textContent = commune
+      ? `DPE récents · ${commune.nom}`
+      : "DPE récents";
+    dessinerContexte({ dpe: ici?.dpe });
+
+    // Les secteurs sont propres à une commune : ailleurs, plus rien n'en
+    // porte et le filtre n'a rien à filtrer.
     const selecteurZone = $("#f-zone");
+    const champSecteur = selecteurZone.closest(".champ");
     if (!zones || zones.length === 0) {
       champSecteur.hidden = true;
       selecteurZone.value = "";
@@ -276,17 +243,15 @@ async function chargerCommunes() {
         zones.map((zone) => `<option>${echapper(zone)}</option>`).join("");
       selecteurZone.value = zoneChoisie;
     }
-
     return communes;
   } catch (_) {
-    return [];      // la liste reste sur « toutes les communes »
+    return [];
   }
 }
 
 async function chargerReglages() {
   try {
     const { reglages } = await api.reglages();
-    $("#r-communes").value = communesVersTexte(reglages.communes);
     $("#r-zones").value = zonesVersTexte(reglages.zones);
     $("#r-fenetre").value = reglages.fenetre_jours;
     $("#r-type").value = reglages.type_batiment ?? "";
@@ -305,7 +270,6 @@ async function enregistrerReglages() {
   let valeurs;
   try {
     valeurs = {
-      communes: texteVersCommunes($("#r-communes").value),
       zones: texteVersZones($("#r-zones").value),
       fenetre_jours: Number($("#r-fenetre").value),
       type_batiment: $("#r-type").value,
@@ -434,8 +398,7 @@ function initialiserCarte() {
 async function demarrer() {
   initialiserCarte();
 
-  $("#rafraichir").addEventListener("click", lancerImport);
-  $("#filtres").addEventListener("change", () => charger({ recherche: true }));
+  $("#filtres").addEventListener("change", () => charger());
   $("#filtres").addEventListener("submit", (e) => e.preventDefault());
 
   $("#marquer-vus").addEventListener("click", async () => {
@@ -473,10 +436,19 @@ async function demarrer() {
     bouton.addEventListener("click", () => changerVue(bouton.dataset.vue));
   });
 
+  $("#forcer-import").addEventListener("click", lancerImport);
+
+  // Ce bouton n'a jamais été branché depuis le lot 1 : les réglages
+  // s'affichaient, se modifiaient à l'écran, et rien n'était enregistré.
+  $("#enregistrer-reglages").addEventListener("click", enregistrerReglages);
+
   // Ce qu'il faut rafraîchir quand un écran redevient visible.
   // Quand une moisson aboutit, l'écran se remet à jour tout seul.
-  // Une moisson peut faire apparaître une commune jusque-là absente.
-  auTermeDeLImport(() => { chargerCommunes(); charger(); });
+  // Une moisson qui aboutit change ce qu'il y a à montrer.
+  auTermeDeLImport(() => { chargerContexte(); charger(); });
+
+  // Le parcours nous prévient quand une commune est choisie et prête.
+  surCommunePrete(() => { chargerContexte(); charger(); });
 
   auChangement("reglages", () => { chargerReglages(); chargerJournal(); });
   auChangement("veille", () => { if (etat.carte) etat.carte.redimensionner(); });
@@ -491,11 +463,10 @@ async function demarrer() {
   } catch (_) { /* charger() affichera l'erreur */ }
 
   await chargerReglages();
-  await chargerCommunes();
   afficherVersion();
-  // L'ouverture de l'application compte comme une recherche : c'est le
-  // moment où l'on veut des données du jour.
-  await charger({ recherche: true });
+
+  // Le parcours prend la main : accueil, puis commune, puis résultats.
+  initialiserParcours();
   await reprendreSuiviEventuel();
 }
 

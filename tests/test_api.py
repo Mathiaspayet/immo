@@ -124,31 +124,96 @@ def test_chaine_sans_appel_reseau(client):
 #  Rafraichissement paresseux
 # =====================================================================
 
-def test_rafraichissement_ne_part_pas_si_la_moisson_est_recente(client):
+def _moisson(code_insee, il_y_a_heures, nom="Essai"):
+    """Inscrit une commune au registre, moissonnee il y a N heures."""
     import datetime
 
     from app.base.connexion import transaction
-    recent = datetime.datetime.now().isoformat(timespec="seconds")
+    quand = (datetime.datetime.now()
+             - datetime.timedelta(hours=il_y_a_heures)).isoformat(timespec="seconds")
     with transaction() as conn:
-        conn.execute("INSERT INTO journal_import (source, debut, fin, statut) "
-                     "VALUES ('essai', ?, ?, 'succes')", (recent, recent))
+        conn.execute(
+            "INSERT INTO commune (code_insee, nom, code_postal, derniere_maj_dpe) "
+            "VALUES (?, ?, '00000', ?) ON CONFLICT(code_insee) DO UPDATE SET "
+            "derniere_maj_dpe = excluded.derniere_maj_dpe",
+            (code_insee, nom, quand))
 
-    corps = client.post("/api/import/si-perime").json()
+
+def test_commune_a_jour_ne_declenche_rien(client):
+    _moisson("40184", il_y_a_heures=2, nom="Mimizan")
+    corps = client.post("/api/communes/40184/preparer").json()
     assert corps["lance"] is False
     assert corps["raison"] == "a_jour"
-    assert corps["age_heures"] < 1
+    assert corps["en_cache"] is True
 
 
-def test_rafraichissement_desactivable(client):
-    """Un seuil a zero coupe completement le rafraichissement automatique."""
+def test_commune_perimee_est_rafraichie(client, monkeypatch):
+    """Au-dela du seuil, la moisson repart — sans bloquer la consultation."""
+    lances = []
+    monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
+                        lambda declencheur, code_insee=None: lances.append(code_insee))
+    _moisson("40184", il_y_a_heures=48, nom="Mimizan")
+
+    corps = client.post("/api/communes/40184/preparer").json()
+    assert corps["lance"] is True
+    assert corps["raison"] == "perimee"
+    assert lances == ["40184"]
+
+
+def test_commune_jamais_consultee_est_moissonnee(client, monkeypatch):
+    """
+    C'est le pivot du parcours : choisir une commune inconnue doit suffire
+    a la rendre consultable, sans rien declarer nulle part.
+    """
+    lances = []
+    monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
+                        lambda declencheur, code_insee=None: lances.append(code_insee))
+
+    corps = client.post("/api/communes/31282/preparer").json()
+    assert corps["lance"] is True
+    assert corps["raison"] == "jamais_moissonnee"
+    assert corps["en_cache"] is False
+    assert lances == ["31282"]
+
+
+def test_une_commune_inconnue_est_moissonnee_meme_seuil_desactive(client, monkeypatch):
+    """
+    Le seuil a zero coupe le rafraichissement, pas la premiere moisson :
+    sans elle, l'ecran n'aurait rien a montrer.
+    """
+    lances = []
+    monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
+                        lambda declencheur, code_insee=None: lances.append(code_insee))
     client.put("/api/reglages", json={"rafraichir_apres_heures": 0})
-    corps = client.post("/api/import/si-perime").json()
+
+    assert client.post("/api/communes/31282/preparer").json()["lance"] is True
+
+    # En revanche une commune deja moissonnee n'est plus rafraichie.
+    lances.clear()
+    _moisson("40184", il_y_a_heures=500, nom="Mimizan")
+    corps = client.post("/api/communes/40184/preparer").json()
     assert corps["lance"] is False
-    assert corps["raison"] == "desactive"
+    assert corps["raison"] == "a_jour"
+    assert lances == []
 
 
-def test_age_du_dernier_import(client):
-    assert client.get("/api/import/age").json()["age_heures"] is None
+def test_recherche_de_commune_signale_ce_qui_est_en_cache(client, monkeypatch):
+    monkeypatch.setattr("app.sources.geo.chercher", lambda nom, limite=8: [
+        {"code_insee": "31282", "nom": "Launaguet", "code_postal": "31140",
+         "codes_postaux": ["31140"], "population": 9173, "departement": "Haute-Garonne"},
+        {"code_insee": "31281", "nom": "Launac", "code_postal": "31330",
+         "codes_postaux": ["31330"], "population": 1335, "departement": "Haute-Garonne"},
+    ])
+    inserer_dpe(n_dpe="A", adresse="1 rue", commune="Launaguet", code_insee="31282")
+
+    communes = client.get("/api/communes/recherche", params={"q": "laun"}).json()["communes"]
+    par_insee = {c["code_insee"]: c for c in communes}
+    assert par_insee["31282"]["en_cache"] is True and par_insee["31282"]["dpe"] == 1
+    assert par_insee["31281"]["en_cache"] is False and par_insee["31281"]["dpe"] == 0
+
+
+def test_recherche_trop_courte_refusee(client):
+    assert client.get("/api/communes/recherche", params={"q": "l"}).status_code == 422
 
 
 def test_liste_des_communes(client):

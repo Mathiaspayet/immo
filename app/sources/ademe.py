@@ -220,19 +220,21 @@ def _selection(correspondances):
 
 def cle_de_filtrage(jeu, correspondances):
     """
-    Par quel champ interroger la commune, selon la generation de la base.
+    Par quel champ interroger une commune. Le code INSEE, dans les trois bases.
 
-    PIEGE VERIFIE : la base ancienne (dpe-france) n'a pas de colonne de
-    code postal. Son seul reperage communal est
-    `code_insee_commune_actualise`, qui attend un code INSEE. Lui passer un
-    code postal ne provoque aucune erreur — il renvoie simplement les
-    logements d'une AUTRE commune, celle dont le code INSEE vaut ce nombre.
-    Interroger dpe-france avec « 40200 » ramenait ainsi 98 logements de
-    Moustey (INSEE 40200) au lieu des 1 338 de Mimizan (INSEE 40184).
+    C'est le seul identifiant commun aux deux generations de schemas, et
+    c'est l'unite de travail de l'application : on consulte une commune, pas
+    un code postal — le 31140 en couvre sept, le 40200 en couvre cinq.
+
+    PIEGE VERIFIE : la base ancienne (dpe-france) n'a pas de colonne de code
+    postal. Son seul reperage communal est `code_insee_commune_actualise`,
+    qui attend un code INSEE. Lui passer un code postal ne provoque aucune
+    erreur — il renvoie les logements d'une AUTRE commune, celle dont le
+    code INSEE vaut ce nombre. Interroger dpe-france avec « 40200 » ramenait
+    98 logements de Moustey (INSEE 40200) au lieu des 1 338 de Mimizan
+    (INSEE 40184).
     """
-    if jeu == "ancien":
-        return correspondances.get("code_insee"), "code INSEE"
-    return correspondances.get("code_postal"), "code postal"
+    return correspondances.get("code_insee"), "code INSEE"
 
 
 def telecharger(valeur, correspondances, jeu="existant", progression=None):

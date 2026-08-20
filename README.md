@@ -133,7 +133,7 @@ pip install pytest httpx                       # pour les tests
 VEILLE_BASE=./donnees/veille.db \
   python -m uvicorn app.main:application --reload --port 8020
 
-python -m pytest tests/ -q                     # 115 tests, aucun appel réseau
+python -m pytest tests/ -q                     # 116 tests, aucun appel réseau
 ```
 
 Ou avec Docker : `docker compose up --build`, puis <http://localhost:8020>.
@@ -250,7 +250,7 @@ pas celle de l'ADEME.
 |---|---|
 | Établissement du DPE → réception par l'ADEME | médiane **0 jour** ; 79 % le jour même, 97 % sous une semaine |
 | Publication dans le jeu de données ouvert | **quotidienne** |
-| Import dans l'application | **hebdomadaire** (lundi 7 h), plus un rafraîchissement au lancement d'une recherche si la dernière moisson a plus de 24 h |
+| Import dans l'application | à la consultation d'une commune si elle date de plus de 24 h, et **hebdomadaire** (lundi 7 h) pour tout le registre |
 
 Le cache est donc au pire **24 heures** derrière la source dès lors que
 l'application est consultée, et 7 jours si elle ne l'est pas du tout. Mesures faites en août 2026 sur
@@ -262,14 +262,13 @@ s'établit qu'environ **1,6 DPE par jour** sur tout le 40200, toutes
 communes et tous types confondus. Un filtre étroit sur quelques jours peut
 légitimement ne rien retourner.
 
-**Le rafraîchissement paresseux.** Ouvrir l'application ou changer un filtre
-est une recherche : si la dernière moisson remonte à plus de 24 h, une
-nouvelle part en tâche de fond. Les données déjà en cache s'affichent
-immédiatement — pas d'écran d'attente — et la liste se met à jour seule
-quand la moisson aboutit. Le déclencheur est bien l'action de recherche et
-jamais le simple affichage d'un écran, ce que le CDC §4 interdit : ouvrir la
-fiche d'un bien ou les réglages ne déclenche rien. Le seuil se règle par
-`rafraichir_apres_heures`, `0` désactivant le mécanisme.
+**Le rafraîchissement se joue commune par commune**, au moment où on la
+consulte. Jamais moissonnée : on la moissonne, il n'y a rien à montrer
+autrement. Moissonnée mais périmée : on affiche le cache tout de suite et on
+rafraîchit derrière. À jour : rien. Le déclencheur est le choix d'une
+commune, jamais le simple affichage d'un écran — ce que le CDC §4 interdit.
+Le seuil se règle par `rafraichir_apres_heures` ; `0` coupe le
+rafraîchissement, pas la première moisson.
 
 Pour forcer en plus un import quotidien planifié, une variable suffit —
 syntaxe cron, `*` valant « tous les jours » :
@@ -281,22 +280,46 @@ VEILLE_IMPORT_JOUR: "*"
 Rien ne devient obsolète en vieillissant : la purge ne retire que les
 lignes que l'ADEME ne sert plus depuis 24 mois.
 
-## Surveiller plusieurs communes
+## Le parcours
 
-Un code postal en couvre presque toujours plusieurs : le 40200 en compte
-cinq, le 31140 en compte sept. **Toutes** sont importées et consultables —
-l'écran Veille et l'écran Identifier proposent une liste déroulante des
-communes réellement présentes en cache, avec leur volume.
+L'application pose une question à la fois.
 
-Pour surveiller un autre territoire, ajoutez une ligne dans l'écran
-Réglages, au format `31140 Launaguet`, et lancez un import. Essai réel sur
-ce code postal : 15 910 DPE, sept communes, de 2013 à aujourd'hui.
+```
+  Accueil                 Commune                   Résultats
+  ┌──────────────┐        ┌──────────────┐          ┌──────────────┐
+  │ DPE récents  │───────▶│  « laun… »   │─────────▶│  24 relevés  │
+  │ Identifier   │        │  Launaguet   │  moisson │  + carte     │
+  └──────────────┘        └──────────────┘  si besoin└──────────────┘
+```
 
-Le filtrage se fait sur le **code INSEE**, jamais sur le nom : l'ADEME écrit
-la même commune `Sainte-Eulalie-en-Born`, `STE EULALIE EN BORN` ou
-`SAINTE-EULALIE-EN-BORN` selon les lignes, et aucune recherche par nom ne
-les rattrape toutes. Les codes INSEE, eux, sont renseignés sur 100 % des
-lignes des trois bases.
+**L'intention d'abord** : regarder les diagnostics récents, ou retrouver un
+bien depuis les chiffres d'une annonce.
+
+**La commune ensuite**, cherchée par son nom — n'importe laquelle en France.
+Celles déjà consultées sont proposées en un clic ; les autres portent la
+mention « à télécharger ».
+
+**Les résultats enfin.** Si la commune n'est pas en cache, l'application va
+chercher ses diagnostics et le dit ; si elle y est mais date de plus de
+24 h, elle affiche immédiatement ce qu'elle a et rafraîchit derrière.
+
+Rien ne se déclare à l'avance. Le registre des communes se remplit à mesure
+qu'on les consulte, et c'est lui que le rafraîchissement hebdomadaire
+parcourt. L'écran Réglages ne garde que ce qui relève vraiment d'un choix :
+secteurs, filtres par défaut, tolérances, rétention.
+
+### La commune est l'unité de travail
+
+Un code postal en couvre presque toujours plusieurs — cinq pour le 40200,
+sept pour le 31140 — et on n'en veut qu'une. Les trois bases de l'ADEME se
+filtrent donc par **code INSEE**, le seul identifiant commun aux deux
+générations de schémas. Launaguet seule représente 2 878 DPE, contre 15 910
+pour tout son code postal.
+
+C'est aussi le seul filtre fiable : l'ADEME écrit la même commune
+`Sainte-Eulalie-en-Born`, `STE EULALIE EN BORN` ou `SAINTE-EULALIE-EN-BORN`
+selon les lignes, et aucune recherche par nom ne les rattrape toutes. Les
+codes INSEE, eux, sont renseignés sur 100 % des lignes.
 
 ### Les secteurs sont propres à une commune
 

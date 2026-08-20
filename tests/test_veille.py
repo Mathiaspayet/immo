@@ -128,9 +128,15 @@ def test_resume_par_secteur(base):
 # ---------------------------------------------------------------------
 
 def test_reglages_par_defaut(base):
+    """
+    Les communes ne sont plus un reglage : elles entrent au registre a
+    mesure qu'on les consulte. Les reglages ne gardent que ce qui est
+    vraiment un choix — secteurs, filtres, tolerances, retention.
+    """
     valeurs = reglages.tous()
-    assert valeurs["communes"][0]["code_postal"] == "40200"
+    assert "communes" not in valeurs
     assert set(valeurs["zones"]) == {"bourg", "plage"}
+    assert valeurs["zones_code_insee"] == "40184"
 
 
 def test_reglage_enregistre_et_relu(base):
@@ -140,8 +146,6 @@ def test_reglage_enregistre_et_relu(base):
 
 @pytest.mark.parametrize("valeurs, extrait", [
     ({"surface_min": 500, "surface_max": 100}, "depasse"),
-    ({"communes": []}, "au moins une commune"),
-    ({"communes": [{"code_postal": "abc"}]}, "Code postal invalide"),
     ({"zones": {"plage": [200, 0]}}, "hors des bornes"),
     ({"zones": {"plage": ["nord"]}}, "latitude et longitude"),
     ({"fenetre_jours": 0}, "compris entre"),

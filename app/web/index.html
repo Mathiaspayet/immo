@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="css/socle.css">
 <link rel="stylesheet" href="css/veille.css">
 <link rel="stylesheet" href="css/qualification.css">
+<link rel="stylesheet" href="css/parcours.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23F1F3F1'/><path d='M5 24V12l11-6 11 6v12' fill='none' stroke='%2312262B' stroke-width='2'/><path d='M5 24h22' stroke='%232E5B4C' stroke-width='2'/></svg>">
 </head>
 <body>
@@ -19,14 +20,12 @@
     <p class="sous-titre" id="sous-titre">DPE récents</p>
     <p class="version donnee" id="version" title="Version déployée"></p>
   </div>
-  <nav class="onglets" aria-label="Écrans">
-    <button type="button" class="bouton" data-vue="veille" aria-pressed="true">Veille</button>
-    <button type="button" class="bouton" data-vue="identifier" aria-pressed="false">Identifier</button>
-    <button type="button" class="bouton" data-vue="reglages" aria-pressed="false">Réglages</button>
+  <nav class="onglets" aria-label="Navigation">
+    <button type="button" class="bouton" data-vue="accueil">Accueil</button>
+    <button type="button" class="bouton bascule-filtres" id="bascule-filtres"
+            aria-controls="filtres" aria-expanded="false" hidden>Filtres</button>
+    <button type="button" class="bouton" data-vue="reglages">Réglages</button>
   </nav>
-  <button type="button" class="bouton bascule-filtres" id="bascule-filtres"
-          aria-controls="filtres" aria-expanded="false">Filtres</button>
-  <button type="button" class="bouton bouton-principal" id="rafraichir">Rafraîchir</button>
 </header>
 
 <!-- Retour d'état : progression d'import, erreurs, confirmations.
@@ -37,8 +36,62 @@
 
 <main class="contenu">
 
+  <!-- =========================== ACCUEIL ============================ -->
+  <section id="vue-accueil" class="parcours" aria-label="Accueil">
+    <h2 class="question">Que voulez-vous faire&nbsp;?</h2>
+
+    <div class="choix">
+      <button type="button" class="carte-choix" data-intention="veille">
+        <span class="carte-titre">Les DPE récents</span>
+        <span class="carte-texte">
+          Les logements qui viennent d'être diagnostiqués. Un DPE est
+          obligatoire avant toute mise en vente&nbsp;: un diagnostic frais
+          précède souvent l'annonce de plusieurs semaines.
+        </span>
+        <span class="carte-suite">Choisir une commune →</span>
+      </button>
+
+      <button type="button" class="carte-choix" data-intention="identifier">
+        <span class="carte-titre">Identifier un bien</span>
+        <span class="carte-texte">
+          Retrouver l'adresse d'une maison à partir des chiffres lus sur son
+          annonce&nbsp;: surface, consommations, classes énergétiques.
+        </span>
+        <span class="carte-suite">Choisir une commune →</span>
+      </button>
+    </div>
+
+    <p class="note-accueil">
+      Un DPE récent ne signifie pas une vente&nbsp;: ce peut être une mise en
+      location, un audit avant travaux ou un dossier MaPrimeRénov'. Recoupez
+      avant de conclure.
+    </p>
+  </section>
+
+  <!-- ======================== CHOIX DE COMMUNE ======================= -->
+  <section id="vue-commune" class="parcours" aria-label="Choix de la commune" hidden>
+    <h2 class="question" id="question-commune">Sur quelle commune&nbsp;?</h2>
+
+    <div class="champ champ-recherche">
+      <label for="recherche-commune">Nom de la commune</label>
+      <input type="search" id="recherche-commune" autocomplete="off"
+             placeholder="Mimizan, Launaguet, Toulouse…"
+             aria-describedby="aide-commune">
+      <p class="explication" id="aide-commune">
+        N'importe quelle commune de France. Si l'application ne la connaît pas
+        encore, elle ira chercher ses diagnostics — comptez une minute.
+      </p>
+    </div>
+
+    <ul class="liste-communes" id="resultats-commune"></ul>
+
+    <div id="communes-connues"></div>
+  </section>
+
   <!-- ============================ VEILLE ============================ -->
-  <section id="vue-veille" aria-label="Veille des DPE récents">
+  <section id="vue-veille" aria-label="Veille des DPE récents" hidden>
+
+    <div class="contexte" id="contexte-veille"></div>
 
     <form class="filtres" id="filtres" data-replie="non">
       <div class="champ">
@@ -49,12 +102,6 @@
           <option value="120" selected>120 jours</option>
           <option value="365">1 an</option>
           <option value="730">2 ans</option>
-        </select>
-      </div>
-      <div class="champ champ-large">
-        <label for="f-commune">Commune</label>
-        <select id="f-commune" name="code_insee">
-          <option value="">toutes les communes</option>
         </select>
       </div>
       <div class="champ">
@@ -113,6 +160,8 @@
   <!-- ========================== IDENTIFIER ========================== -->
   <section id="vue-identifier" class="reglages" aria-label="Identifier un bien depuis une annonce" hidden>
 
+    <div class="contexte" id="contexte-identifier"></div>
+
     <section>
       <h2>Identifier un bien depuis une annonce</h2>
       <p class="explication">
@@ -165,12 +214,6 @@
           est un peu large. Laissez vide pour reprendre celle des réglages.
         </p>
         <div class="grille-champs">
-          <div class="champ champ-large">
-            <label for="i-commune">Commune</label>
-            <select id="i-commune">
-              <option value="">toutes les communes</option>
-            </select>
-          </div>
           <div class="champ">
             <label for="i-type">Type de bâtiment</label>
             <select id="i-type">
@@ -214,21 +257,18 @@
   <section id="vue-reglages" class="reglages" aria-label="Réglages" hidden>
 
     <section>
-      <h2>Communes surveillées</h2>
+      <h2>Communes consultées</h2>
       <p class="explication">
-        Un code postal par ligne, au format <span class="donnee">40200 Mimizan</span> :
-        le code postal détermine ce qui est téléchargé chez l'ADEME, le nom qui suit
-        sert de filtre d'affichage. Le 40200 couvre aussi Aureilhan et
-        Saint-Paul-en-Born&nbsp;; laisser le nom vide les conserve toutes.
-        Ajoutez une ligne par code postal à surveiller — les communes
-        correspondantes apparaîtront ensuite dans la liste déroulante des
-        écrans Veille et Identifier.
+        Ce registre se remplit tout seul&nbsp;: chaque commune que vous
+        consultez y entre, et c'est lui que le rafraîchissement hebdomadaire
+        parcourt. Rien à déclarer à l'avance.
       </p>
-      <p class="explication" id="communes-couvertes"></p>
-      <div class="champ">
-        <label for="r-communes">Codes postaux</label>
-        <textarea id="r-communes" class="donnee" rows="3" style="font-size:0.88rem;padding:8px;border:1px solid var(--trait-fort);border-radius:3px;background:var(--papier-carte);resize:vertical"></textarea>
-      </div>
+      <div id="communes-couvertes"></div>
+      <p>
+        <button type="button" class="bouton" id="forcer-import">
+          Forcer une moisson maintenant
+        </button>
+      </p>
     </section>
 
     <section>

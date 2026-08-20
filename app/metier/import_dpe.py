@@ -158,70 +158,126 @@ SQL_UPSERT = (
 #  Import complet
 # ---------------------------------------------------------------------
 
-def importer(declencheur="manuel", jeux=None):
+def communes_suivies():
     """
-    Telecharge les DPE de toutes les communes surveillees et les enregistre.
+    Les communes deja consultees, avec la date de leur derniere moisson.
 
-    `jeux` limite l'import a certaines bases ADEME ; par defaut, celles des
-    reglages. Leve RuntimeError si un import tourne deja : deux imports
-    simultanes se disputeraient le verrou d'ecriture de SQLite.
+    C'est le registre de l'application : on n'y declare rien a l'avance, il
+    se remplit a mesure qu'on consulte des communes. C'est lui que l'import
+    hebdomadaire rafraichit.
     """
+    with connexion() as conn:
+        return [dict(ligne) for ligne in conn.execute(
+            "SELECT code_insee, nom, code_postal, derniere_maj_dpe FROM commune "
+            "ORDER BY derniere_maj_dpe IS NULL DESC, nom")]
+
+
+def age_commune(code_insee):
+    """Heures ecoulees depuis la derniere moisson de cette commune, ou None."""
+    with connexion() as conn:
+        ligne = conn.execute(
+            "SELECT derniere_maj_dpe FROM commune WHERE code_insee = ?",
+            (str(code_insee),)).fetchone()
+    if ligne is None or not ligne["derniere_maj_dpe"]:
+        return None
+    try:
+        moisson = datetime.datetime.fromisoformat(ligne["derniere_maj_dpe"])
+    except ValueError:
+        return None
+    return (datetime.datetime.now() - moisson).total_seconds() / 3600
+
+
+# ---------------------------------------------------------------------
+#  Moisson
+# ---------------------------------------------------------------------
+
+def _demarrer(declencheur, quoi):
+    """Prend le verrou et ouvre le journal. Leve si une moisson tourne deja."""
     with _verrou:
         if _etat["en_cours"]:
             raise RuntimeError("Un import est deja en cours.")
         _etat.update({"en_cours": True, "declencheur": declencheur,
-                      "debut": _maintenant(), "fin": None, "etape": "demarrage",
-                      "lignes": 0, "ajouts": 0, "statut": None,
-                      "message": None, "journal_id": None})
-
+                      "debut": _maintenant(), "fin": None,
+                      "etape": f"demarrage — {quoi}", "lignes": 0, "ajouts": 0,
+                      "statut": None, "message": None, "journal_id": None,
+                      "cible": quoi})
     journal_id = _ouvrir_journal(declencheur)
     _publier(journal_id=journal_id)
+    return journal_id
 
-    try:
-        resume = _executer(jeux)
-    except Exception as erreur:                      # noqa: BLE001
+
+def _terminer(journal_id, resume=None, erreur=None):
+    if erreur is not None:
         message = str(erreur) or type(erreur).__name__
-        logger.exception("import en echec : %s", message)
         _fermer_journal(journal_id, "echec", 0, 0, message)
         _publier(en_cours=False, fin=_maintenant(), statut="echec", message=message)
+        return
+    _fermer_journal(journal_id, "succes", resume["lignes"], resume["ajouts"],
+                    resume["message"])
+    _publier(en_cours=False, fin=_maintenant(), statut="succes",
+             message=resume["message"], lignes=resume["lignes"],
+             ajouts=resume["ajouts"], etape="termine")
+
+
+def importer_commune(code_insee, declencheur="commune", jeux=None):
+    """
+    Moissonne UNE commune, dans les trois bases de l'ADEME.
+
+    C'est l'operation de base de l'application : on consulte une commune, on
+    l'importe. Le code postal ne sert plus a filtrer — le 31140 couvre sept
+    communes, le 40200 en couvre cinq, et on n'en veut qu'une.
+    """
+    code_insee = str(code_insee).strip()
+    fiche = geo.commune_par_insee(code_insee) or {}
+    nom = fiche.get("nom") or code_insee
+
+    journal_id = _demarrer(declencheur, nom)
+    try:
+        resume = _moissonner([{"code_insee": code_insee, "nom": nom,
+                               "code_postal": fiche.get("code_postal")}], jeux)
+    except Exception as erreur:                      # noqa: BLE001
+        logger.exception("import de %s en echec : %s", nom, erreur)
+        _terminer(journal_id, erreur=erreur)
         raise
-    else:
-        _fermer_journal(journal_id, "succes", resume["lignes"], resume["ajouts"],
-                        resume["message"])
-        _publier(en_cours=False, fin=_maintenant(), statut="succes",
-                 message=resume["message"], lignes=resume["lignes"],
-                 ajouts=resume["ajouts"], etape="termine")
-        return resume
+    _terminer(journal_id, resume=resume)
+    return resume
 
 
-def _referentiel_communes(communes):
+def importer(declencheur="planifie", jeux=None):
     """
-    Codes INSEE des communes surveillees, via geo.api.gouv.fr.
+    Rafraichit toutes les communes deja consultees.
 
-    Indispensable a la base ancienne, qui ne connait les communes QUE par
-    leur code INSEE (voir ademe.cle_de_filtrage). Renvoie
-    (par_insee, insee_par_code_postal).
+    C'est ce que lance le planificateur hebdomadaire. Sans commune au
+    registre, il n'y a rien a rafraichir et on le dit.
     """
-    par_insee, par_code_postal = {}, {}
-    for entree in communes:
-        code_postal = str(entree["code_postal"]).strip()
-        trouvees = geo.communes_du_code_postal(code_postal)
-        par_code_postal[code_postal] = [c["code_insee"] for c in trouvees
-                                        if c.get("code_insee")]
-        for commune in trouvees:
-            if commune.get("code_insee"):
-                par_insee[commune["code_insee"]] = commune
-    return par_insee, par_code_postal
+    communes = communes_suivies()
+    if not communes:
+        raise ErreurSource(
+            "Aucune commune n'a encore ete consultee : il n'y a rien a "
+            "rafraichir. Choisissez une commune depuis l'accueil.")
+
+    journal_id = _demarrer(declencheur, f"{len(communes)} commune(s)")
+    try:
+        resume = _moissonner(communes, jeux)
+    except Exception as erreur:                      # noqa: BLE001
+        logger.exception("rafraichissement en echec : %s", erreur)
+        _terminer(journal_id, erreur=erreur)
+        raise
+    _terminer(journal_id, resume=resume)
+    return resume
 
 
-def _executer(jeux=None):
+def _moissonner(communes, jeux=None):
+    """
+    Telecharge puis enregistre, pour une liste de communes.
+
+    Tout est telecharge et transforme AVANT la moindre ecriture : un echec
+    ne doit jamais laisser la base a moitie remplie (CDC 8).
+    """
     parametres = reglages.tous()
-    communes = parametres["communes"]
     points_de_zone = parametres["zones"]
     jeux = list(jeux or parametres["jeux_de_donnees"])
-
-    _publier(etape="resolution des communes")
-    communes_par_insee, insee_par_code_postal = _referentiel_communes(communes)
+    par_insee = {c["code_insee"]: c for c in communes}
 
     enregistrements = {}
     detail, avertissements = [], []
@@ -232,60 +288,44 @@ def _executer(jeux=None):
             correspondances, _champs = ademe.preparer(jeu)
         except ErreurSource as erreur:
             # Une base indisponible ne doit pas faire echouer les autres :
-            # la veille F1 ne depend que de « existant ».
+            # la veille ne depend que de « existant ».
             avertissements.append(f"{ademe.JEUX[jeu]} ignoree ({erreur})")
             logger.warning("%s ignoree : %s", jeu, erreur)
             continue
 
-        for entree in communes:
-            code_postal = str(entree["code_postal"]).strip()
+        for commune in communes:
+            code_insee = commune["code_insee"]
+            nom = commune.get("nom") or code_insee
+            _publier(etape=f"{nom} — {ademe.JEUX[jeu]}")
 
-            # La base ancienne se filtre par code INSEE, les recentes par
-            # code postal. Confondre les deux ramene une autre commune sans
-            # la moindre erreur visible.
-            if jeu == "ancien":
-                valeurs = insee_par_code_postal.get(code_postal) or []
-                if not valeurs:
-                    avertissements.append(
-                        f"{ademe.JEUX[jeu]} : codes INSEE du {code_postal} "
-                        "indisponibles (geo.api.gouv.fr), commune ignoree")
-                    continue
-            else:
-                valeurs = [code_postal]
+            def progression(nombre_lignes, message, _nom=nom):
+                _publier(etape=f"{_nom} — {message}", lignes=nombre_lignes)
 
-            for valeur in valeurs:
-                _publier(etape=f"telechargement {ademe.JEUX[jeu]} — {valeur}")
+            try:
+                lignes = ademe.telecharger(code_insee, correspondances, jeu=jeu,
+                                           progression=progression)
+            except ErreurSource as erreur:
+                avertissements.append(f"{nom} / {ademe.JEUX[jeu]} : {erreur}")
+                logger.warning("%s / %s : %s", nom, jeu, erreur)
+                continue
 
-                def progression(nombre_lignes, message):
-                    _publier(etape=f"telechargement — {message}", lignes=nombre_lignes)
-
-                try:
-                    lignes = ademe.telecharger(valeur, correspondances, jeu=jeu,
-                                               progression=progression)
-                except ErreurSource as erreur:
-                    avertissements.append(f"{ademe.JEUX[jeu]} / {valeur} : {erreur}")
-                    logger.warning("%s / %s : %s", jeu, valeur, erreur)
-                    continue
-
-                retenues = 0
-                for ligne in lignes:
-                    enregistrement = transformer(ligne, correspondances,
-                                                 points_de_zone, jeu, code_postal,
-                                                 communes_par_insee,
-                                                 parametres["zones_code_insee"])
-                    if enregistrement:
-                        enregistrements[enregistrement["n_dpe"]] = enregistrement
-                        retenues += 1
-                detail.append(f"{jeu}/{valeur} : {retenues}")
-                logger.info("%s / %s : %d ligne(s) exploitables sur %d",
-                            jeu, valeur, retenues, len(lignes))
+            retenues = 0
+            for ligne in lignes:
+                enregistrement = transformer(
+                    ligne, correspondances, points_de_zone, jeu,
+                    commune.get("code_postal"), par_insee,
+                    parametres["zones_code_insee"])
+                if enregistrement:
+                    enregistrements[enregistrement["n_dpe"]] = enregistrement
+                    retenues += 1
+            detail.append(f"{nom}/{jeu} : {retenues}")
+            logger.info("%s / %s : %d ligne(s) sur %d", nom, jeu, retenues, len(lignes))
 
     if not enregistrements:
         raise ErreurSource(
-            "L'ADEME n'a renvoye aucune ligne exploitable. Verifiez les codes "
-            "postaux surveilles dans les reglages. "
-            + (" ".join(avertissements) if avertissements else "")
-        )
+            "L'ADEME n'a renvoye aucune ligne exploitable pour "
+            + ", ".join(c.get("nom") or c["code_insee"] for c in communes)
+            + ". " + (" ".join(avertissements) if avertissements else ""))
 
     # --- Ecriture, en une seule transaction ----------------------------
     _publier(etape="enregistrement en base", lignes=len(enregistrements))
@@ -298,38 +338,39 @@ def _executer(jeux=None):
         ajouts = 0
         for enregistrement in enregistrements.values():
             ajouts += enregistrement["n_dpe"] not in connus
-
             # Au tout premier import, tout est « nouveau » : marquer les
             # lignes comme deja vues evite de noyer l'ecran sous les badges.
-            # Le marquage ne sert qu'a signaler les arrivees ulterieures.
             vu_le = maintenant if premier_import else None
-
             conn.execute(SQL_UPSERT,
                          [enregistrement[c] for c in COLONNES]
                          + [maintenant, maintenant, vu_le])
 
-        for commune in communes_par_insee.values():
+        # Le registre des communes consultees : c'est lui que le
+        # rafraichissement hebdomadaire parcourra.
+        for commune in communes:
             conn.execute(
                 "INSERT INTO commune (code_insee, nom, code_postal, derniere_maj_dpe) "
                 "VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(code_insee) DO UPDATE SET nom = excluded.nom, "
-                "  code_postal = excluded.code_postal, "
+                "  code_postal = coalesce(excluded.code_postal, commune.code_postal), "
                 "  derniere_maj_dpe = excluded.derniere_maj_dpe",
-                (commune["code_insee"], commune["nom"], commune["code_postal"], maintenant))
+                (commune["code_insee"], commune.get("nom") or commune["code_insee"],
+                 commune.get("code_postal"), maintenant))
 
         purges = _purger(conn, parametres["purge_mois"])
 
-    message = (f"{len(enregistrements)} DPE traites ({'; '.join(detail)}), "
-               f"{ajouts} nouveau(x)")
+    noms = ", ".join(c.get("nom") or c["code_insee"] for c in communes)
+    message = f"{noms} — {len(enregistrements)} DPE, {ajouts} nouveau(x)"
     if purges:
         message += f", {purges} purge(s)"
     if premier_import:
         message += " — premier import, rien n'est signale comme nouveau"
     if avertissements:
-        message += " | " + " ; ".join(avertissements[:3])
+        message += " | " + " ; ".join(avertissements[:2])
 
-    return {"lignes": len(enregistrements), "ajouts": ajouts,
-            "purges": purges, "avertissements": avertissements,
+    return {"lignes": len(enregistrements), "ajouts": ajouts, "purges": purges,
+            "communes": [c["code_insee"] for c in communes],
+            "avertissements": avertissements, "detail": detail,
             "message": message}
 
 
@@ -376,10 +417,7 @@ def _fermer_journal(journal_id, statut, lignes, ajouts, message):
 # ---------------------------------------------------------------------
 
 def age_dernier_import():
-    """
-    Nombre d'heures depuis la derniere moisson reussie, ou None si la base
-    n'en a jamais connu.
-    """
+    """Heures depuis la derniere moisson reussie, toutes communes confondues."""
     with connexion() as conn:
         ligne = conn.execute(
             "SELECT fin FROM journal_import WHERE statut = 'succes' "
@@ -393,40 +431,47 @@ def age_dernier_import():
     return (datetime.datetime.now() - fin).total_seconds() / 3600
 
 
-def rafraichir_si_perime(declencheur="recherche", seuil_heures=None):
+def preparer_commune(code_insee, seuil_heures=None, declencheur="consultation"):
     """
-    Lance un import si la derniere moisson est trop vieille.
+    S'assure qu'une commune est consultable, et a jour.
 
-    Appelee au lancement d'une recherche, pas a l'affichage d'un ecran : le
-    CDC 4 interdit qu'une page consultee declenche un appel externe. Les
-    resultats deja en cache s'affichent immediatement, l'import tourne
-    derriere et l'ecran se rafraichit quand il aboutit.
+    C'est le pivot du parcours : on choisit une commune, et l'application
+    va chercher ce qu'il faut sans qu'on ait rien a declarer. Trois cas :
 
-    Ne leve jamais : un rafraichissement qui echoue ne doit pas empecher de
-    consulter ce qu'on a deja.
+      - jamais moissonnee : on la moissonne, quoi qu'il arrive. C'est la
+        seule facon d'afficher quelque chose ;
+      - moissonnee mais trop vieille : on rafraichit en tache de fond, les
+        donnees en cache restant consultables pendant ce temps ;
+      - a jour : on ne fait rien.
+
+    Ne leve jamais : ne pas pouvoir rafraichir n'empeche pas de consulter.
     """
+    code_insee = str(code_insee).strip()
     parametres = reglages.tous()
     seuil = parametres["rafraichir_apres_heures"] if seuil_heures is None else seuil_heures
-    age = age_dernier_import()
+    age = age_commune(code_insee)
 
-    if not seuil:
-        return {"lance": False, "raison": "desactive", "age_heures": age, "seuil_heures": seuil}
     if _etat["en_cours"]:
-        return {"lance": False, "raison": "deja_en_cours", "age_heures": age, "seuil_heures": seuil}
-    if age is not None and age < float(seuil):
+        return {"lance": False, "raison": "deja_en_cours", "age_heures": age,
+                "en_cache": age is not None}
+
+    if age is None:
+        raison = "jamais_moissonnee"
+    elif seuil and age >= float(seuil):
+        raison = "perimee"
+    else:
         return {"lance": False, "raison": "a_jour", "age_heures": round(age, 2),
-                "seuil_heures": seuil}
+                "en_cache": True}
 
     try:
-        lancer_en_tache_de_fond(declencheur=declencheur)
+        lancer_en_tache_de_fond(declencheur=declencheur, code_insee=code_insee)
     except RuntimeError:
         return {"lance": False, "raison": "deja_en_cours", "age_heures": age,
-                "seuil_heures": seuil}
+                "en_cache": age is not None}
 
-    return {"lance": True,
-            "raison": "jamais_importe" if age is None else "perime",
+    return {"lance": True, "raison": raison,
             "age_heures": None if age is None else round(age, 2),
-            "seuil_heures": seuil}
+            "en_cache": age is not None}
 
 
 def journal(limite=20):
@@ -440,13 +485,14 @@ def journal(limite=20):
 #  Lancement en tache de fond
 # ---------------------------------------------------------------------
 
-def lancer_en_tache_de_fond(declencheur="manuel"):
+def lancer_en_tache_de_fond(declencheur="manuel", code_insee=None):
     """
-    Demarre un import sans bloquer l'appelant.
+    Demarre une moisson sans bloquer l'appelant.
 
-    L'interface interroge ensuite /api/import/statut pour suivre l'avancee :
-    un import complet prend plusieurs dizaines de secondes, une requete HTTP
-    qui attendrait la fin serait coupee par le navigateur.
+    `code_insee` vise une commune precise ; sans lui, tout le registre est
+    rafraichi. L'interface interroge ensuite /api/import/statut pour suivre
+    l'avancee : une moisson prend plusieurs dizaines de secondes, et une
+    requete HTTP qui attendrait la fin serait coupee par le navigateur.
     """
     with _verrou:
         if _etat["en_cours"]:
@@ -454,7 +500,10 @@ def lancer_en_tache_de_fond(declencheur="manuel"):
 
     def travail():
         try:
-            importer(declencheur=declencheur)
+            if code_insee:
+                importer_commune(code_insee, declencheur=declencheur)
+            else:
+                importer(declencheur=declencheur)
         except Exception:                            # noqa: BLE001
             pass      # deja journalise et publie dans l'etat
 

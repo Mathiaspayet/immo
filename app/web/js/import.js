@@ -31,7 +31,10 @@ function prevenirLesAbonnes() {
   }
 }
 
-function bouton() { return $("#rafraichir"); }
+// Le bouton de moisson forcée vit désormais dans les réglages, et peut
+// donc être absent de l'écran courant.
+function bouton() { return $("#forcer-import"); }
+function griser(etat) { const b = bouton(); if (b) b.disabled = etat; }
 
 /** Interroge /statut jusqu'à la fin, en affichant la progression. */
 export function suivreImport() {
@@ -42,7 +45,7 @@ export function suivreImport() {
       statut = await api.statutImport();
     } catch (erreur) {
       clearInterval(sondage);
-      bouton().disabled = false;
+      griser(false);
       masquerTravail();
       afficherErreur("Le suivi de l'import s'est interrompu.", erreur.message);
       return;
@@ -55,7 +58,7 @@ export function suivreImport() {
     }
 
     clearInterval(sondage);
-    bouton().disabled = false;
+    griser(false);
     masquerTravail();
 
     if (statut.statut === "echec") {
@@ -69,40 +72,14 @@ export function suivreImport() {
 
 /** Le bouton « Rafraîchir » : force une moisson, quelle que soit son âge. */
 export async function lancerImport() {
-  bouton().disabled = true;
+  griser(true);
   try {
     await api.lancerImport();
-    afficherTravail("Import démarré…");
+    afficherTravail("Moisson démarrée…");
     suivreImport();
   } catch (erreur) {
-    bouton().disabled = false;
+    griser(false);
     afficherErreur(erreur.message);
-  }
-}
-
-/**
- * À appeler au lancement d'une recherche. Ne fait rien si la moisson est
- * récente, si un import tourne déjà, ou si le réglage est à zéro.
- *
- * N'échoue jamais bruyamment : ne pas pouvoir rafraîchir n'empêche pas de
- * consulter ce qui est déjà là.
- */
-export async function rafraichirSiPerime() {
-  try {
-    const reponse = await api.rafraichirSiPerime();
-    if (!reponse.lance) return false;
-
-    const age = reponse.age_heures;
-    afficherTravail(
-      age == null
-        ? "Première moisson des données ADEME…"
-        : `Données vieilles de ${Math.round(age)} h — mise à jour en cours…`
-    );
-    bouton().disabled = true;
-    suivreImport();
-    return true;
-  } catch (_) {
-    return false;      // le cache reste consultable, on n'alarme personne
   }
 }
 
@@ -111,7 +88,7 @@ export async function reprendreSuiviEventuel() {
   try {
     const statut = await api.statutImport();
     if (statut.en_cours) {
-      bouton().disabled = true;
+      griser(true);
       afficherTravail(statut.etape || "import en cours");
       suivreImport();
     }

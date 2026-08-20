@@ -20,10 +20,6 @@ from app.base.connexion import connexion, transaction
 logger = logging.getLogger(__name__)
 
 DEFAUTS = {
-    # Codes postaux surveilles. Le 40200 couvre plusieurs communes, d'ou le
-    # filtre `commune` qui restreint au seul Mimizan.
-    "communes": [{"code_postal": "40200", "commune": "Mimizan"}],
-
     # Mimizan-Plage n'est pas une commune distincte : meme code postal et
     # meme code INSEE que le bourg. On rattache donc chaque logement au
     # point de reference le plus proche (CDC F1).
@@ -142,17 +138,6 @@ def valider(valeurs):
     inconnues = set(valeurs) - set(DEFAUTS)
     if inconnues:
         raise ValueError(f"reglage(s) inconnu(s) : {', '.join(sorted(inconnues))}")
-
-    if "communes" in valeurs:
-        communes = valeurs["communes"]
-        if not isinstance(communes, list) or not communes:
-            raise ValueError("Il faut au moins une commune surveillee.")
-        for entree in communes:
-            if not isinstance(entree, dict) or not str(entree.get("code_postal", "")).strip():
-                raise ValueError("Chaque commune doit porter un code postal.")
-            code = str(entree["code_postal"]).strip()
-            if not (code.isdigit() and len(code) == 5):
-                raise ValueError(f"Code postal invalide : {code!r} (cinq chiffres attendus).")
 
     if "zones" in valeurs:
         zones = valeurs["zones"]
