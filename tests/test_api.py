@@ -332,3 +332,34 @@ def test_une_commune_perimee_reprend_tout(client, monkeypatch):
 def test_besoin_inconnu_refuse(client):
     assert client.post("/api/communes/31282/preparer",
                        params={"besoin": "lune"}).status_code == 422
+
+
+def test_un_cadastre_sans_bati_se_recharge(client, monkeypatch):
+    """
+    Le cas d'une base montee depuis une version qui ne gardait pas les
+    contours : le cadastre est la, date d'hier, et parait donc a jour.
+
+    Le declarer « a jour » laisserait la fiche dessiner des parcelles nues
+    pour toujours. Il doit se recharger — le cadastre seul, les DPE etant
+    frais.
+    """
+    import datetime
+
+    from app.base.connexion import transaction
+
+    appels = []
+    monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
+                        lambda declencheur, code_insee=None, avec_dpe=True, avec_cadastre=False:
+                        appels.append((code_insee, avec_dpe, avec_cadastre)))
+    _moisson("31282", il_y_a_heures=2, nom="Launaguet")
+    _parcelle(client, "P1", 800, 120, batiments=2)
+    hier = (datetime.datetime.now()
+            - datetime.timedelta(hours=24)).isoformat(timespec="seconds")
+    with transaction() as conn:
+        conn.execute("UPDATE commune SET derniere_maj_cadastre = ? "
+                     "WHERE code_insee = '31282'", (hier,))
+
+    corps = client.post("/api/communes/31282/preparer",
+                        params={"besoin": "cadastre"}).json()
+    assert corps["lance"] is True
+    assert appels == [("31282", False, True)]        # (commune, dpe, cadastre)

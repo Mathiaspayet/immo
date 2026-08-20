@@ -415,6 +415,11 @@ def extrait(n_dpe, marge_m=MARGE_EXTRAIT_M):
         "parcelle": parcelle,
         "cadre": {"lon_min": cadre[0], "lat_min": cadre[1],
                   "lon_max": cadre[2], "lat_max": cadre[3]},
+        # Un cadastre importe avant qu'on ne conserve les contours donne un
+        # extrait complet en apparence — parcelles et voisines — mais sans
+        # aucun bati. Le dire ici est le seul moyen pour la fiche de le
+        # signaler et d'offrir de le completer.
+        "batiments_manquants": batiments_manquants(code_insee),
         "voisines": [
             {"id": ligne["id"], "section": ligne["section"], "numero": ligne["numero"],
              "contenance_m2": ligne["contenance_m2"], "geometrie": forme(ligne)}

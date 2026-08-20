@@ -256,8 +256,14 @@ courante de Launaguet cela donne 104 × 107 m, 15 voisines et 22 bâtiments.
 
 Ces contours sont désormais conservés en base (table `batiment`, 1,5 Mo pour
 Launaguet, 2,9 Mo pour Mimizan). Un cadastre importé avant ce changement n'a
-que des parcelles : l'application le détecte et le reprend une fois, sans
-rien demander.
+que des parcelles, et c'est le manque le plus trompeur de l'application : le
+dessin paraît complet — parcelle et voisines s'y tracent — mais aucun bâti
+n'apparaît, sans que rien ne l'explique. Une commune de forêt et de labours
+n'ayant elle non plus aucun bâti, la table vide ne suffit pas à conclure ; on
+compare donc au nombre de bâtiments que l'import précédent avait déjà compté
+par parcelle. S'il est positif alors que les contours manquent, l'extrait le
+signale et propose de le compléter — un import du seul cadastre, les DPE
+restant en place.
 
 À droite du dessin, **une vue satellite au cadrage identique**. C'est le
 même rectangle géographique, aux mêmes proportions, avec le contour de la

@@ -266,3 +266,25 @@ def test_une_commune_sans_bati_n_est_pas_incomplete(base):
     inserer_parcelle("BOIS", indice=0, batiments=0, emprise=0.0)
     inserer_parcelle("CHAMP", indice=1, batiments=0, emprise=0.0)
     assert parcelles.batiments_manquants("31282") is False
+
+
+def test_extrait_signale_un_import_sans_bati(cadastre):
+    """
+    Le piege du cadastre incomplet : parcelles et voisines se dessinent,
+    l'extrait parait donc complet, mais aucun bati ne s'affiche.
+
+    Sans ce drapeau la fiche n'a aucun moyen de distinguer ce cas d'une
+    commune sans construction, et ne peut donc pas proposer de le
+    completer : le bati manque en silence, sans issue.
+    """
+    inserer_dpe(n_dpe="D1", adresse="1 rue", code_insee="31282")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = 'P-BONNE' WHERE n_dpe = 'D1'")
+
+    resultat = parcelles.extrait("D1")
+    assert resultat["batiments"] == []
+    assert resultat["batiments_manquants"] is True
+
+    # Une fois les contours repris, l'extrait ne reclame plus rien.
+    inserer_batiment("B1", indice=1, parcelle_id="P-BONNE")
+    assert parcelles.extrait("D1")["batiments_manquants"] is False

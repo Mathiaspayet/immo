@@ -167,6 +167,50 @@ function extraitCadastral(bien, extrait) {
   </figure>`;
 }
 
+/**
+ * L'invite à charger — ou à compléter — le cadastre.
+ *
+ * Deux manques distincts mènent ici, et arriver depuis « Les DPE récents »
+ * les rendait tous deux sans issue :
+ *
+ *   - aucun cadastre : l'extrait ne peut tracer aucun contour ;
+ *   - un cadastre importé avant qu'on ne conserve les contours de bâtiments :
+ *     les parcelles se dessinent, le bâti manque, et rien ne le disait.
+ *
+ * Le second est le plus trompeur : le dessin paraît complet. On l'annonce
+ * donc explicitement, et le bouton relance l'import dans les deux cas.
+ */
+function inviteCadastre(bien, extrait) {
+  if (!bien.code_insee) return "";
+  const commune = echapper(bien.commune || "cette commune");
+  const attributs = `data-charger-cadastre data-insee="${echapper(bien.code_insee)}"
+                     data-commune="${echapper(bien.commune || "")}"`;
+
+  if (!extrait) {
+    return `
+      <p class="extrait-manquant">
+        Le cadastre de ${commune} n'est pas encore chargé, le contour de la
+        parcelle ne peut donc pas être tracé.
+        <button type="button" class="bouton-lien" ${attributs}>
+          Le charger maintenant
+        </button>
+      </p>`;
+  }
+
+  if (extrait.batiments_manquants) {
+    return `
+      <p class="extrait-manquant">
+        Le cadastre de ${commune} a été chargé avant que l'application ne
+        conserve les contours de bâtiments : les parcelles se dessinent, le
+        bâti non. Un nouvel import le complète.
+        <button type="button" class="bouton-lien" ${attributs}>
+          Compléter maintenant
+        </button>
+      </p>`;
+  }
+  return "";
+}
+
 const FOND_TRAME = `
   <defs>
     <pattern id="trame" width="10" height="10" patternUnits="userSpaceOnUse">
@@ -330,6 +374,7 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null, retour = null 
         <div class="liens">${liensExternes(principal)}</div>
       </div>
     </div>
+    ${inviteCadastre(principal, extrait)}
 
     ${reponse.plusieurs_logements ? `
       <p class="message message-travail">
@@ -379,6 +424,9 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null, retour = null 
  */
 async function chargerLeCadastre(bouton, bien) {
   const commune = bouton.dataset.commune || "cette commune";
+  // Le bouton dit « charger » ou « compléter » selon le manque : on le
+  // retient pour le rétablir tel quel si la demande échoue.
+  const libelle = bouton.textContent.trim();
   bouton.disabled = true;
   bouton.textContent = "Téléchargement…";
   masquerErreur();
@@ -388,7 +436,7 @@ async function chargerLeCadastre(bouton, bien) {
     etat = await api.preparerCommune(bouton.dataset.insee, "cadastre");
   } catch (erreur) {
     bouton.disabled = false;
-    bouton.textContent = "Le charger maintenant";
+    bouton.textContent = libelle;
     afficherErreur(`Le cadastre de ${commune} n'a pas pu être demandé.`, erreur.message);
     return;
   }
