@@ -188,7 +188,7 @@ def _executer(jeu):
         code_postal = str(entree["code_postal"]).strip()
         _publier(etape=f"telechargement du {code_postal}")
 
-        def progression(nombre_lignes, message, _cp=code_postal):
+        def progression(nombre_lignes, message):
             _publier(etape=f"telechargement — {message}", lignes=nombre_lignes)
 
         lignes = ademe.telecharger(code_postal, correspondances, jeu=jeu,

@@ -153,3 +153,16 @@ def test_reglages_refuses(base, valeurs, extrait):
     with pytest.raises(ValueError) as erreur:
         reglages.ecrire(valeurs)
     assert extrait in str(erreur.value)
+
+
+def test_marquage_avec_liste_vide_ne_marque_rien(base):
+    """
+    Une selection vide ne doit pas etre confondue avec « tout marquer » :
+    l'utilisateur perdrait tous ses badges d'un coup.
+    """
+    inserer_dpe(n_dpe="A", adresse="a", date_etablissement=jours(3))
+    assert veille.marquer_vus([]) == 0
+    assert veille.resume(FILTRES)["nouveaux"] == 1
+
+    assert veille.marquer_vus(None) == 1
+    assert veille.resume(FILTRES)["nouveaux"] == 0

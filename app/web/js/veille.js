@@ -152,7 +152,17 @@ function lireFiltres() {
 
 function appliquerFiltres(filtres) {
   const formulaire = $("#filtres");
-  formulaire.fenetre_jours.value = filtres.fenetre_jours ?? 120;
+
+  // Les réglages autorisent n'importe quelle fenêtre (45 jours par
+  // exemple). Si elle ne figure pas dans la liste déroulante, on l'y
+  // ajoute : sans cela le sélecteur resterait vide, et l'utilisateur
+  // ne verrait pas quel filtre s'applique.
+  const fenetre = String(filtres.fenetre_jours ?? 120);
+  const choix = formulaire.fenetre_jours;
+  if (![...choix.options].some((option) => option.value === fenetre)) {
+    choix.add(new Option(`${fenetre} jours`, fenetre), 0);
+  }
+  choix.value = fenetre;
   formulaire.commune.value = filtres.commune ?? "";
   formulaire.type_batiment.value = filtres.type_batiment ?? "";
   formulaire.surface_min.value = filtres.surface_min ?? "";

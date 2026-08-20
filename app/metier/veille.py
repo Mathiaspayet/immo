@@ -179,12 +179,17 @@ def marquer_vus(numeros=None):
     """
     Marque des DPE comme consultes : leur badge « nouveau » disparait.
 
-    Sans liste, tout ce qui est en base est marque — c'est le bouton
-    « tout marquer comme vu » de l'interface.
+    `numeros=None` marque tout ce qui est en base : c'est le bouton
+    « tout marquer comme vu ». Une liste vide ne marque rien — sans cette
+    distinction, un appel avec une selection vide effacerait tous les
+    badges d'un coup.
     """
+    if numeros is not None and not numeros:
+        return 0
+
     maintenant = datetime.datetime.now().isoformat(timespec="seconds")
     with transaction() as conn:
-        if numeros:
+        if numeros is not None:
             marques = ", ".join("?" * len(numeros))
             curseur = conn.execute(
                 f"UPDATE dpe SET vu_le = ? WHERE vu_le IS NULL AND n_dpe IN ({marques})",
