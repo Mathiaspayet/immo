@@ -69,14 +69,24 @@ def depuis_geopoint(valeur):
     return latitude, longitude
 
 
-def extraire(geopoint=None, x=None, y=None):
+def extraire(geopoint=None, x=None, y=None, latitude=None, longitude=None):
     """
     (latitude, longitude) d'un logement, quel que soit le format d'origine,
     ou None si la ligne ne porte aucune position exploitable.
+
+    Trois formats se presentent selon la base :
+      - `_geopoint`, deja projete par data-fair ;
+      - deux colonnes latitude / longitude, sur la base d'avant 2021 ;
+      - du Lambert-93 en metres, a convertir.
     """
     point = depuis_geopoint(geopoint)
     if point is not None:
         return point
+
+    latitude, longitude = nombre(latitude), nombre(longitude)
+    if latitude is not None and longitude is not None and (latitude or longitude):
+        if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+            return latitude, longitude
 
     x, y = nombre(x), nombre(y)
     # Le seuil ecarte les zeros et les valeurs aberrantes : une abscisse

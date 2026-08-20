@@ -73,3 +73,48 @@ def test_interface_servie_a_la_racine(client):
 def test_les_routes_api_priment_sur_les_fichiers(client):
     """Le montage des fichiers statiques sur « / » ne doit pas capter /api."""
     assert client.get("/api/import/statut").status_code == 200
+
+
+# =====================================================================
+#  Lot 2 — identification et fiche
+# =====================================================================
+
+def test_identification_renvoie_entonnoir_et_classement(client):
+    inserer_dpe(n_dpe="A", adresse="19 Avenue des Oiseaux",
+                surface_habitable=149.0, conso_ep_m2=215.2, etiquette_dpe="D")
+    reponse = client.post("/api/identification", json={
+        "criteres": {"surface": 144, "conso_ep": 216},
+        "tolerances": {"surface": 3, "conso": 5, "ges": 1.5},
+    })
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["examines"] == 1
+    assert [etape["critere"] for etape in corps["entonnoir"]] == ["surface", "conso_ep"]
+    assert corps["resultats"][0]["n_dpe"] == "A"
+
+
+def test_fiche_sans_parametre_repond_400(client):
+    reponse = client.get("/api/fiche")
+    assert reponse.status_code == 400
+    assert "numéro de DPE" in reponse.json()["detail"]
+
+
+def test_fiche_par_adresse(client):
+    inserer_dpe(n_dpe="A", adresse="12 Rue des Pins", date_etablissement="2026-01-09")
+    corps = client.get("/api/fiche", params={"adresse": "12 RUE DES PINS"}).json()
+    assert len(corps["diagnostics"]) == 1
+
+
+def test_fiche_adresse_inconnue_propose_des_voisines(client):
+    inserer_dpe(n_dpe="A", adresse="12 Rue des Pins")
+    corps = client.get("/api/fiche", params={"adresse": "40 Rue des Pins"}).json()
+    assert corps["diagnostics"] == []
+    assert "12 Rue des Pins" in corps["suggestions"]
+
+
+def test_chaine_sans_appel_reseau(client):
+    inserer_dpe(n_dpe="RECENT", adresse="1 Rue Test", n_dpe_remplace="ANCIEN")
+    inserer_dpe(n_dpe="ANCIEN", adresse="1 Rue Test")
+    corps = client.get("/api/fiche/chaine",
+                       params={"n_dpe": "RECENT", "interroger_ademe": False}).json()
+    assert [m["n_dpe"] for m in corps["maillons"]] == ["RECENT", "ANCIEN"]

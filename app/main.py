@@ -17,6 +17,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app import config, planificateur
+from app.api import fiche as api_fiche
+from app.api import identification as api_identification
 from app.api import imports as api_imports
 from app.api import reglages as api_reglages
 from app.api import veille as api_veille
@@ -59,6 +61,8 @@ application = FastAPI(
 
 application.include_router(api_veille.routeur)
 application.include_router(api_imports.routeur)
+application.include_router(api_identification.routeur)
+application.include_router(api_fiche.routeur)
 application.include_router(api_reglages.routeur)
 
 

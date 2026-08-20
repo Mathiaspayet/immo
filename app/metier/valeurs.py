@@ -40,3 +40,24 @@ def en_date(valeur):
         return datetime.date.fromisoformat(brut)
     except ValueError:
         return None
+
+
+ACCENTS = {"é": "e", "è": "e", "ê": "e", "ë": "e", "à": "a", "â": "a", "ä": "a",
+           "î": "i", "ï": "i", "ô": "o", "ö": "o", "û": "u", "ù": "u", "ü": "u",
+           "ç": "c", "°": "", "²": "2"}
+
+
+def normaliser_adresse(valeur):
+    """
+    Reduit une adresse a des mots comparables.
+
+    L'orthographe varie d'une base ADEME a l'autre — accents, tirets,
+    majuscules, ponctuation. Sans normalisation, « 8bis Cite des Tilleuls »
+    et « 8BIS CITE DES TILLEULS » seraient deux adresses distinctes et la
+    chronologie F4 se couperait en deux.
+    """
+    texte_brut = str(valeur or "").lower()
+    for ancien, nouveau in ACCENTS.items():
+        texte_brut = texte_brut.replace(ancien, nouveau)
+    garde = [caractere if caractere.isalnum() else " " for caractere in texte_brut]
+    return " ".join("".join(garde).split())

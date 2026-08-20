@@ -1,14 +1,13 @@
-// ====================================================================
-//  veille.js — Orchestration de l'interface.
-//
-//  Modules ES natifs, aucun outil de construction : le fichier que vous
-//  lisez est exactement celui que le navigateur exécute (CDC 3).
-// ====================================================================
-
 import { api, ErreurApi } from "./api.js";
 import { creerCarte } from "./carte.js";
-
-const $ = (selecteur) => document.querySelector(selecteur);
+import { ouvrirFiche } from "./fiche.js";
+import { initialiserIdentification } from "./identifier.js";
+import { auChangement, changerVue } from "./navigation.js";
+import {
+  $, afficherErreur, afficherSucces, afficherTravail, anciennete, dateFr,
+  debounce, echapper, entierFr, etiquetteHtml, liensExternes, masquerErreur,
+  masquerTravail, mesure, nombreFr,
+} from "./format.js";
 
 const etat = {
   filtres: {},
@@ -18,71 +17,7 @@ const etat = {
   sondage: null,      // identifiant du minuteur de suivi d'import
 };
 
-// --------------------------------------------------------------------
-//  Mise en forme
-// --------------------------------------------------------------------
-
-const nombreFr = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
-const entierFr = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
-
-function dateFr(iso) {
-  if (!iso) return "—";
-  const [a, m, j] = String(iso).slice(0, 10).split("-");
-  return j && m && a ? `${j}/${m}/${a}` : iso;
-}
-
-function anciennete(jours) {
-  if (jours == null) return "";
-  if (jours === 0) return "aujourd'hui";
-  if (jours === 1) return "hier";
-  if (jours < 31) return `il y a ${jours} j`;
-  const mois = Math.round(jours / 30.44);
-  return `il y a ${mois} mois`;
-}
-
-function echapper(texte) {
-  const boite = document.createElement("span");
-  boite.textContent = texte ?? "";
-  return boite.innerHTML;
-}
-
-/** Une mesure : valeur en chasse fixe, ou tiret explicite si absente. */
-function mesure(libelle, valeur, unite = "", format = nombreFr) {
-  const absent = valeur === null || valeur === undefined || valeur === "";
-  const affiche = absent ? "—" : `${format.format(valeur)}${unite ? " " + unite : ""}`;
-  return `<div><dt>${libelle}</dt><dd class="${absent ? "absent" : ""}">${affiche}</dd></div>`;
-}
-
-function liensExternes(bien) {
-  const aCoordonnees = bien.latitude != null && bien.longitude != null;
-  const point = aCoordonnees ? `${bien.latitude},${bien.longitude}` : "";
-  const requete = encodeURIComponent(bien.adresse || "");
-
-  const satellite = aCoordonnees
-    ? `https://www.google.com/maps/@?api=1&map_action=map&center=${point}&zoom=19&basemap=satellite`
-    : `https://www.google.com/maps/search/?api=1&query=${requete}`;
-  const pano = aCoordonnees
-    ? `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${point}`
-    : `https://www.google.com/maps/search/?api=1&query=${requete}`;
-  const geoportail = aCoordonnees
-    ? `https://www.geoportail.gouv.fr/carte?c=${bien.longitude},${bien.latitude}&z=19` +
-      "&l0=ORTHOIMAGERY.ORTHOPHOTOS::GEOPORTAIL:OGC:WMTS(1)" +
-      "&l1=CADASTRALPARCELS.PARCELLAIRE_EXPRESS::GEOPORTAIL:OGC:WMTS(1)&permalink=yes"
-    : "https://www.geoportail.gouv.fr/";
-
-  return `
-    <a href="${satellite}" target="_blank" rel="noopener">Satellite</a>
-    <a href="${pano}" target="_blank" rel="noopener">Street View</a>
-    <a href="${geoportail}" target="_blank" rel="noopener">Géoportail</a>
-    <span class="reference donnee">${echapper(bien.n_dpe)}</span>`;
-}
-
 function gabaritReleve(bien) {
-  const classe = (bien.etiquette_dpe || "").toUpperCase();
-  const etiquette = classe
-    ? `<span class="etiquette etiquette-${classe}" title="Classe ${classe}">${classe}</span>`
-    : '<span class="absent">—</span>';
-
   return `
   <article class="releve" data-dpe="${echapper(bien.n_dpe)}"
            data-nouveau="${bien.nouveau ? "oui" : "non"}" tabindex="0">
@@ -96,40 +31,19 @@ function gabaritReleve(bien) {
     <h3 class="adresse">${echapper(bien.adresse || "Adresse absente de la base")}</h3>
     <dl class="mesures">
       ${mesure("surface", bien.surface_habitable, "m²")}
-      <div><dt>classe</dt><dd>${etiquette}</dd></div>
+      <div><dt>classe</dt><dd>${etiquetteHtml(bien.etiquette_dpe)}</dd></div>
       ${mesure("énergie ép.", bien.conso_ep_m2, "kWh/m²", entierFr)}
       ${mesure("GES", bien.ges_m2, "kg/m²", nombreFr)}
       ${mesure("coût annuel", bien.cout_annuel, "€", entierFr)}
       ${mesure("construit", bien.annee_construction, "", entierFr)}
     </dl>
-    <div class="liens">${liensExternes(bien)}</div>
+    <div class="liens">
+      <button type="button" class="bouton-lien" data-fiche="${echapper(bien.n_dpe)}">Fiche du bien</button>
+      ${liensExternes(bien)}
+      <span class="reference donnee">${echapper(bien.n_dpe)}</span>
+    </div>
   </article>`;
 }
-
-// --------------------------------------------------------------------
-//  Messages d'état
-// --------------------------------------------------------------------
-
-function afficherErreur(message, detail = "") {
-  const boite = $("#erreur");
-  boite.innerHTML = echapper(message) + (detail ? `<span class="detail">${echapper(detail)}</span>` : "");
-  boite.hidden = false;
-}
-function masquerErreur() { $("#erreur").hidden = true; }
-
-function afficherSucces(message) {
-  const boite = $("#succes");
-  boite.textContent = message;
-  boite.hidden = false;
-  setTimeout(() => { boite.hidden = true; }, 8000);
-}
-
-function afficherTravail(message, avecJauge = true) {
-  const boite = $("#progression");
-  boite.innerHTML = echapper(message) + (avecJauge ? '<span class="jauge"><span></span></span>' : "");
-  boite.hidden = false;
-}
-function masquerTravail() { $("#progression").hidden = true; }
 
 // --------------------------------------------------------------------
 //  Écran Veille
@@ -219,10 +133,18 @@ function dessinerListe(resultats, resume) {
 
   liste.innerHTML = resultats.map(gabaritReleve).join("");
 
+  liste.querySelectorAll("[data-fiche]").forEach((bouton) => {
+    bouton.addEventListener("click", (evenement) => {
+      evenement.stopPropagation();
+      ouvrirFiche({ n_dpe: bouton.dataset.fiche });
+    });
+  });
+
   liste.querySelectorAll(".releve").forEach((element) => {
     const choisir = () => selectionner(element.dataset.dpe);
     element.addEventListener("click", (evenement) => {
-      if (evenement.target.closest("a")) return;   // on laisse passer les liens
+      // On laisse passer les liens externes et le bouton de fiche.
+      if (evenement.target.closest("a, button")) return;
       choisir();
     });
     element.addEventListener("keydown", (evenement) => {
@@ -447,16 +369,6 @@ async function chargerJournal() {
 //  Navigation et carte
 // --------------------------------------------------------------------
 
-function changerVue(vue) {
-  $("#vue-veille").hidden = vue !== "veille";
-  $("#vue-reglages").hidden = vue !== "reglages";
-  document.querySelectorAll("[data-vue]").forEach((bouton) => {
-    bouton.setAttribute("aria-pressed", String(bouton.dataset.vue === vue));
-  });
-  if (vue === "reglages") { chargerReglages(); chargerJournal(); }
-  if (vue === "veille" && etat.carte) etat.carte.redimensionner();
-}
-
 function deplierCarte() {
   const panneau = $("#panneau-carte");
   if (panneau.dataset.replie === "oui") {
@@ -523,6 +435,12 @@ async function demarrer() {
     bouton.addEventListener("click", () => changerVue(bouton.dataset.vue));
   });
 
+  // Ce qu'il faut rafraîchir quand un écran redevient visible.
+  auChangement("reglages", () => { chargerReglages(); chargerJournal(); });
+  auChangement("veille", () => { if (etat.carte) etat.carte.redimensionner(); });
+
+  initialiserIdentification();
+
   // Les filtres par défaut viennent des réglages : on les demande une fois,
   // puis on charge la liste avec.
   try {
@@ -533,14 +451,6 @@ async function demarrer() {
   await chargerReglages();
   await charger();
   await reprendreSuiviEventuel();
-}
-
-function debounce(fonction, delai) {
-  let minuteur;
-  return (...arguments_) => {
-    clearTimeout(minuteur);
-    minuteur = setTimeout(() => fonction(...arguments_), delai);
-  };
 }
 
 demarrer();

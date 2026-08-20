@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="css/socle.css">
 <link rel="stylesheet" href="css/veille.css">
+<link rel="stylesheet" href="css/qualification.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23F1F3F1'/><path d='M5 24V12l11-6 11 6v12' fill='none' stroke='%2312262B' stroke-width='2'/><path d='M5 24h22' stroke='%232E5B4C' stroke-width='2'/></svg>">
 </head>
 <body>
@@ -19,6 +20,7 @@
   </div>
   <nav class="onglets" aria-label="Écrans">
     <button type="button" class="bouton" data-vue="veille" aria-pressed="true">Veille</button>
+    <button type="button" class="bouton" data-vue="identifier" aria-pressed="false">Identifier</button>
     <button type="button" class="bouton" data-vue="reglages" aria-pressed="false">Réglages</button>
   </nav>
   <button type="button" class="bouton bascule-filtres" id="bascule-filtres"
@@ -103,6 +105,104 @@
         <div id="carte"></div>
       </div>
     </div>
+  </section>
+
+  <!-- ========================== IDENTIFIER ========================== -->
+  <section id="vue-identifier" class="reglages" aria-label="Identifier un bien depuis une annonce" hidden>
+
+    <section>
+      <h2>Identifier un bien depuis une annonce</h2>
+      <p class="explication">
+        Recopiez les chiffres lus sur l'annonce. Aucun logement ne sera éliminé :
+        ils sont tous classés par ressemblance, et l'entonnoir montre quel critère
+        resserre la recherche. C'est ainsi qu'on repère le chiffre faux ou arrondi
+        d'une annonce.
+      </p>
+
+      <form id="formulaire-identification">
+        <div class="grille-champs">
+          <div class="champ">
+            <label for="i-surface">Surface habitable (m²)</label>
+            <input type="text" inputmode="decimal" id="i-surface" class="donnee" placeholder="144">
+          </div>
+          <div class="champ">
+            <label for="i-conso-ep">Énergie primaire (kWh/m²)</label>
+            <input type="text" inputmode="decimal" id="i-conso-ep" class="donnee" placeholder="216">
+          </div>
+          <div class="champ">
+            <label for="i-conso-ef">Énergie finale (kWh/m²)</label>
+            <input type="text" inputmode="decimal" id="i-conso-ef" class="donnee" placeholder="158">
+          </div>
+          <div class="champ">
+            <label for="i-ges">Émissions GES (kg/m²)</label>
+            <input type="text" inputmode="decimal" id="i-ges" class="donnee" placeholder="7">
+          </div>
+          <div class="champ">
+            <label for="i-etiquette-dpe">Classe énergie</label>
+            <select id="i-etiquette-dpe">
+              <option value="">indifférente</option>
+              <option>A</option><option>B</option><option>C</option><option>D</option>
+              <option>E</option><option>F</option><option>G</option>
+            </select>
+          </div>
+          <div class="champ">
+            <label for="i-etiquette-ges">Classe GES</label>
+            <select id="i-etiquette-ges">
+              <option value="">indifférente</option>
+              <option>A</option><option>B</option><option>C</option><option>D</option>
+              <option>E</option><option>F</option><option>G</option>
+            </select>
+          </div>
+        </div>
+
+        <h3>Périmètre et tolérances</h3>
+        <p class="explication">
+          La tolérance dit de combien la base peut s'écarter de l'annonce.
+          Les surfaces d'annonce étant souvent arrondies, la marge par défaut
+          est un peu large. Laissez vide pour reprendre celle des réglages.
+        </p>
+        <div class="grille-champs">
+          <div class="champ">
+            <label for="i-commune">Commune</label>
+            <input type="text" id="i-commune" placeholder="Mimizan">
+          </div>
+          <div class="champ">
+            <label for="i-type">Type de bâtiment</label>
+            <select id="i-type">
+              <option value="">tous</option>
+              <option value="maison">maison</option>
+              <option value="appartement">appartement</option>
+            </select>
+          </div>
+          <div class="champ">
+            <label for="i-tol-surface">± surface (m²)</label>
+            <input type="text" inputmode="decimal" id="i-tol-surface" class="donnee">
+          </div>
+          <div class="champ">
+            <label for="i-tol-conso">± consommation</label>
+            <input type="text" inputmode="decimal" id="i-tol-conso" class="donnee">
+          </div>
+          <div class="champ">
+            <label for="i-tol-ges">± GES</label>
+            <input type="text" inputmode="decimal" id="i-tol-ges" class="donnee">
+          </div>
+        </div>
+
+        <div class="actions-filtres">
+          <button type="submit" class="bouton bouton-principal" id="i-chercher">Chercher</button>
+          <button type="button" class="bouton" id="i-effacer">Effacer</button>
+        </div>
+      </form>
+    </section>
+
+    <div id="diagnostic-identification"></div>
+    <section id="entonnoir"></section>
+    <section id="resultats-identification"></section>
+  </section>
+
+  <!-- ============================= FICHE ============================= -->
+  <section id="vue-fiche" class="reglages" aria-label="Fiche du bien" hidden>
+    <div id="fiche-contenu"></div>
   </section>
 
   <!-- =========================== RÉGLAGES =========================== -->

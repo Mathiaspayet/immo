@@ -1,0 +1,236 @@
+/* ====================================================================
+   qualification.css — Écrans Identifier (F2) et Fiche (F4).
+
+   La fiche est le seul endroit où l'on dépense de l'audace (CDC §7) :
+   l'en-tête reprend la forme d'un extrait cadastral. Tout le reste garde
+   la sobriété du document technique.
+   ==================================================================== */
+
+/* Un bouton qui se comporte comme un lien : même apparence, mais une
+   action, pas une navigation — les lecteurs d'écran doivent le savoir. */
+.bouton-lien {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--atlantique);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.bouton-lien:hover { text-decoration-thickness: 2px; }
+
+/* ====================================================================
+   Entonnoir (F2)
+   ==================================================================== */
+
+.entonnoir { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.entonnoir th {
+  text-align: left;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--encre-douce);
+  padding: calc(var(--pas) * 2);
+  border-bottom: 1px solid var(--trait-fort);
+}
+.entonnoir td {
+  padding: calc(var(--pas) * 2);
+  border-bottom: 1px solid var(--papier-creux);
+  white-space: nowrap;
+}
+.entonnoir .barre-cellule { width: 40%; min-width: 90px; }
+.entonnoir .barre {
+  display: block;
+  height: 7px;
+  background: var(--pin);
+  border-radius: 1px;
+}
+/* Le critère qui referme l'entonnoir : c'est lui qu'il faut voir. */
+.entonnoir .cumul-vide { color: var(--alerte); font-weight: 600; }
+.entonnoir .rare { color: var(--ambre); }
+.entonnoir .rare::after { content: " ⚠"; }
+
+/* ====================================================================
+   Candidats classés (F2)
+   ==================================================================== */
+
+.candidat { border-left: 3px solid var(--trait); border-bottom: 1px solid var(--trait); }
+.candidat:first-of-type { border-left-color: var(--pin); }
+
+.candidat .rang {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px; height: 22px;
+  background: var(--encre);
+  color: var(--papier);
+  border-radius: 2px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.candidat .score { font-weight: 600; color: var(--encre); }
+
+.ecarts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pas) * 2);
+  margin-bottom: calc(var(--pas) * 3);
+}
+.ecart {
+  font-family: var(--donnees);
+  font-size: 0.72rem;
+  padding: 1px calc(var(--pas) * 2);
+  border-radius: 2px;
+  border: 1px solid var(--trait);
+}
+.ecart-bon     { border-color: var(--pin); color: var(--pin); }
+.ecart-moyen   { border-color: var(--ambre); color: #8A6410; }
+.ecart-mauvais { border-color: var(--alerte); color: var(--alerte); }
+.ecart-absent  { color: var(--trait-fort); font-style: italic; }
+
+/* ====================================================================
+   Extrait cadastral (F4) — l'élément signature
+   ==================================================================== */
+
+.fiche-entete {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: calc(var(--pas) * 6);
+  margin-bottom: calc(var(--pas) * 8);
+}
+@media (min-width: 780px) {
+  .fiche-entete { grid-template-columns: minmax(300px, 400px) 1fr; align-items: start; }
+}
+
+.extrait { margin: 0; }
+.extrait svg { width: 100%; height: auto; display: block; }
+.extrait figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(var(--pas) * 3);
+  margin-top: calc(var(--pas) * 2);
+  font-size: 0.72rem;
+  color: var(--encre-douce);
+}
+.extrait .coordonnees { color: var(--trait-fort); }
+
+.fiche-identite h1 {
+  font-size: 1.35rem;
+  line-height: 1.25;
+  margin-bottom: var(--pas);
+}
+
+/* Les mesures d'une fiche s'alignent en colonne, pas en grille : c'est ce
+   qui rend les chiffres comparables d'un bien à l'autre. */
+.mesures-colonne {
+  display: block;
+  border-top: 1px solid var(--trait);
+  padding-top: calc(var(--pas) * 3);
+}
+.mesures-colonne > div {
+  display: flex;
+  /* `.mesures > div` empile libellé et valeur ; ici on les remet côte à
+     côte. Sans ce rappel explicite, la direction héritée l'emporte. */
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: calc(var(--pas) * 4);
+  padding: calc(var(--pas) * 1.5) 0;
+  border-bottom: 1px dotted var(--trait);
+}
+.mesures-colonne dt { flex: 0 0 auto; }
+.mesures-colonne dd { text-align: right; }
+
+/* ====================================================================
+   Chronologie (F4)
+   ==================================================================== */
+
+.chronologie { list-style: none; margin: 0 0 calc(var(--pas) * 8); padding: 0; }
+
+.jalon {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: calc(var(--pas) * 4);
+  padding: calc(var(--pas) * 4) 0;
+  border-bottom: 1px solid var(--papier-creux);
+}
+@media (max-width: 560px) {
+  .jalon { grid-template-columns: 1fr; gap: var(--pas); }
+}
+.jalon-date { font-weight: 600; font-size: 0.85rem; padding-top: 2px; }
+
+/* Un diagnostic que l'ADEME ne sert plus : la trame le dit sans le cacher. */
+.jalon-retire { opacity: 0.72; }
+.jalon-retire .jalon-corps { border-left: 2px dashed var(--trait-fort); padding-left: calc(var(--pas) * 3); }
+
+.jalon-tete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--pas) * 2);
+  margin-bottom: calc(var(--pas) * 2);
+  font-size: 0.8rem;
+}
+.pastille-retire { background: #F7E6E3; border-color: var(--alerte); color: #6E2318; }
+
+.remplacement {
+  margin: calc(var(--pas) * 2) 0 0;
+  font-size: 0.8rem;
+  color: var(--encre-douce);
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pas) * 2);
+  align-items: baseline;
+}
+
+/* ====================================================================
+   Chaîne et comparaison (F4)
+   ==================================================================== */
+
+.chaine { list-style: none; margin: 0; padding: 0; }
+.maillon {
+  position: relative;
+  padding: calc(var(--pas) * 3) 0 calc(var(--pas) * 3) calc(var(--pas) * 6);
+  border-left: 2px solid var(--pin);
+}
+.maillon::before {
+  content: "";
+  position: absolute;
+  left: -5px; top: calc(var(--pas) * 4);
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--pin);
+}
+.maillon-absent { border-left-style: dashed; border-left-color: var(--alerte); }
+.maillon-absent::before { background: var(--alerte); }
+.maillon .explication { margin: var(--pas) 0 0; }
+
+.comparaison { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.comparaison th {
+  text-align: left;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--encre-douce);
+  padding: calc(var(--pas) * 2);
+  border-bottom: 1px solid var(--trait-fort);
+}
+.comparaison td {
+  padding: calc(var(--pas) * 2);
+  border-bottom: 1px solid var(--papier-creux);
+  vertical-align: top;
+  word-break: break-word;
+}
+.comparaison .avant { color: var(--encre-douce); text-decoration: line-through; }
+.comparaison .apres { color: var(--pin); font-weight: 600; }
+
+.suggestions, .liste-lecture { text-align: left; margin: calc(var(--pas) * 3) auto; max-width: 62ch; }
+.liste-lecture li { margin-bottom: var(--pas); }
+
+/* Les tableaux larges défilent dans leur propre cadre : le corps de la
+   page ne doit jamais défiler latéralement sur un téléphone. Le cadre
+   défile, pas le tableau — `display: block` sur un <table> lui ferait
+   perdre le calcul de ses largeurs de colonnes. */
+.cadre-defilant { overflow-x: auto; max-width: 100%; }

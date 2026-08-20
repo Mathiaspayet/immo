@@ -38,12 +38,28 @@ DEFAUTS = {
     "surface_min": 80,
     "surface_max": 400,
 
-    # Purge : le CDC 9 impose de ne pas conserver la veille au-dela de
-    # 24 mois. A savoir avant le lot 2 : ce reglage supprime aussi les DPE
-    # anciens du cache, dont la fonction F2 (identifier un bien depuis une
-    # annonce) aura besoin — une annonce peut citer un DPE de 2022. Il
-    # faudra alors le porter a 60 mois, soit toute la profondeur de la
-    # base dpe03existant, qui demarre en juillet 2021.
+    # Bases ADEME interrogees (CDC 4). La chronologie F4 les veut toutes.
+    "jeux_de_donnees": ["existant", "neuf", "ancien"],
+
+    # Tolerances de l'identification F2 : de combien la base peut s'ecarter
+    # des chiffres lus sur l'annonce. Les surfaces d'annonce sont souvent
+    # arrondies, d'ou une marge un peu large.
+    "tolerances": {
+        "surface": 3.0,      # m2
+        "conso": 5.0,        # kWh/m2.an
+        "ges": 1.5,          # kg CO2/m2.an
+    },
+
+    # Purge (CDC 9) : rien n'est conserve indefiniment.
+    #
+    # Elle porte sur `revu_le`, la derniere fois que l'ADEME a servi la
+    # ligne — pas sur la date du diagnostic. Purger sur la date du
+    # diagnostic rendrait le lot 2 impossible : la chronologie F4 remonte a
+    # 2013, et une annonce peut citer un DPE de 2022. Sur `revu_le`, la
+    # regle garde son sens — on ne conserve pas une donnee qu'on ne
+    # rafraichit plus — et elle rend meme un service a F4 : un DPE remplace
+    # disparait de la base active de l'ADEME, notre cache en garde la trace
+    # 24 mois de plus.
     "purge_mois": 24,
 }
 
@@ -132,6 +148,33 @@ def valider(valeurs):
                 raise ValueError(f"Secteur {nom!r} : coordonnees non numeriques.")
             if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
                 raise ValueError(f"Secteur {nom!r} : coordonnees hors des bornes terrestres.")
+
+    if "jeux_de_donnees" in valeurs:
+        jeux = valeurs["jeux_de_donnees"]
+        connus = {"existant", "neuf", "ancien"}
+        if not isinstance(jeux, list) or not jeux:
+            raise ValueError("Il faut au moins une base ADEME.")
+        inconnus = set(jeux) - connus
+        if inconnus:
+            raise ValueError(
+                f"Base(s) ADEME inconnue(s) : {', '.join(sorted(inconnus))}. "
+                f"Valeurs possibles : {', '.join(sorted(connus))}.")
+
+    if "tolerances" in valeurs:
+        tolerances = valeurs["tolerances"]
+        if not isinstance(tolerances, dict):
+            raise ValueError("Les tolerances doivent former un ensemble cle/valeur.")
+        for cle in ("surface", "conso", "ges"):
+            if cle not in tolerances:
+                raise ValueError(f"Tolerance manquante : {cle}.")
+            try:
+                marge = float(tolerances[cle])
+            except (TypeError, ValueError):
+                raise ValueError(f"Tolerance {cle} : un nombre est attendu.")
+            # Une tolerance nulle n'ecarte pas seulement les arrondis : elle
+            # exige une egalite au centieme, et ne remonte plus rien.
+            if not (0 < marge <= 1000):
+                raise ValueError(f"Tolerance {cle} : attendue entre 0 (exclu) et 1000.")
 
     for cle, mini, maxi in [("fenetre_jours", 1, 3650),
                             ("surface_min", 0, 10000),

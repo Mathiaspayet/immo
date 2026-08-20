@@ -69,6 +69,20 @@ export const api = {
 
   journalImports: () => demander("/api/import/journal"),
 
+  identifier: (corps) =>
+    demander("/api/identification", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corps),
+    }),
+
+  fiche: (parametres) => demander(`/api/fiche?${versParametres(parametres)}`),
+
+  chaine: (n_dpe) => demander(`/api/fiche/chaine?${versParametres({ n_dpe })}`),
+
+  comparer: (recent, ancien) =>
+    demander(`/api/fiche/comparer?${versParametres({ recent, ancien })}`),
+
   reglages: () => demander("/api/reglages"),
 
   enregistrerReglages: (valeurs) =>

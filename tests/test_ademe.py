@@ -64,3 +64,60 @@ def test_energie_primaire_et_finale_ne_sont_pas_confondues():
 def test_colonne_absente_renvoie_none():
     """Une colonne manquante doit valoir None, pas une valeur approchante."""
     assert associer_champs(schema("numero_dpe"))["surface"] is None
+
+
+# =====================================================================
+#  Deux generations de schemas (CDC 4)
+# =====================================================================
+
+from app.sources.ademe import cle_de_filtrage      # noqa: E402
+
+
+SCHEMA_ANCIEN = schema(
+    "numero_dpe", "date_etablissement_dpe", "consommation_energie",
+    "classe_consommation_energie", "estimation_ges", "classe_estimation_ges",
+    "annee_construction", "surface_thermique_lot", "latitude", "longitude",
+    "tr002_type_batiment_description", "code_insee_commune_actualise",
+    "tv016_departement_code", "geo_adresse", "_geopoint")
+
+
+def test_schema_ancien_reconnu():
+    """La base d'avant juillet 2021 nomme tout differemment."""
+    champs = associer_champs(SCHEMA_ANCIEN)
+    assert champs["adresse"] == "geo_adresse"
+    assert champs["surface"] == "surface_thermique_lot"
+    assert champs["conso_primaire"] == "consommation_energie"
+    assert champs["etiquette_dpe"] == "classe_consommation_energie"
+    assert champs["etiquette_ges"] == "classe_estimation_ges"
+    assert champs["ges_m2"] == "estimation_ges"
+    assert champs["type_batiment"] == "tr002_type_batiment_description"
+    assert champs["latitude"] == "latitude"
+
+
+def test_le_nom_de_commune_ne_capture_pas_le_champ_insee():
+    """
+    PIEGE : `code_insee_commune_actualise` contient le mot « commune ».
+    Sans exiger « nom », le code INSEE se retrouverait enregistre comme nom
+    de commune pour toute la base ancienne.
+    """
+    champs = associer_champs(SCHEMA_ANCIEN)
+    assert champs["commune"] is None
+    assert champs["code_insee"] == "code_insee_commune_actualise"
+
+
+def test_la_base_ancienne_se_filtre_par_code_insee():
+    """
+    PIEGE VERIFIE CONTRE L'API : la base ancienne n'a pas de colonne de code
+    postal. La filtrer avec « 40200 » ne provoque aucune erreur — elle
+    renvoie les logements de la commune dont le code INSEE vaut 40200
+    (Moustey), au lieu de Mimizan (INSEE 40184).
+    """
+    champs_anciens = associer_champs(SCHEMA_ANCIEN)
+    champ, nature = cle_de_filtrage("ancien", champs_anciens)
+    assert champ == "code_insee_commune_actualise"
+    assert nature == "code INSEE"
+
+    champs_recents = associer_champs(schema("code_postal_ban", "adresse_ban", "numero_dpe"))
+    champ, nature = cle_de_filtrage("existant", champs_recents)
+    assert champ == "code_postal_ban"
+    assert nature == "code postal"

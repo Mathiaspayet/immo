@@ -48,39 +48,62 @@ PAUSE_PAGE = 0.2        # on ne martele pas le serveur de l'ADEME
 # Un mot prefixe par « = » impose l'egalite exacte de la cle (voir le
 # correctif 2 en tete de fichier). Les listes sont essayees dans l'ordre :
 # la premiere qui trouve gagne.
+# Deux generations de schemas cohabitent (CDC 4) :
+#   - dpe03existant / dpe02neuf : 230 et 212 colonnes, depuis juillet 2021 ;
+#   - dpe-france : 22 colonnes seulement, avant juillet 2021, noms tout
+#     differents (`geo_adresse`, `surface_thermique_lot`, `tr002_...`).
+# Les listes ci-dessous couvrent les deux : le nom exact d'aujourd'hui
+# d'abord, les noms anciens ensuite, les mots-cles en dernier recours.
 CONCEPTS = {
     "numero_dpe":     [["=numero_dpe"], ["=n_dpe"]],
     "n_dpe_remplace": [["=numero_dpe_remplace"], ["=n_dpe_remplace"], ["dpe", "remplace"]],
-    "date":           [["=date_etablissement_dpe"], ["date", "etablissement"], ["date", "visite"]],
-    "adresse":        [["=adresse_ban"], ["adresse", "ban"], ["adresse", "brute"], ["adresse"]],
-    "commune":        [["=nom_commune_ban"], ["nom", "commune", "ban"], ["commune"]],
+    "date":           [["=date_etablissement_dpe"], ["date", "etablissement"],
+                       ["date", "visite"], ["date", "reception"]],
+    "adresse":        [["=adresse_ban"], ["=geo_adresse"], ["adresse", "ban"],
+                       ["adresse", "brute"], ["adresse"]],
+    # « nom » est exige : sans lui, le concept attrapait
+    # `code_insee_commune_actualise` sur la base ancienne, et le code INSEE
+    # se serait retrouve enregistre comme nom de commune. Cette base ne
+    # porte aucun nom de commune : il est deduit du code INSEE a l'import.
+    "commune":        [["=nom_commune_ban"], ["nom", "commune", "ban"], ["nom", "commune"]],
     "code_postal":    [["=code_postal_ban"], ["code", "postal", "ban"], ["code", "postal"]],
-    "code_insee":     [["=code_insee_ban"], ["code", "insee", "ban"], ["code", "insee"]],
-    "surface":        [["=surface_habitable_logement"], ["surface", "habitable", "logement"],
-                       ["surface", "habitable"]],
-    "type_batiment":  [["=type_batiment"], ["type", "batiment"]],
-    "etiquette_dpe":  [["=etiquette_dpe"], ["etiquette", "dpe"], ["classe", "dpe"]],
-    "etiquette_ges":  [["=etiquette_ges"], ["etiquette", "ges"], ["classe", "ges"]],
+    # Sur la base ancienne, la commune ne se designe QUE par son code INSEE
+    # (`code_insee_commune_actualise`), jamais par un code postal.
+    "code_insee":     [["=code_insee_ban"], ["=code_insee_commune_actualise"],
+                       ["code", "insee", "ban"], ["code", "insee"]],
+    "surface":        [["=surface_habitable_logement"], ["=surface_thermique_lot"],
+                       ["surface", "habitable", "logement"], ["surface", "habitable"],
+                       ["surface", "thermique"]],
+    "type_batiment":  [["=type_batiment"], ["=tr002_type_batiment_description"],
+                       ["type", "batiment"]],
+    "etiquette_dpe":  [["=etiquette_dpe"], ["=classe_consommation_energie"],
+                       ["etiquette", "dpe"], ["classe", "consommation"], ["classe", "dpe"]],
+    "etiquette_ges":  [["=etiquette_ges"], ["=classe_estimation_ges"],
+                       ["etiquette", "ges"], ["classe", "estimation", "ges"], ["classe", "ges"]],
     # L'ADEME note "ep" pour energie primaire et "ef" pour energie finale —
-    # jamais « primaire » ni « finale ».
-    "conso_primaire": [["=conso_5_usages_par_m2_ep"], ["conso", "5_usages", "par_m2", "ep"],
-                       ["conso", "par_m2", "ep"], ["conso", "5_usages", "ep"],
-                       ["conso", "primaire"]],
+    # jamais « primaire » ni « finale ». Sur la base ancienne, une seule
+    # consommation existe (`consommation_energie`), assimilee au primaire.
+    "conso_primaire": [["=conso_5_usages_par_m2_ep"], ["=consommation_energie"],
+                       ["conso", "5_usages", "par_m2", "ep"], ["conso", "par_m2", "ep"],
+                       ["conso", "5_usages", "ep"], ["conso", "primaire"]],
     "conso_finale":   [["=conso_5_usages_par_m2_ef"], ["conso", "5_usages", "par_m2", "ef"],
                        ["conso", "par_m2", "ef"], ["conso", "5_usages", "ef"],
                        ["conso", "finale"]],
     # Attention : `emission_ges_5_usages` est un total annuel, a ne pas
     # confondre avec `emission_ges_5_usages_par_m2` qui est ce qu'on veut.
-    "ges_m2":         [["=emission_ges_5_usages_par_m2"], ["emission", "ges", "5_usages", "par_m2"],
+    "ges_m2":         [["=emission_ges_5_usages_par_m2"], ["=estimation_ges"],
+                       ["emission", "ges", "5_usages", "par_m2"],
                        ["emission", "ges", "par_m2"], ["emission", "ges", "m2"]],
     # `cout_total_5_usages_energie_n1` est le cout d'UNE energie du logement,
     # pas le total : sans le nom exact, la recherche par sous-chaine tombait
-    # dessus et affichait un cout annuel trop bas.
+    # dessus et affichait un cout annuel trop bas. Absent de la base ancienne.
     "cout_annuel":    [["=cout_total_5_usages"], ["cout", "total", "5_usages"], ["cout", "total"]],
     "annee":          [["=annee_construction"], ["annee", "construction"]],
-    # Coordonnees : soit un point deja projete par data-fair, soit du
-    # Lambert-93 en metres qu'il faudra convertir (voir metier/coordonnees.py).
+    # Coordonnees : point deja projete, Lambert-93 en metres a convertir, ou
+    # latitude/longitude directes sur la base ancienne.
     "geopoint":       [["=_geopoint"]],
+    "latitude":       [["=latitude"]],
+    "longitude":      [["=longitude"]],
     "x_lambert":      [["=coordonnee_cartographique_x_ban"], ["coordonnee", "cartographique", "x"]],
     "y_lambert":      [["=coordonnee_cartographique_y_ban"], ["coordonnee", "cartographique", "y"]],
 }
@@ -195,9 +218,29 @@ def _selection(correspondances):
     return ",".join(retenues)
 
 
-def telecharger(code_postal, correspondances, jeu="existant", progression=None):
+def cle_de_filtrage(jeu, correspondances):
     """
-    Recupere toutes les lignes d'un code postal.
+    Par quel champ interroger la commune, selon la generation de la base.
+
+    PIEGE VERIFIE : la base ancienne (dpe-france) n'a pas de colonne de
+    code postal. Son seul reperage communal est
+    `code_insee_commune_actualise`, qui attend un code INSEE. Lui passer un
+    code postal ne provoque aucune erreur — il renvoie simplement les
+    logements d'une AUTRE commune, celle dont le code INSEE vaut ce nombre.
+    Interroger dpe-france avec « 40200 » ramenait ainsi 98 logements de
+    Moustey (INSEE 40200) au lieu des 1 338 de Mimizan (INSEE 40184).
+    """
+    if jeu == "ancien":
+        return correspondances.get("code_insee"), "code INSEE"
+    return correspondances.get("code_postal"), "code postal"
+
+
+def telecharger(valeur, correspondances, jeu="existant", progression=None):
+    """
+    Recupere toutes les lignes d'une commune.
+
+    `valeur` est un code postal pour les bases recentes, un code INSEE pour
+    la base ancienne — voir cle_de_filtrage.
 
     `progression` est appelee a chaque page avec (nombre_de_lignes, message) :
     un telechargement silencieux de plusieurs milliers de lignes est
@@ -206,22 +249,22 @@ def telecharger(code_postal, correspondances, jeu="existant", progression=None):
     dataset = JEUX[jeu]
     base = f"{RACINE}/{dataset}/lines"
     selection = _selection(correspondances)
-    champ_cp = correspondances.get("code_postal")
+    champ, nature = cle_de_filtrage(jeu, correspondances)
 
     # --- Cascade de syntaxes (correctif 3) ---------------------------
     strategies = []
-    if champ_cp:
+    if champ:
         strategies += [
-            ("filtre direct", {f"{champ_cp}_eq": code_postal,
+            ("filtre direct", {f"{champ}_eq": valeur,
                                "size": TAILLE_PAGE, "select": selection}),
-            ("filtre in", {f"{champ_cp}_in": code_postal,
+            ("filtre in", {f"{champ}_in": valeur,
                            "size": TAILLE_PAGE, "select": selection}),
-            ("requete qs", {"qs": f"{champ_cp}:{code_postal}",
+            ("requete qs", {"qs": f"{champ}:{valeur}",
                             "size": TAILLE_PAGE, "select": selection}),
         ]
     strategies += [
-        ("plein texte", {"q": code_postal, "size": TAILLE_PAGE, "select": selection}),
-        ("sans selection", {"q": code_postal, "size": 200}),
+        ("plein texte", {"q": valeur, "size": TAILLE_PAGE, "select": selection}),
+        ("sans selection", {"q": valeur, "size": 200}),
     ]
 
     premiere, echecs = None, []
@@ -234,8 +277,8 @@ def telecharger(code_postal, correspondances, jeu="existant", progression=None):
             time.sleep(0.5)
             continue
         if reponse and reponse.get("results"):
-            logger.info("%s : strategie « %s » retenue (%s lignes annoncees)",
-                        code_postal, libelle, reponse.get("total", "?"))
+            logger.info("%s %s : strategie « %s » retenue (%s lignes annoncees)",
+                        nature, valeur, libelle, reponse.get("total", "?"))
             premiere = reponse
             break
         echecs.append(f"{libelle} : reponse vide")
@@ -243,16 +286,16 @@ def telecharger(code_postal, correspondances, jeu="existant", progression=None):
 
     if premiere is None:
         raise ErreurSource(
-            f"Aucune requete n'a abouti pour le code postal {code_postal}. "
-            "Le serveur de l'ADEME bloque peut-etre temporairement, ou ce code "
-            "postal est absent de la base. Detail : " + " | ".join(echecs)
+            f"Aucune requete n'a abouti sur {dataset} pour le {nature} {valeur}. "
+            "Le serveur de l'ADEME bloque peut-etre temporairement, ou cette "
+            "commune est absente de cette base. Detail : " + " | ".join(echecs)
         )
 
     # --- Pagination ---------------------------------------------------
     lignes = list(premiere.get("results", []))
     suivante = premiere.get("next")
     if progression:
-        progression(len(lignes), f"code postal {code_postal}")
+        progression(len(lignes), f"{dataset}, {nature} {valeur}")
 
     for page in range(1, MAX_PAGES):
         if not suivante:
@@ -263,12 +306,82 @@ def telecharger(code_postal, correspondances, jeu="existant", progression=None):
             break
         lignes.extend(resultats)
         if progression:
-            progression(len(lignes), f"code postal {code_postal}, page {page + 1}")
+            progression(len(lignes), f"{dataset}, {nature} {valeur}, page {page + 1}")
         suivante = reponse.get("next")
         time.sleep(PAUSE_PAGE)
     else:
         if suivante:
             logger.warning("%s : garde-fou de %d pages atteint, resultats tronques",
-                           code_postal, MAX_PAGES)
+                           valeur, MAX_PAGES)
 
     return lignes
+
+
+# =====================================================================
+#  Recherche d'un DPE precis, par son numero
+# =====================================================================
+# Repris de scripts_existants/dpe_comparer.py. Deux niveaux de confiance,
+# et surtout : jamais de repli silencieux. Une version du script renvoyait
+# « le premier resultat venu » quand la recherche exacte echouait, ce qui
+# presentait deux fois le meme enregistrement comme deux DPE distincts.
+
+def chercher_par_numero(numero, jeux=("existant", "neuf", "ancien")):
+    """
+    Recupere UN DPE par son numero, avec toutes ses colonnes.
+
+    - un filtre portant explicitement sur le champ du numero est fiable par
+      construction : si le serveur ne renvoie qu'une ligne, c'est la bonne,
+      meme si le champ n'apparait pas dans la reponse ;
+    - la recherche plein texte, elle, ramene aussi les DPE qui CITENT ce
+      numero dans leur champ « remplace le DPE ». Elle n'est acceptee que si
+      l'egalite du numero est verifiable.
+
+    Renvoie (jeu, ligne, methode), ou (None, None, None) si introuvable.
+    """
+    numero = str(numero or "").strip()
+    if not numero:
+        return None, None, None
+
+    for jeu in jeux:
+        try:
+            correspondances = associer_champs(lire_schema(jeu))
+        except ErreurSource as erreur:
+            logger.warning("%s illisible : %s", jeu, erreur)
+            continue
+
+        champ = correspondances.get("numero_dpe")
+        if not champ:
+            continue
+
+        base = f"{RACINE}/{JEUX[jeu]}/lines"
+        strategies = [
+            ("filtre exact", {f"{champ}_eq": numero, "size": 5}, True),
+            ("filtre in", {f"{champ}_in": numero, "size": 5}, True),
+            ("requete qs", {"qs": f"{champ}:{numero}", "size": 5}, True),
+            ("plein texte", {"q": numero, "size": 10}, False),
+        ]
+
+        for libelle, parametres, cible_le_champ in strategies:
+            try:
+                reponse = appeler(construire_url(base, parametres), silencieux=True)
+            except ErreurSource:
+                time.sleep(0.2)
+                continue
+            resultats = (reponse or {}).get("results") or []
+            if not resultats:
+                time.sleep(0.2)
+                continue
+
+            # Cas ideal : le numero est visible dans la reponse et correspond.
+            exacts = [ligne for ligne in resultats
+                      if str(ligne.get(champ, "")).strip() == numero]
+            if exacts:
+                return jeu, exacts[0], libelle
+
+            # Filtre cible et resultat unique : fiable sans verification.
+            if cible_le_champ and len(resultats) == 1:
+                return jeu, resultats[0], f"{libelle} (non verifie)"
+
+            time.sleep(0.2)
+
+    return None, None, None

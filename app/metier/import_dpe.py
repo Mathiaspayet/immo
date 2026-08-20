@@ -71,7 +71,8 @@ def _maintenant():
 #  Transformation d'une ligne ADEME en enregistrement `dpe`
 # ---------------------------------------------------------------------
 
-def transformer(ligne, correspondances, points_de_zone, jeu, code_postal_demande):
+def transformer(ligne, correspondances, points_de_zone, jeu, code_postal_demande,
+                communes_par_insee=None):
     """Convertit une ligne brute de l'API en dictionnaire pret pour la base."""
     lire = lambda concept: ligne.get(correspondances[concept]) if correspondances.get(concept) else None
 
@@ -80,15 +81,26 @@ def transformer(ligne, correspondances, points_de_zone, jeu, code_postal_demande
         return None      # sans numero, la ligne n'est pas identifiable
 
     position = coordonnees.extraire(
-        geopoint=lire("geopoint"), x=lire("x_lambert"), y=lire("y_lambert"))
+        geopoint=lire("geopoint"), x=lire("x_lambert"), y=lire("y_lambert"),
+        latitude=lire("latitude"), longitude=lire("longitude"))
     latitude, longitude = position if position else (None, None)
     zone, distance = zones.rattacher(latitude, longitude, points_de_zone)
 
+    # La base ancienne ne porte aucun nom de commune : seul son code
+    # INSEE l'identifie. On le traduit avec le referentiel de
+    # geo.api.gouv.fr, sans quoi tout le filtrage par commune tomberait.
+    # Le nom officiel du referentiel prime sur celui de l'ADEME : d'une base
+    # a l'autre la meme commune s'ecrit « Mimizan », « MIMIZAN » ou
+    # « PONTENX LES FORGES », ce qui eclaterait les regroupements.
+    code_insee = texte(lire("code_insee"))
+    officiel = (communes_par_insee or {}).get(code_insee) or {}
+    commune = officiel.get("nom") or texte(lire("commune"))
+
     return {
         "n_dpe": n_dpe,
-        "code_insee": texte(lire("code_insee")),
+        "code_insee": code_insee,
         "code_postal": texte(lire("code_postal")) or code_postal_demande,
-        "commune": texte(lire("commune")),
+        "commune": commune,
         "adresse": texte(lire("adresse")),
         "latitude": latitude,
         "longitude": longitude,
@@ -123,14 +135,16 @@ COLONNES = [
     "donnees_brutes_json",
 ]
 
-# A la mise a jour, on ne touche ni a `importe_le` ni a `vu_le` : ce sont
-# les deux seules colonnes qui appartiennent a l'utilisateur, pas a l'ADEME.
+# A la mise a jour, on ne touche ni a `importe_le` ni a `vu_le` : la
+# premiere appartient a l'historique, la seconde a l'utilisateur.
+# `revu_le` en revanche est rafraichi a chaque passage : c'est lui qui dit
+# que l'ADEME sert encore cette ligne (voir 002_lot2.sql).
 _MAJ = ", ".join(f"{c} = excluded.{c}" for c in COLONNES if c != "n_dpe")
 
 SQL_UPSERT = (
-    f"INSERT INTO dpe ({', '.join(COLONNES)}, importe_le, vu_le) "
-    f"VALUES ({', '.join('?' * len(COLONNES))}, ?, ?) "
-    f"ON CONFLICT(n_dpe) DO UPDATE SET {_MAJ}"
+    f"INSERT INTO dpe ({', '.join(COLONNES)}, importe_le, revu_le, vu_le) "
+    f"VALUES ({', '.join('?' * len(COLONNES))}, ?, ?, ?) "
+    f"ON CONFLICT(n_dpe) DO UPDATE SET {_MAJ}, revu_le = excluded.revu_le"
 )
 
 
@@ -138,12 +152,13 @@ SQL_UPSERT = (
 #  Import complet
 # ---------------------------------------------------------------------
 
-def importer(declencheur="manuel", jeu="existant"):
+def importer(declencheur="manuel", jeux=None):
     """
     Telecharge les DPE de toutes les communes surveillees et les enregistre.
 
-    Renvoie un resume. Leve RuntimeError si un import tourne deja : deux
-    imports simultanes se disputeraient le verrou d'ecriture de SQLite.
+    `jeux` limite l'import a certaines bases ADEME ; par defaut, celles des
+    reglages. Leve RuntimeError si un import tourne deja : deux imports
+    simultanes se disputeraient le verrou d'ecriture de SQLite.
     """
     with _verrou:
         if _etat["en_cours"]:
@@ -157,7 +172,7 @@ def importer(declencheur="manuel", jeu="existant"):
     _publier(journal_id=journal_id)
 
     try:
-        resume = _executer(jeu)
+        resume = _executer(jeux)
     except Exception as erreur:                      # noqa: BLE001
         message = str(erreur) or type(erreur).__name__
         logger.exception("import en echec : %s", message)
@@ -173,49 +188,97 @@ def importer(declencheur="manuel", jeu="existant"):
         return resume
 
 
-def _executer(jeu):
+def _referentiel_communes(communes):
+    """
+    Codes INSEE des communes surveillees, via geo.api.gouv.fr.
+
+    Indispensable a la base ancienne, qui ne connait les communes QUE par
+    leur code INSEE (voir ademe.cle_de_filtrage). Renvoie
+    (par_insee, insee_par_code_postal).
+    """
+    par_insee, par_code_postal = {}, {}
+    for entree in communes:
+        code_postal = str(entree["code_postal"]).strip()
+        trouvees = geo.communes_du_code_postal(code_postal)
+        par_code_postal[code_postal] = [c["code_insee"] for c in trouvees
+                                        if c.get("code_insee")]
+        for commune in trouvees:
+            if commune.get("code_insee"):
+                par_insee[commune["code_insee"]] = commune
+    return par_insee, par_code_postal
+
+
+def _executer(jeux=None):
     parametres = reglages.tous()
     communes = parametres["communes"]
     points_de_zone = parametres["zones"]
+    jeux = list(jeux or parametres["jeux_de_donnees"])
 
-    _publier(etape="lecture du schema de l'ADEME")
-    correspondances, _champs = ademe.preparer(jeu)
+    _publier(etape="resolution des communes")
+    communes_par_insee, insee_par_code_postal = _referentiel_communes(communes)
 
-    # --- Telechargement -----------------------------------------------
     enregistrements = {}
-    detail_communes = []
-    for entree in communes:
-        code_postal = str(entree["code_postal"]).strip()
-        _publier(etape=f"telechargement du {code_postal}")
+    detail, avertissements = [], []
 
-        def progression(nombre_lignes, message):
-            _publier(etape=f"telechargement — {message}", lignes=nombre_lignes)
+    for jeu in jeux:
+        _publier(etape=f"lecture du schema ({ademe.JEUX[jeu]})")
+        try:
+            correspondances, _champs = ademe.preparer(jeu)
+        except ErreurSource as erreur:
+            # Une base indisponible ne doit pas faire echouer les autres :
+            # la veille F1 ne depend que de « existant ».
+            avertissements.append(f"{ademe.JEUX[jeu]} ignoree ({erreur})")
+            logger.warning("%s ignoree : %s", jeu, erreur)
+            continue
 
-        lignes = ademe.telecharger(code_postal, correspondances, jeu=jeu,
-                                   progression=progression)
-        retenues = 0
-        for ligne in lignes:
-            enregistrement = transformer(ligne, correspondances, points_de_zone,
-                                         jeu, code_postal)
-            if enregistrement:
-                enregistrements[enregistrement["n_dpe"]] = enregistrement
-                retenues += 1
-        detail_communes.append(f"{code_postal} : {retenues}")
-        logger.info("%s : %d ligne(s) exploitables sur %d", code_postal, retenues, len(lignes))
+        for entree in communes:
+            code_postal = str(entree["code_postal"]).strip()
+
+            # La base ancienne se filtre par code INSEE, les recentes par
+            # code postal. Confondre les deux ramene une autre commune sans
+            # la moindre erreur visible.
+            if jeu == "ancien":
+                valeurs = insee_par_code_postal.get(code_postal) or []
+                if not valeurs:
+                    avertissements.append(
+                        f"{ademe.JEUX[jeu]} : codes INSEE du {code_postal} "
+                        "indisponibles (geo.api.gouv.fr), commune ignoree")
+                    continue
+            else:
+                valeurs = [code_postal]
+
+            for valeur in valeurs:
+                _publier(etape=f"telechargement {ademe.JEUX[jeu]} — {valeur}")
+
+                def progression(nombre_lignes, message):
+                    _publier(etape=f"telechargement — {message}", lignes=nombre_lignes)
+
+                try:
+                    lignes = ademe.telecharger(valeur, correspondances, jeu=jeu,
+                                               progression=progression)
+                except ErreurSource as erreur:
+                    avertissements.append(f"{ademe.JEUX[jeu]} / {valeur} : {erreur}")
+                    logger.warning("%s / %s : %s", jeu, valeur, erreur)
+                    continue
+
+                retenues = 0
+                for ligne in lignes:
+                    enregistrement = transformer(ligne, correspondances,
+                                                 points_de_zone, jeu, code_postal,
+                                                 communes_par_insee)
+                    if enregistrement:
+                        enregistrements[enregistrement["n_dpe"]] = enregistrement
+                        retenues += 1
+                detail.append(f"{jeu}/{valeur} : {retenues}")
+                logger.info("%s / %s : %d ligne(s) exploitables sur %d",
+                            jeu, valeur, retenues, len(lignes))
 
     if not enregistrements:
         raise ErreurSource(
             "L'ADEME n'a renvoye aucune ligne exploitable. Verifiez les codes "
-            "postaux surveilles dans les reglages."
+            "postaux surveilles dans les reglages. "
+            + (" ".join(avertissements) if avertissements else "")
         )
-
-    # --- Codes INSEE (facultatif, n'interrompt pas l'import) -----------
-    _publier(etape="resolution des communes")
-    referentiel = {}
-    for entree in communes:
-        for commune in geo.communes_du_code_postal(str(entree["code_postal"]).strip()):
-            if commune.get("nom"):
-                referentiel[commune["nom"].lower()] = commune
 
     # --- Ecriture, en une seule transaction ----------------------------
     _publier(etape="enregistrement en base", lignes=len(enregistrements))
@@ -227,15 +290,7 @@ def _executer(jeu):
 
         ajouts = 0
         for enregistrement in enregistrements.values():
-            nouveau = enregistrement["n_dpe"] not in connus
-            ajouts += nouveau
-
-            # Code INSEE : celui de l'ADEME s'il existe, sinon celui deduit
-            # du nom de commune via geo.api.gouv.fr.
-            if not enregistrement["code_insee"] and enregistrement["commune"]:
-                trouve = referentiel.get(enregistrement["commune"].lower())
-                if trouve:
-                    enregistrement["code_insee"] = trouve["code_insee"]
+            ajouts += enregistrement["n_dpe"] not in connus
 
             # Au tout premier import, tout est « nouveau » : marquer les
             # lignes comme deja vues evite de noyer l'ecran sous les badges.
@@ -243,9 +298,10 @@ def _executer(jeu):
             vu_le = maintenant if premier_import else None
 
             conn.execute(SQL_UPSERT,
-                         [enregistrement[c] for c in COLONNES] + [maintenant, vu_le])
+                         [enregistrement[c] for c in COLONNES]
+                         + [maintenant, maintenant, vu_le])
 
-        for commune in referentiel.values():
+        for commune in communes_par_insee.values():
             conn.execute(
                 "INSERT INTO commune (code_insee, nom, code_postal, derniere_maj_dpe) "
                 "VALUES (?, ?, ?, ?) "
@@ -256,24 +312,35 @@ def _executer(jeu):
 
         purges = _purger(conn, parametres["purge_mois"])
 
-    message = (f"{len(enregistrements)} DPE traites ({'; '.join(detail_communes)}), "
+    message = (f"{len(enregistrements)} DPE traites ({'; '.join(detail)}), "
                f"{ajouts} nouveau(x)")
     if purges:
         message += f", {purges} purge(s)"
     if premier_import:
         message += " — premier import, rien n'est signale comme nouveau"
+    if avertissements:
+        message += " | " + " ; ".join(avertissements[:3])
 
     return {"lignes": len(enregistrements), "ajouts": ajouts,
-            "purges": purges, "message": message}
+            "purges": purges, "avertissements": avertissements,
+            "message": message}
 
 
 def _purger(conn, purge_mois):
-    """Supprime les DPE trop anciens (CDC 9 : 24 mois par defaut)."""
+    """
+    Supprime ce que l'ADEME ne sert plus depuis trop longtemps (CDC 9).
+
+    La purge porte sur `revu_le`, pas sur la date du diagnostic : purger sur
+    la date d'etablissement viderait la chronologie F4, qui remonte a 2013,
+    et priverait F2 des DPE anterieurs que cite une annonce. Sur `revu_le`,
+    la regle garde tout son sens — on ne conserve pas une donnee qu'on ne
+    rafraichit plus.
+    """
     limite = (datetime.date.today()
               - datetime.timedelta(days=int(float(purge_mois) * 30.44)))
     curseur = conn.execute(
-        "DELETE FROM dpe WHERE date_etablissement IS NOT NULL "
-        "AND date_etablissement < ?", (limite.isoformat(),))
+        "DELETE FROM dpe WHERE revu_le IS NOT NULL AND revu_le < ?",
+        (limite.isoformat(),))
     return curseur.rowcount or 0
 
 

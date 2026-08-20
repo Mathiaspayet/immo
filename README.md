@@ -15,23 +15,48 @@ Spécification complète : [`CAHIER_DES_CHARGES.md`](CAHIER_DES_CHARGES.md).
 
 ---
 
-## État — lot 1 livré
+## État — lots 1 et 2 livrés
 
 | Fonction | État |
 |---|---|
 | **F1** Veille des DPE récents | livrée |
-| Import ADEME avec cache et journal | livré |
+| **F2** Identifier un bien depuis une annonce | livrée |
+| **F4** Fiche bien, chronologie, remplacements | livrée |
+| Import ADEME des trois bases, avec cache et journal | livré |
 | Import hebdomadaire automatique | livré |
-| Écran Réglages | livré |
-| Export CSV | livré |
-| **F2** Identifier un bien depuis une annonce | lot 2 |
+| Écran Réglages, export CSV | livrés |
 | **F3** Recherche cadastrale | lot 3 |
-| **F4** Fiche bien et historique | lot 2 |
 | **F5/F6** Suivi, notes, notifications | lot 4 |
 
-Sur un import réel du code postal 40200 : **2 881 DPE récupérés**, dont 44
-maisons de 80 à 400 m² diagnostiquées dans les 120 derniers jours,
-réparties entre bourg (28) et plage (16).
+Sur un import réel du code postal 40200 : **7 593 DPE**, des trois bases de
+l'ADEME, s'étendant de mai 2013 à aujourd'hui, dont 354 portent un lien de
+remplacement. La veille en retient 44 maisons de 80 à 400 m² diagnostiquées
+dans les 120 derniers jours, réparties entre bourg (28) et plage (16).
+
+### Ce que fait l'identification (F2)
+
+On saisit les chiffres lus sur une annonce, et l'écran affiche toujours
+trois choses : l'**entonnoir** (combien de logements passent chaque critère
+seul, puis en cumulé), le **diagnostic** quand l'entonnoir se ferme, et le
+**classement complet** dont rien n'a été éliminé.
+
+Un essai réel le montre bien. Pour une annonce à 144 m², 216 kWh/m² ép.,
+158 kWh/m² éf., 7 kg de GES, classe D/B, l'entonnoir se ferme : aucun
+logement ne satisfait tout. Mais le mieux classé — 19 Avenue des Oiseaux —
+colle sur les consommations, les émissions et les deux classes, et ne
+s'écarte que sur la surface : 149 m² en base contre 144 annoncés. Un filtre
+strict à ±3 m² aurait fait disparaître la bonne maison sans rien expliquer.
+
+### Ce que fait la fiche (F4)
+
+Chronologie de tous les DPE connus pour une adresse, les trois bases
+confondues, et remontée de la chaîne des remplacements.
+
+Le point délicat : **un DPE remplacé est retiré de la base active de
+l'ADEME**. Le chercher par son numéro échoue, et une recherche plein texte
+ramène alors les DPE qui le *citent* — pas lui. L'application ne fait donc
+jamais de repli silencieux : soit le numéro est vérifié, soit elle écrit
+que le diagnostic n'est plus accessible.
 
 ---
 
@@ -92,7 +117,7 @@ pip install pytest httpx                       # pour les tests
 VEILLE_BASE=./donnees/veille.db \
   python -m uvicorn app.main:application --reload --port 8020
 
-python -m pytest tests/ -q                     # 52 tests, aucun appel réseau
+python -m pytest tests/ -q                     # 87 tests, aucun appel réseau
 ```
 
 Ou avec Docker : `docker compose up --build`, puis <http://localhost:8020>.
@@ -112,8 +137,11 @@ app/
 ├── config.py        variables d'environnement (chemins, port, fuseau)
 ├── planificateur.py APScheduler — import hebdomadaire
 ├── base/            SQLite : connexion, migrations SQL, réglages
-├── sources/         API externes : ADEME, geo.api.gouv.fr
+├── sources/         API externes : ADEME (3 bases), geo.api.gouv.fr
 ├── metier/          logique portée des scripts d'origine
+│   ├── veille.py            F1 — les DPE récents, dédoublonnés
+│   ├── identification.py    F2 — l'entonnoir et le classement
+│   └── fiche.py             F4 — chronologie, remplacements, comparaison
 ├── api/             routes HTTP — ne font que traduire en JSON
 └── web/             interface : HTML, CSS, modules ES natifs
 ```
@@ -159,6 +187,26 @@ La conversion Lambert-93 → WGS84 est reprise telle quelle, sans `pyproj`
 (qui pèserait une quinzaine de mégaoctets). Elle est vérifiée par
 aller-retour au centimètre sur cinq villes.
 
+### Un défaut corrigé au passage : INSEE contre code postal
+
+La base d'avant juillet 2021 (`dpe-france`) est d'une autre génération :
+22 colonnes au lieu de 230, et **aucune colonne de code postal**. Son seul
+repère communal est `code_insee_commune_actualise`, qui attend un code
+INSEE.
+
+Lui passer un code postal ne provoque aucune erreur : l'API répond
+normalement, avec les logements de la commune dont le code INSEE vaut ce
+nombre. Interroger `dpe-france` avec « 40200 » renvoyait ainsi **98
+logements de Moustey** (INSEE 40200) au lieu des **1 338 de Mimizan**
+(INSEE 40184). L'import résout donc les codes INSEE via `geo.api.gouv.fr`
+avant d'interroger cette base, et refuse de se rabattre sur le code postal
+si le référentiel est indisponible.
+
+Même famille de piège, attrapé avant d'écrire en base : sur cette même
+base, le concept « commune » tombait sur `code_insee_commune_actualise`,
+qui contient le mot *commune* — le code INSEE se serait retrouvé enregistré
+comme nom de commune.
+
 ---
 
 ## Requêtes sortantes
@@ -179,13 +227,15 @@ Aucune autre. Ni CDN, ni police distante, ni mesure d'audience.
 
 ## Points à connaître
 
-**La purge supprimera des données utiles au lot 2.** Le CDC §9 impose de ne
-rien conserver au-delà de 24 mois, et le réglage l'applique au cache des
-DPE : sur 2 881 lignes téléchargées, 1 830 sont supprimées aussitôt. C'est
-sans effet sur la veille, qui regarde les derniers mois. Mais la fonction
-F2 — identifier un bien depuis une annonce — a besoin de toute la
-profondeur de la base, une annonce pouvant citer un DPE de 2022. Il faudra
-porter `purge_mois` à 60 (l'écran Réglages) avant d'attaquer le lot 2.
+**La purge ne porte plus sur la date du diagnostic.** Le CDC §9 demande de
+ne rien conserver au-delà de 24 mois. Appliquée à la date d'établissement,
+cette règle rendait le lot 2 impossible : la chronologie F4 remonte à 2013,
+et une annonce peut citer un DPE de 2022. La purge porte donc sur `revu_le`
+— la dernière fois que l'ADEME a servi la ligne. La règle garde son sens,
+rien n'est conservé sans être rafraîchi, et elle rend même un service à
+F4 : un DPE remplacé disparaît de la base active de l'ADEME, notre cache en
+garde la trace 24 mois de plus. C'est un écart assumé au texte du CDC,
+signalé ici pour que la décision reste la vôtre.
 
 **Le conteneur tourne en root**, comme `gestion-locative`. C'est ce qui
 évite les refus d'écriture sur le volume monté. L'application n'étant pas
