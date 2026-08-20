@@ -432,16 +432,23 @@ def extrait(n_dpe, marge_m=MARGE_EXTRAIT_M):
 
 def batiments_manquants(code_insee):
     """
-    La commune a-t-elle des parcelles mais aucun batiment enregistre ?
+    Le cadastre de cette commune a-t-il ete importe sans les contours ?
 
-    C'est le cas des cadastres importes avant que les contours de batiments
-    ne soient conserves : il faut alors refaire l'import une fois.
+    C'est le cas de ceux importes avant qu'on ne les conserve : la fiche ne
+    peut alors rien dessiner dessus, et il faut refaire l'import une fois.
+
+    Une table `batiment` vide ne suffit pas a conclure : une commune de
+    foret et de labours n'a legitimement aucun bati, et la signaler
+    « incomplete » la ferait retelecharger a chaque recherche, sans fin.
+    Le compte agregat `nb_batiments`, lui, etait deja renseigne par
+    l'ancien import : s'il est positif alors que la table est vide, la
+    commune a bien du bati et ce sont ses contours qui manquent.
     """
     with connexion() as conn:
-        parcelles_connues = conn.execute(
-            "SELECT count(*) FROM parcelle WHERE code_insee = ?",
+        attendus = conn.execute(
+            "SELECT coalesce(sum(nb_batiments), 0) FROM parcelle WHERE code_insee = ?",
             (str(code_insee),)).fetchone()[0]
         batis = conn.execute(
             "SELECT count(*) FROM batiment WHERE code_insee = ?",
             (str(code_insee),)).fetchone()[0]
-    return parcelles_connues > 0 and batis == 0
+    return attendus > 0 and batis == 0

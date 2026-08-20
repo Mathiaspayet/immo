@@ -256,3 +256,13 @@ def test_cadastre_sans_batiments_est_a_refaire(cadastre):
 
 def test_une_commune_sans_cadastre_n_est_pas_incomplete(base):
     assert parcelles.batiments_manquants("31282") is False
+
+
+def test_une_commune_sans_bati_n_est_pas_incomplete(base):
+    """
+    Foret et labours : aucun batiment n'est attendu. La signaler
+    « incomplete » la ferait retelecharger a chaque recherche, sans fin.
+    """
+    inserer_parcelle("BOIS", indice=0, batiments=0, emprise=0.0)
+    inserer_parcelle("CHAMP", indice=1, batiments=0, emprise=0.0)
+    assert parcelles.batiments_manquants("31282") is False
