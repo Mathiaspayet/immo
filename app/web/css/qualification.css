@@ -239,3 +239,20 @@
    et seulement quand la largeur le permet. */
 .grille-champs .champ-large select { width: 100%; min-width: 0; }
 .grille-champs .champ-large { grid-column: span 2; }
+
+/* ====================================================================
+   Parcelles (F3)
+   ==================================================================== */
+
+.parcelle .reference-parcelle {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--encre);
+  padding: 1px calc(var(--pas) * 2);
+  border: 1px solid var(--trait-fort);
+  border-radius: 2px;
+}
+
+/* Une parcelle au bon gabarit QUI PORTE un diagnostic récent : c'est le
+   croisement que cherche le CDC, il mérite d'être vu au premier coup d'œil. */
+.parcelle-signalee { border-left-color: var(--ambre); }

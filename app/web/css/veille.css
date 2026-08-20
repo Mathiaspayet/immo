@@ -92,13 +92,18 @@
 }
 
 .panneau-carte { background: var(--papier-creux); }
-#carte { width: 100%; height: 100%; min-height: 320px; }
+
+/* Une CLASSE, pas un identifiant : il y a deux cartes — celle de la veille
+   et celle du cadastre — et un sélecteur d'identifiant n'en habillait
+   qu'une. La seconde se retrouvait avec une hauteur nulle, Leaflet mesurant
+   son conteneur à la création. */
+.carte { width: 100%; height: 100%; min-height: 320px; }
 
 /* Sur telephone la carte est repliee par defaut : la liste passe d'abord. */
 @media (max-width: 939px) {
   .panneau-carte { border-top: 1px solid var(--trait); }
-  .panneau-carte[data-replie="oui"] #carte { display: none; }
-  #carte { height: 300px; }
+  .panneau-carte[data-replie="oui"] .carte { display: none; }
+  .carte { height: 300px; }
 }
 .bascule-carte {
   display: none;

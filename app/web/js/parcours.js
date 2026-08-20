@@ -29,6 +29,17 @@ export function surCommunePrete(rappel) { abonnes.add(rappel); }
 const LIBELLES = {
   veille: "Les DPE récents",
   identifier: "Identifier un bien",
+  parcelles: "Chercher par le terrain",
+};
+
+// La recherche cadastrale a besoin des parcelles en plus des DPE : c'est un
+// second téléchargement, qu'on ne déclenche que pour cette intention.
+const BESOIN = { parcelles: "cadastre" };
+
+const QUESTIONS = {
+  veille: "Les DPE récents de quelle commune&nbsp;?",
+  identifier: "Identifier un bien de quelle commune&nbsp;?",
+  parcelles: "Chercher un terrain sur quelle commune&nbsp;?",
 };
 
 // --------------------------------------------------------------------
@@ -38,9 +49,7 @@ const LIBELLES = {
 function choisirIntention(intention) {
   parcours.intention = intention;
   $("#question-commune").innerHTML =
-    intention === "veille"
-      ? "Les DPE récents de quelle commune&nbsp;?"
-      : "Identifier un bien de quelle commune&nbsp;?";
+    QUESTIONS[intention] || "Sur quelle commune&nbsp;?";
   changerVue("commune");
   $("#recherche-commune").focus();
   chargerCommunesConnues();
@@ -127,9 +136,11 @@ async function choisirCommune(commune) {
   masquerErreur();
   parcours.commune = commune;
 
+  const besoin = BESOIN[parcours.intention] || "dpe";
+
   let etat;
   try {
-    etat = await api.preparerCommune(commune.code_insee);
+    etat = await api.preparerCommune(commune.code_insee, besoin);
   } catch (erreur) {
     afficherErreur(`Impossible de préparer ${commune.nom}.`, erreur.message);
     return;
@@ -140,12 +151,15 @@ async function choisirCommune(commune) {
     return;
   }
 
-  // Jamais moissonnée : rien à montrer tant que la moisson n'a pas abouti.
-  // Déjà en cache mais périmée : on affiche tout de suite, la mise à jour
-  // se fait derrière.
-  const premiere = etat.raison === "jamais_moissonnee";
+  // Rien à montrer tant que la première moisson n'a pas abouti — ni les
+  // DPE, ni le cadastre. Une simple mise à jour, elle, se fait derrière
+  // pendant qu'on consulte ce qui est déjà là.
+  const premiere = etat.raison === "jamais_moissonnee"
+                   || etat.raison === "cadastre_manquant";
   afficherTravail(premiere
-    ? `Téléchargement des diagnostics de ${commune.nom}…`
+    ? (etat.raison === "cadastre_manquant"
+        ? `Téléchargement du cadastre de ${commune.nom}…`
+        : `Téléchargement des diagnostics de ${commune.nom}…`)
     : `${commune.nom} — mise à jour en cours…`);
   suivreImport();
 
@@ -162,7 +176,7 @@ async function choisirCommune(commune) {
 
 function afficherResultats() {
   masquerTravail();
-  changerVue(parcours.intention === "identifier" ? "identifier" : "veille");
+  changerVue(parcours.intention || "veille");
   dessinerContexte();
   for (const rappel of abonnes) {
     try { rappel(parcours.commune); } catch (_) { /* un écran fautif n'en bloque pas un autre */ }
@@ -183,7 +197,8 @@ export function dessinerContexte(informations = {}) {
     <span class="contexte-commune">${echapper(commune.nom)}</span>${compte}
     <button type="button" class="bouton-lien" data-changer>Changer de commune</button>`;
 
-  for (const identifiant of ["#contexte-veille", "#contexte-identifier"]) {
+  for (const identifiant of ["#contexte-veille", "#contexte-identifier",
+                             "#contexte-parcelles"]) {
     const boite = $(identifiant);
     if (!boite) continue;
     boite.innerHTML = contenu;

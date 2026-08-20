@@ -21,6 +21,7 @@ from app.api import communes as api_communes
 from app.api import fiche as api_fiche
 from app.api import identification as api_identification
 from app.api import imports as api_imports
+from app.api import parcelles as api_parcelles
 from app.api import reglages as api_reglages
 from app.api import veille as api_veille
 from app.base import migrations
@@ -65,6 +66,7 @@ application.include_router(api_communes.routeur)
 application.include_router(api_imports.routeur)
 application.include_router(api_identification.routeur)
 application.include_router(api_fiche.routeur)
+application.include_router(api_parcelles.routeur)
 application.include_router(api_reglages.routeur)
 
 

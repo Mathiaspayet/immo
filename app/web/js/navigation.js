@@ -10,7 +10,8 @@ import { $ } from "./format.js";
 
 // La fiche n'est pas un onglet : on y entre depuis un relevé ou un
 // résultat d'identification, et on en revient.
-const VUES = ["accueil", "commune", "veille", "identifier", "reglages", "fiche"];
+const VUES = ["accueil", "commune", "veille", "identifier", "parcelles",
+              "reglages", "fiche"];
 
 const rappels = {};
 

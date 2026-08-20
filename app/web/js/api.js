@@ -57,8 +57,9 @@ export const api = {
   chercherCommunes: (q) => demander(`/api/communes/recherche?${versParametres({ q })}`),
 
   /** Rend une commune consultable : la moissonne si elle manque ou date. */
-  preparerCommune: (codeInsee) =>
-    demander(`/api/communes/${encodeURIComponent(codeInsee)}/preparer`, { method: "POST" }),
+  preparerCommune: (codeInsee, besoin = "dpe") =>
+    demander(`/api/communes/${encodeURIComponent(codeInsee)}/preparer` +
+             `?${versParametres({ besoin })}`, { method: "POST" }),
 
   veille: (filtres) => demander(`/api/veille?${versParametres(filtres)}`),
 
@@ -85,6 +86,10 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(corps),
     }),
+
+  parcelles: (parametres) => demander(`/api/parcelles?${versParametres(parametres)}`),
+
+  parcelleDuDpe: (n_dpe) => demander(`/api/parcelles/du-dpe?${versParametres({ n_dpe })}`),
 
   fiche: (parametres) => demander(`/api/fiche?${versParametres(parametres)}`),
 

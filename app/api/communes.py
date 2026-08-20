@@ -61,7 +61,9 @@ def rechercher(q: str = Query(..., min_length=2, description="Début du nom de c
 
 
 @routeur.post("/{code_insee}/preparer")
-def preparer(code_insee: str):
+def preparer(code_insee: str,
+             besoin: str = Query("dpe", pattern="^(dpe|cadastre)$",
+                                 description="« cadastre » ajoute les parcelles")):
     """
     Rend une commune consultable : la moissonne si elle manque ou si elle
     date, ne fait rien si elle est a jour.
@@ -69,4 +71,4 @@ def preparer(code_insee: str):
     Repond toujours 200 — ne rien avoir a faire est le cas courant, pas une
     erreur. `raison` dit ce qui a ete decide.
     """
-    return import_dpe.preparer_commune(code_insee)
+    return import_dpe.preparer_commune(code_insee, besoin=besoin)

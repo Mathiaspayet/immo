@@ -59,6 +59,15 @@
         </span>
         <span class="carte-suite">Choisir une commune →</span>
       </button>
+      <button type="button" class="carte-choix" data-intention="parcelles">
+        <span class="carte-titre">Chercher par le terrain</span>
+        <span class="carte-texte">
+          Filtrer les parcelles d'une commune par surface de terrain et
+          emprise bâtie au sol. Une parcelle au bon gabarit qui porte en plus
+          un diagnostic récent est un candidat sérieux.
+        </span>
+        <span class="carte-suite">Choisir une commune →</span>
+      </button>
     </div>
 
     <p class="note-accueil">
@@ -152,7 +161,7 @@
         <button type="button" class="bouton bascule-carte" id="bascule-carte" aria-expanded="false">
           <span>Carte</span><span aria-hidden="true">▾</span>
         </button>
-        <div id="carte"></div>
+        <div id="carte" class="carte"></div>
       </div>
     </div>
   </section>
@@ -246,6 +255,63 @@
     <div id="diagnostic-identification"></div>
     <section id="entonnoir"></section>
     <section id="resultats-identification"></section>
+  </section>
+
+  <!-- =========================== PARCELLES =========================== -->
+  <section id="vue-parcelles" aria-label="Recherche cadastrale" hidden>
+
+    <div class="contexte" id="contexte-parcelles"></div>
+
+    <form class="filtres" id="filtres-parcelles">
+      <div class="champ">
+        <label for="p-terrain-min">Terrain min (m²)</label>
+        <input type="number" id="p-terrain-min" class="donnee" min="0" step="50"
+               inputmode="numeric" value="400">
+      </div>
+      <div class="champ">
+        <label for="p-terrain-max">Terrain max (m²)</label>
+        <input type="number" id="p-terrain-max" class="donnee" min="0" step="50"
+               inputmode="numeric" value="2000">
+      </div>
+      <div class="champ">
+        <label for="p-emprise-min">Emprise bâtie min (m²)</label>
+        <input type="number" id="p-emprise-min" class="donnee" min="0" step="10"
+               inputmode="numeric" value="60">
+      </div>
+      <div class="champ">
+        <label for="p-emprise-max">Emprise bâtie max (m²)</label>
+        <input type="number" id="p-emprise-max" class="donnee" min="0" step="10"
+               inputmode="numeric" value="250">
+      </div>
+      <div class="champ">
+        <label for="p-dpe">Diagnostic sur la parcelle</label>
+        <select id="p-dpe">
+          <option value="">indifférent</option>
+          <option value="oui">au moins un DPE</option>
+          <option value="120" selected>un DPE de moins de 120 j</option>
+          <option value="365">un DPE de moins d'un an</option>
+        </select>
+      </div>
+
+      <div class="actions-filtres">
+        <p class="explication" style="margin:0;flex:1 1 320px">
+          Repère : une maison de 120 m² habitables de plain-pied occupe
+          environ 120 m² au sol&nbsp;; la même sur deux niveaux, 60 à 70 m².
+        </p>
+        <a class="bouton" id="export-parcelles" href="#" download>Exporter en CSV</a>
+      </div>
+    </form>
+
+    <div class="compteurs" id="compteurs-parcelles"></div>
+
+    <div class="plan">
+      <div class="liste" id="liste-parcelles"></div>
+      <div class="panneau-carte" id="panneau-carte-parcelles" data-replie="oui">
+        <button type="button" class="bouton bascule-carte" id="bascule-carte-parcelles"
+                aria-expanded="false"><span>Carte</span><span aria-hidden="true">▾</span></button>
+        <div id="carte-parcelles" class="carte"></div>
+      </div>
+    </div>
   </section>
 
   <!-- ============================= FICHE ============================= -->

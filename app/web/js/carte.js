@@ -55,6 +55,7 @@ export function creerCarte(identifiant, surSelection) {
   L.control.layers(fonds, superpositions, { position: "topright" }).addTo(carte);
 
   const couche = L.layerGroup().addTo(carte);
+  const couchePolygones = L.layerGroup().addTo(carte);
   const marqueurs = new Map();
 
   function icone(classes) {
@@ -117,6 +118,51 @@ export function creerCarte(identifiant, surSelection) {
         carte.panTo(cible.getLatLng());
         cible.openPopup();
       }
+    },
+
+    /**
+     * Trace les parcelles retenues. Le contour à l'encre sur fond clair,
+     * comme sur un plan cadastral ; l'ambre signale celles qui portent un
+     * diagnostic récent — le croisement qui compte.
+     */
+    afficherParcelles(resultats) {
+      couchePolygones.clearLayers();
+      const points = [];
+
+      for (const parcelle of resultats) {
+        if (!parcelle.geometrie) continue;
+        const recente = Boolean(parcelle.dpe_recent);
+        const forme = L.geoJSON(parcelle.geometrie, {
+          style: {
+            color: recente ? "#B9862C" : "#12262B",
+            weight: recente ? 2 : 1,
+            fillColor: recente ? "#D9A441" : "#2E5B4C",
+            fillOpacity: recente ? 0.35 : 0.12,
+          },
+        });
+        const reference = `${parcelle.section ?? ""}${parcelle.numero ?? ""}`;
+        forme.bindPopup(
+          `<span class="adresse-popup">${(parcelle.adresses?.[0] || "Parcelle " + reference)
+            .replace(/</g, "&lt;")}</span>` +
+          `<span class="donnee">terrain ${Math.round(parcelle.contenance_m2 ?? 0)} m² · ` +
+          `bâti ${Math.round(parcelle.emprise_batie_m2 ?? 0)} m²` +
+          (parcelle.dpe ? ` · ${parcelle.dpe} DPE` : "") + "</span>"
+        );
+        forme.on("click", () => surSelection && surSelection(parcelle.id));
+        forme.addTo(couchePolygones);
+        if (parcelle.latitude != null) points.push([parcelle.latitude, parcelle.longitude]);
+      }
+
+      if (points.length) {
+        carte.fitBounds(L.latLngBounds(points), { padding: [30, 30], maxZoom: 17 });
+      }
+      return points.length;
+    },
+
+    /** Met en avant une parcelle choisie dans la liste. */
+    centrerSur(latitude, longitude) {
+      if (latitude == null || longitude == null) return;
+      carte.setView([latitude, longitude], Math.max(carte.getZoom(), 17));
     },
 
     /** À appeler quand le conteneur change de taille (repli sur mobile). */

@@ -29,6 +29,7 @@ from app.base import reglages
 from app.base.connexion import connexion, transaction
 from app.metier import coordonnees, zones
 from app.metier.valeurs import entier, nombre, texte
+from app.metier import parcelles as metier_parcelles
 from app.sources import ademe, geo
 from app.sources.client_http import ErreurSource
 
@@ -263,8 +264,36 @@ def importer(declencheur="planifie", jeux=None):
         logger.exception("rafraichissement en echec : %s", erreur)
         _terminer(journal_id, erreur=erreur)
         raise
+
+    # Le cadastre se rafraichit mensuellement (CDC 8), et seulement la ou il
+    # est deja pose : on ne va pas le telecharger pour une commune dont
+    # personne n'a demande les parcelles.
+    cadastres = _rafraichir_cadastres()
+    if cadastres:
+        resume["message"] += f" · cadastre : {cadastres}"
+
     _terminer(journal_id, resume=resume)
     return resume
+
+
+def _rafraichir_cadastres():
+    """Remet a jour les cadastres deja telecharges et devenus trop vieux."""
+    seuil_jours = reglages.lire("cadastre_apres_jours")
+    if not seuil_jours:
+        return ""
+
+    faits = []
+    for commune in communes_suivies():
+        age = metier_parcelles.age_cadastre(commune["code_insee"])
+        if age is None or age < float(seuil_jours) * 24:
+            continue      # jamais telecharge, ou encore frais
+        _publier(etape=f"cadastre — {commune['nom']}")
+        try:
+            resume = metier_parcelles.importer_cadastre(commune["code_insee"])
+            faits.append(f"{commune['nom']} ({resume['parcelles']})")
+        except Exception as erreur:                  # noqa: BLE001
+            logger.warning("cadastre de %s non rafraichi : %s", commune["nom"], erreur)
+    return ", ".join(faits)
 
 
 def _moissonner(communes, jeux=None):
@@ -431,7 +460,17 @@ def age_dernier_import():
     return (datetime.datetime.now() - fin).total_seconds() / 3600
 
 
-def preparer_commune(code_insee, seuil_heures=None, declencheur="consultation"):
+def cadastre_a_refaire(code_insee):
+    """Le cadastre de cette commune manque-t-il, ou date-t-il trop ?"""
+    seuil_jours = reglages.lire("cadastre_apres_jours")
+    age = metier_parcelles.age_cadastre(code_insee)
+    if age is None:
+        return True
+    return bool(seuil_jours) and age >= float(seuil_jours) * 24
+
+
+def preparer_commune(code_insee, seuil_heures=None, declencheur="consultation",
+                     besoin="dpe"):
     """
     S'assure qu'une commune est consultable, et a jour.
 
@@ -450,28 +489,32 @@ def preparer_commune(code_insee, seuil_heures=None, declencheur="consultation"):
     parametres = reglages.tous()
     seuil = parametres["rafraichir_apres_heures"] if seuil_heures is None else seuil_heures
     age = age_commune(code_insee)
+    cadastre = besoin == "cadastre" and cadastre_a_refaire(code_insee)
 
     if _etat["en_cours"]:
         return {"lance": False, "raison": "deja_en_cours", "age_heures": age,
-                "en_cache": age is not None}
+                "en_cache": age is not None, "cadastre": cadastre}
 
     if age is None:
         raison = "jamais_moissonnee"
     elif seuil and age >= float(seuil):
         raison = "perimee"
+    elif cadastre:
+        raison = "cadastre_manquant"
     else:
         return {"lance": False, "raison": "a_jour", "age_heures": round(age, 2),
-                "en_cache": True}
+                "en_cache": True, "cadastre": False}
 
     try:
-        lancer_en_tache_de_fond(declencheur=declencheur, code_insee=code_insee)
+        lancer_en_tache_de_fond(declencheur=declencheur, code_insee=code_insee,
+                                avec_cadastre=cadastre)
     except RuntimeError:
         return {"lance": False, "raison": "deja_en_cours", "age_heures": age,
-                "en_cache": age is not None}
+                "en_cache": age is not None, "cadastre": cadastre}
 
     return {"lance": True, "raison": raison,
             "age_heures": None if age is None else round(age, 2),
-            "en_cache": age is not None}
+            "en_cache": age is not None, "cadastre": cadastre}
 
 
 def journal(limite=20):
@@ -485,7 +528,7 @@ def journal(limite=20):
 #  Lancement en tache de fond
 # ---------------------------------------------------------------------
 
-def lancer_en_tache_de_fond(declencheur="manuel", code_insee=None):
+def lancer_en_tache_de_fond(declencheur="manuel", code_insee=None, avec_cadastre=False):
     """
     Demarre une moisson sans bloquer l'appelant.
 
@@ -505,7 +548,22 @@ def lancer_en_tache_de_fond(declencheur="manuel", code_insee=None):
             else:
                 importer(declencheur=declencheur)
         except Exception:                            # noqa: BLE001
-            pass      # deja journalise et publie dans l'etat
+            return    # deja journalise et publie dans l'etat
+
+        # Le cadastre vient apres les DPE : il s'appuie sur eux pour le
+        # rattachement, et son echec ne doit pas invalider la moisson.
+        if avec_cadastre and code_insee:
+            try:
+                _publier(en_cours=True, etape="cadastre — démarrage")
+                resume = metier_parcelles.importer_cadastre(
+                    code_insee, progression=lambda message: _publier(etape=message))
+                _publier(en_cours=False, etape="termine",
+                         message=(_etat.get("message") or "") + " · " + resume["message"])
+            except Exception as erreur:              # noqa: BLE001
+                logger.warning("cadastre de %s indisponible : %s", code_insee, erreur)
+                _publier(en_cours=False, etape="termine",
+                         message=(_etat.get("message") or "")
+                                 + f" · cadastre indisponible ({erreur})")
 
     fil = threading.Thread(target=travail, name="import-dpe", daemon=True)
     fil.start()

@@ -15,7 +15,7 @@ Spécification complète : [`CAHIER_DES_CHARGES.md`](CAHIER_DES_CHARGES.md).
 
 ---
 
-## État — lots 1 et 2 livrés
+## État — lots 1, 2 et 3 livrés
 
 | Fonction | État |
 |---|---|
@@ -25,7 +25,7 @@ Spécification complète : [`CAHIER_DES_CHARGES.md`](CAHIER_DES_CHARGES.md).
 | Import ADEME des trois bases, avec cache et journal | livré |
 | Import hebdomadaire automatique | livré |
 | Écran Réglages, export CSV | livrés |
-| **F3** Recherche cadastrale | lot 3 |
+| **F3** Recherche cadastrale | livrée |
 | **F5/F6** Suivi, notes, notifications | lot 4 |
 
 Sur un import réel du code postal 40200 : **7 593 DPE**, des trois bases de
@@ -46,6 +46,37 @@ logement ne satisfait tout. Mais le mieux classé — 19 Avenue des Oiseaux —
 colle sur les consommations, les émissions et les deux classes, et ne
 s'écarte que sur la surface : 149 m² en base contre 144 annoncés. Un filtre
 strict à ±3 m² aurait fait disparaître la bonne maison sans rien expliquer.
+
+### Ce que fait la recherche cadastrale (F3)
+
+On cherche un terrain : telle surface de parcelle, telle emprise bâtie au
+sol. Repère utile — une maison de 120 m² habitables de plain-pied occupe
+environ 120 m² au sol&nbsp;; la même sur deux niveaux, 60 à 70 m².
+
+Et surtout le croisement que demande le CDC : **une parcelle au bon gabarit
+qui porte en plus un diagnostic récent**. Les deux signaux sont
+indépendants, leur rencontre ne l'est pas. Sur Launaguet :
+
+```
+4 304 parcelles au cadastre
+1 228   au gabarit  (terrain 400–2 000 m², emprise 60–250 m²)
+  223     portant un DPE
+   16       dont le DPE date de moins de 120 jours
+```
+
+Ces seize-là sont les candidats. Ils s'affichent en liste et sur la carte,
+contour à l'encre, en ambre quand le diagnostic est frais.
+
+Le rattachement des bâtiments aux parcelles passe par un **index spatial en
+grille** : comparer chaque bâtiment à chaque parcelle serait 11 444 × 14 395
+= 165 millions de tests d'appartenance pour la seule commune de Mimizan. La
+commune est donc découpée en cases de 110 m, et un bâtiment ne se compare
+qu'aux parcelles de sa case. Résultat mesuré sur Launaguet : 6 905 bâtiments
+rattachés en 6 secondes, **10 orphelins** (0,14 %).
+
+Les DPE sont rattachés à leur parcelle par la même mécanique, une fois pour
+toutes à l'import — 2 560 sur 2 878 pour Launaguet, les autres n'ayant pas
+de position exploitable.
 
 ### Ce que fait la fiche (F4)
 
@@ -157,7 +188,9 @@ app/
 ├── metier/          logique portée des scripts d'origine
 │   ├── veille.py            F1 — les DPE récents, dédoublonnés
 │   ├── identification.py    F2 — l'entonnoir et le classement
-│   └── fiche.py             F4 — chronologie, remplacements, comparaison
+│   ├── fiche.py             F4 — chronologie, remplacements, comparaison
+│   ├── geometrie.py         surfaces, appartenance, index spatial en grille
+│   └── parcelles.py         F3 — cadastre et croisement avec les DPE
 ├── api/             routes HTTP — ne font que traduire en JSON
 └── web/             interface : HTML, CSS, modules ES natifs
 ```
@@ -203,6 +236,19 @@ La conversion Lambert-93 → WGS84 est reprise telle quelle, sans `pyproj`
 (qui pèserait une quinzaine de mégaoctets). Elle est vérifiée par
 aller-retour au centimètre sur cinq villes.
 
+### L'extrait cadastral
+
+L'en-tête de la fiche d'un bien est le seul endroit où le CDC autorise de
+l'audace : le polygone de la parcelle tracé à l'encre sur une trame fine, la
+référence cadastrale en chasse fixe dans l'angle, les mesures alignées en
+colonne. Il porte aussi une barre d'échelle et une rose des vents, et un
+repère rouge marque la position du diagnostic dans la parcelle.
+
+Les degrés n'étant pas isotropes, le contour est projeté en mètres avant
+d'être dessiné — sans quoi une parcelle carrée apparaîtrait en rectangle.
+Tant que le cadastre de la commune n'est pas chargé, l'extrait retombe sur
+le repère de position et l'écrit.
+
 ### Un défaut corrigé au passage : INSEE contre code postal
 
 La base d'avant juillet 2021 (`dpe-france`) est d'une autre génération :
@@ -236,6 +282,7 @@ lesquels la cartographie exigée au §3 ne peut pas fonctionner :
 | `geo.api.gouv.fr` | code INSEE des communes | import seulement |
 | `data.geopf.fr` | fonds de plan et parcellaire IGN | affichage de la carte |
 | `tile.openstreetmap.org` | fond OpenStreetMap | affichage de la carte |
+| `cadastre.data.gouv.fr` | parcelles et bâtiments | import du cadastre |
 
 Aucune autre. Ni CDN, ni police distante, ni mesure d'audience.
 

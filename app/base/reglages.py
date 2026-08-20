@@ -65,6 +65,10 @@ DEFAUTS = {
     # sans bloquer l'affichage des donnees deja en cache.
     "rafraichir_apres_heures": 24,
 
+    # Le cadastre bouge lentement — un decoupage parcellaire ne change pas
+    # toutes les semaines. Le CDC 8 prevoit un rafraichissement mensuel.
+    "cadastre_apres_jours": 30,
+
     # Purge (CDC 9) : rien n'est conserve indefiniment.
     #
     # Elle porte sur `revu_le`, la derniere fois que l'ADEME a servi la
@@ -184,7 +188,8 @@ def valider(valeurs):
                             ("surface_min", 0, 10000),
                             ("surface_max", 0, 10000),
                             ("purge_mois", 1, 600),
-                            ("rafraichir_apres_heures", 0, 8760)]:
+                            ("rafraichir_apres_heures", 0, 8760),
+                            ("cadastre_apres_jours", 0, 3650)]:
         if cle in valeurs:
             try:
                 nombre = float(valeurs[cle])

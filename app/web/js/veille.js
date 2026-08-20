@@ -1,6 +1,7 @@
 import { api, ErreurApi } from "./api.js";
 import { creerCarte } from "./carte.js";
 import { auTermeDeLImport, lancerImport, reprendreSuiviEventuel } from "./import.js";
+import { initialiserParcelles } from "./parcelles.js";
 import {
   communeCourante, dessinerContexte, initialiserParcours, surCommunePrete,
 } from "./parcours.js";
@@ -466,6 +467,7 @@ async function demarrer() {
   afficherVersion();
 
   // Le parcours prend la main : accueil, puis commune, puis résultats.
+  initialiserParcelles();
   initialiserParcours();
   await reprendreSuiviEventuel();
 }

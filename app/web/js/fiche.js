@@ -17,15 +17,120 @@ import { changerVue } from "./navigation.js";
 
 let dernierRetour = "veille";
 
-/** L'extrait : trame fine, repère de position, référence dans l'angle. */
-function extraitCadastral(bien) {
+/**
+ * Projette un contour géographique dans le repère du dessin.
+ *
+ * Les degrés ne sont pas isotropes : un degré de longitude vaut un degré de
+ * latitude multiplié par le cosinus de la latitude. Sans cette correction,
+ * une parcelle carrée serait dessinée en rectangle.
+ */
+function projeter(anneaux, largeur, hauteur, marge) {
+  const tous = anneaux.flat();
+  if (!tous.length) return null;
+
+  const latMoyenne = tous.reduce((somme, p) => somme + p[1], 0) / tous.length;
+  const metresParLon = 110540 * Math.cos((latMoyenne * Math.PI) / 180);
+  const enMetres = anneaux.map((anneau) =>
+    anneau.map(([lon, lat]) => [lon * metresParLon, lat * 110540]));
+
+  const plats = enMetres.flat();
+  const xMin = Math.min(...plats.map((p) => p[0]));
+  const xMax = Math.max(...plats.map((p) => p[0]));
+  const yMin = Math.min(...plats.map((p) => p[1]));
+  const yMax = Math.max(...plats.map((p) => p[1]));
+
+  const echelle = Math.min((largeur - 2 * marge) / Math.max(xMax - xMin, 1),
+                           (hauteur - 2 * marge) / Math.max(yMax - yMin, 1));
+  const decalageX = (largeur - (xMax - xMin) * echelle) / 2;
+  const decalageY = (hauteur - (yMax - yMin) * echelle) / 2;
+
+  return {
+    echelle,
+    metresParLon,
+    // L'axe des ordonnées du SVG descend : on retourne la latitude.
+    versDessin: ([lon, lat]) => [
+      (lon * metresParLon - xMin) * echelle + decalageX,
+      hauteur - ((lat * 110540 - yMin) * echelle + decalageY),
+    ],
+    anneaux,
+  };
+}
+
+/** Barre d'échelle : un plan sans échelle ne se lit pas. */
+function barreEchelle(echelle, hauteur) {
+  const candidats = [5, 10, 20, 25, 50, 100, 200];
+  const metres = candidats.find((m) => m * echelle > 45) ?? 200;
+  const largeur = metres * echelle;
+  const y = hauteur - 14;
+  return `
+    <g stroke="var(--encre)" stroke-width="1" fill="var(--encre)">
+      <path d="M14 ${y} h${largeur}" />
+      <path d="M14 ${y - 3} v6 M${14 + largeur} ${y - 3} v6" />
+      <text x="${14 + largeur + 6}" y="${y + 3}" font-size="8" stroke="none"
+            font-family="var(--donnees)">${metres} m</text>
+    </g>`;
+}
+
+/**
+ * L'extrait : le polygone de la parcelle tracé à l'encre sur une trame
+ * fine, la référence en chasse fixe dans l'angle, l'échelle en bas.
+ *
+ * C'est le seul endroit où l'on dépense de l'audace (CDC §7). Sans
+ * parcelle — cadastre pas encore chargé, ou logement hors parcelle — on
+ * retombe sur le repère de position, et on le dit.
+ */
+function extraitCadastral(bien, parcelle) {
   const aPosition = bien.latitude != null && bien.longitude != null;
-  const reference = echapper(bien.n_dpe || "");
+  const reference = echapper(parcelle?.id || bien.n_dpe || "");
+  const L = 400;
+  const H = 220;
+
+  const anneaux = parcelle?.geometrie
+    ? (parcelle.geometrie.type === "MultiPolygon"
+        ? parcelle.geometrie.coordinates.map((p) => p[0])
+        : [parcelle.geometrie.coordinates[0]])
+    : null;
+  const projection = anneaux ? projeter(anneaux, L, H, 26) : null;
+
+  let dessin;
+  if (projection) {
+    const chemins = projection.anneaux.map((anneau) => {
+      const points = anneau.map((point) => projection.versDessin(point));
+      return "M" + points.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(" L") + " Z";
+    }).join(" ");
+
+    const point = aPosition ? projection.versDessin([bien.longitude, bien.latitude]) : null;
+    dessin = `
+      <path d="${chemins}" fill="var(--pin)" fill-opacity="0.10"
+            stroke="var(--encre)" stroke-width="1.4" stroke-linejoin="round"/>
+      ${point ? `
+        <g transform="translate(${point[0].toFixed(1)} ${point[1].toFixed(1)})">
+          <path d="M-9 0 H9 M0 -9 V9" stroke="var(--alerte)" stroke-width="1.1"/>
+          <circle r="3" fill="var(--alerte)"/>
+        </g>` : ""}
+      ${barreEchelle(projection.echelle, H)}`;
+  } else if (aPosition) {
+    dessin = `
+      <g transform="translate(200 110)">
+        <circle r="46" fill="none" stroke="var(--pin)" stroke-width="1" stroke-dasharray="3 4"/>
+        <path d="M-14 0 H14 M0 -14 V14" stroke="var(--encre)" stroke-width="1.2"/>
+        <circle r="4.5" fill="var(--encre)"/>
+      </g>
+      <text x="200" y="196" text-anchor="middle" font-size="8"
+            fill="var(--trait-fort)" font-family="var(--donnees)">
+        parcelle non chargée
+      </text>`;
+  } else {
+    dessin = `<text x="200" y="115" text-anchor="middle" font-size="11"
+                    fill="var(--trait-fort)" font-family="var(--donnees)">
+                position inconnue
+              </text>`;
+  }
 
   return `
   <figure class="extrait">
-    <svg viewBox="0 0 400 220" role="img"
-         aria-label="Extrait de repérage du bien">
+    <svg viewBox="0 0 ${L} ${H}" role="img"
+         aria-label="${parcelle ? "Extrait cadastral de la parcelle" : "Extrait de repérage"}">
       <defs>
         <pattern id="trame" width="10" height="10" patternUnits="userSpaceOnUse">
           <path d="M10 0 L0 0 0 10" fill="none" stroke="var(--trait)" stroke-width="0.5"/>
@@ -34,38 +139,32 @@ function extraitCadastral(bien) {
           <path d="M50 0 L0 0 0 50" fill="none" stroke="var(--trait-fort)" stroke-width="0.6"/>
         </pattern>
       </defs>
-      <rect width="400" height="220" fill="var(--papier-carte)"/>
-      <rect width="400" height="220" fill="url(#trame)"/>
-      <rect width="400" height="220" fill="url(#trame-large)"/>
+      <rect width="${L}" height="${H}" fill="var(--papier-carte)"/>
+      <rect width="${L}" height="${H}" fill="url(#trame)"/>
+      <rect width="${L}" height="${H}" fill="url(#trame-large)"/>
 
-      ${aPosition ? `
-      <g transform="translate(200 110)">
-        <circle r="46" fill="none" stroke="var(--pin)" stroke-width="1"
-                stroke-dasharray="3 4"/>
-        <path d="M-14 0 H14 M0 -14 V14" stroke="var(--encre)" stroke-width="1.2"/>
-        <circle r="4.5" fill="var(--encre)"/>
-      </g>` : `
-      <text x="200" y="115" text-anchor="middle" font-size="11"
-            fill="var(--trait-fort)" font-family="var(--donnees)">
-        position inconnue
-      </text>`}
+      ${dessin}
 
       <!-- Rose des vents, comme sur un plan -->
-      <g transform="translate(366 30)" stroke="var(--encre)" fill="var(--encre)">
-        <path d="M0 -14 L4 4 L0 1 L-4 4 Z" stroke-width="0.8"/>
-        <text x="0" y="18" text-anchor="middle" font-size="8"
+      <g transform="translate(376 26)" stroke="var(--encre)" fill="var(--encre)">
+        <path d="M0 -12 L3.5 3.5 L0 1 L-3.5 3.5 Z" stroke-width="0.8"/>
+        <text x="0" y="16" text-anchor="middle" font-size="8"
               font-family="var(--donnees)" stroke="none">N</text>
       </g>
 
-      <rect x="0.5" y="0.5" width="399" height="219" fill="none"
+      <rect x="0.5" y="0.5" width="${L - 1}" height="${H - 1}" fill="none"
             stroke="var(--encre)" stroke-width="1"/>
     </svg>
     <figcaption>
       <span class="donnee">${reference}</span>
-      ${aPosition
-        ? `<span class="donnee coordonnees">${nombreFr.format(bien.latitude)} N
-             ${nombreFr.format(bien.longitude)} E</span>`
-        : ""}
+      ${parcelle
+        ? `<span class="donnee coordonnees">terrain ${entierFr.format(
+             Math.round(parcelle.contenance_m2 ?? 0))} m² ·
+             bâti ${entierFr.format(Math.round(parcelle.emprise_batie_m2 ?? 0))} m²</span>`
+        : (aPosition
+            ? `<span class="donnee coordonnees">${nombreFr.format(bien.latitude)} N
+                 ${nombreFr.format(bien.longitude)} E</span>`
+            : "")}
     </figcaption>
   </figure>`;
 }
@@ -149,9 +248,16 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null, retour = null 
   const diagnostics = reponse.diagnostics;
   const principal = diagnostics[diagnostics.length - 1];
 
+  // La parcelle vient du cadastre (lot 3) : absente tant qu'il n'est pas
+  // chargé, ce que l'extrait dit alors franchement.
+  let parcelle = null;
+  try {
+    parcelle = (await api.parcelleDuDpe(principal.n_dpe)).parcelle;
+  } catch (_) { /* l'extrait retombe sur le repère de position */ }
+
   $("#fiche-contenu").innerHTML = `
     <div class="fiche-entete">
-      ${extraitCadastral(principal)}
+      ${extraitCadastral(principal, parcelle)}
       <div class="fiche-identite">
         <h1>${echapper(reponse.adresse || "Adresse inconnue")}</h1>
         <p class="explication">

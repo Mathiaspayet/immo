@@ -26,11 +26,11 @@ def base():
     """Une base vide, migree, pour chaque test."""
     migrations.appliquer()
     with transaction() as conn:
-        for table in ("dpe", "commune", "reglage", "journal_import"):
+        for table in ("dpe", "parcelle", "commune", "reglage", "journal_import"):
             conn.execute(f"DELETE FROM {table}")
     yield
     with transaction() as conn:
-        for table in ("dpe", "commune", "reglage", "journal_import"):
+        for table in ("dpe", "parcelle", "commune", "reglage", "journal_import"):
             conn.execute(f"DELETE FROM {table}")
 
 

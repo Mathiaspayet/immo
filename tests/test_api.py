@@ -151,7 +151,7 @@ def test_commune_perimee_est_rafraichie(client, monkeypatch):
     """Au-dela du seuil, la moisson repart — sans bloquer la consultation."""
     lances = []
     monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
-                        lambda declencheur, code_insee=None: lances.append(code_insee))
+                        lambda declencheur, code_insee=None, avec_cadastre=False: lances.append(code_insee))
     _moisson("40184", il_y_a_heures=48, nom="Mimizan")
 
     corps = client.post("/api/communes/40184/preparer").json()
@@ -167,7 +167,7 @@ def test_commune_jamais_consultee_est_moissonnee(client, monkeypatch):
     """
     lances = []
     monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
-                        lambda declencheur, code_insee=None: lances.append(code_insee))
+                        lambda declencheur, code_insee=None, avec_cadastre=False: lances.append(code_insee))
 
     corps = client.post("/api/communes/31282/preparer").json()
     assert corps["lance"] is True
@@ -183,7 +183,7 @@ def test_une_commune_inconnue_est_moissonnee_meme_seuil_desactive(client, monkey
     """
     lances = []
     monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
-                        lambda declencheur, code_insee=None: lances.append(code_insee))
+                        lambda declencheur, code_insee=None, avec_cadastre=False: lances.append(code_insee))
     client.put("/api/reglages", json={"rafraichir_apres_heures": 0})
 
     assert client.post("/api/communes/31282/preparer").json()["lance"] is True
@@ -245,3 +245,75 @@ def test_filtre_par_code_insee_sur_l_api(client):
     corps = client.get("/api/veille",
                        params={"fenetre_jours": 3650, "code_insee": "40019"}).json()
     assert [l["n_dpe"] for l in corps["resultats"]] == ["B"]
+
+
+# =====================================================================
+#  Lot 3 — recherche cadastrale
+# =====================================================================
+
+def _parcelle(client, identifiant, contenance, emprise, batiments=1, code_insee="31282"):
+    from app.base.connexion import transaction
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO parcelle (id, code_insee, section, numero, contenance_m2, "
+            "  emprise_batie_m2, nb_batiments, latitude, longitude, importe_le) "
+            "VALUES (?,?,'AA','001',?,?,?,43.66,1.44,'2026-08-20T10:00:00')",
+            (identifiant, code_insee, contenance, emprise, batiments))
+
+
+def test_recherche_cadastrale(client):
+    _parcelle(client, "P1", 800, 120)
+    _parcelle(client, "P2", 50_000, 0, batiments=0)
+
+    corps = client.get("/api/parcelles", params={
+        "code_insee": "31282", "terrain_min": 400, "terrain_max": 2000}).json()
+    assert corps["total"] == 1
+    assert corps["resultats"][0]["id"] == "P1"
+    assert corps["resume"]["parcelles"] == 2
+
+
+def test_recherche_cadastrale_sans_commune_refusee(client):
+    assert client.get("/api/parcelles").status_code == 422
+
+
+def test_parcelle_du_dpe(client):
+    from app.base.connexion import transaction
+    _parcelle(client, "P1", 800, 120)
+    inserer_dpe(n_dpe="D1", adresse="1 rue", code_insee="31282")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = 'P1' WHERE n_dpe = 'D1'")
+
+    assert client.get("/api/parcelles/du-dpe",
+                      params={"n_dpe": "D1"}).json()["parcelle"]["id"] == "P1"
+    assert client.get("/api/parcelles/du-dpe",
+                      params={"n_dpe": "X"}).json()["parcelle"] is None
+
+
+def test_preparer_une_commune_pour_le_cadastre(client, monkeypatch):
+    """
+    Choisir « Chercher par le terrain » doit suffire a declencher le
+    telechargement du cadastre, sans rien declarer nulle part.
+    """
+    appels = []
+    monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
+                        lambda declencheur, code_insee=None, avec_cadastre=False:
+                        appels.append((code_insee, avec_cadastre)))
+    _moisson("31282", il_y_a_heures=2, nom="Launaguet")
+
+    # Les DPE sont a jour, mais le cadastre manque.
+    corps = client.post("/api/communes/31282/preparer",
+                        params={"besoin": "cadastre"}).json()
+    assert corps["lance"] is True
+    assert corps["raison"] == "cadastre_manquant"
+    assert appels == [("31282", True)]
+
+    # La meme commune pour les seuls DPE ne declenche rien.
+    appels.clear()
+    corps = client.post("/api/communes/31282/preparer").json()
+    assert corps["lance"] is False and corps["raison"] == "a_jour"
+    assert appels == []
+
+
+def test_besoin_inconnu_refuse(client):
+    assert client.post("/api/communes/31282/preparer",
+                       params={"besoin": "lune"}).status_code == 422
