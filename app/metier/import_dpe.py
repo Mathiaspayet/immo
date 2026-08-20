@@ -437,7 +437,15 @@ def _purger(conn, purge_mois):
     et priverait F2 des DPE anterieurs que cite une annonce. Sur `revu_le`,
     la regle garde tout son sens — on ne conserve pas une donnee qu'on ne
     rafraichit plus.
+
+    Zero mois veut dire « ne jamais purger », et se traite AVANT tout calcul :
+    l'appliquer par le calcul donnerait une limite au jour meme, et
+    supprimerait donc tout ce qui n'a pas ete revu dans la journee — soit
+    l'exact contraire de ce qui est demande.
     """
+    if not purge_mois:
+        return 0
+
     limite = (datetime.date.today()
               - datetime.timedelta(days=int(float(purge_mois) * 30.44)))
     curseur = conn.execute(

@@ -351,8 +351,8 @@ syntaxe cron, `*` valant « tous les jours » :
 VEILLE_IMPORT_JOUR: "*"
 ```
 
-Rien ne devient obsolète en vieillissant : la purge ne retire que les
-lignes que l'ADEME ne sert plus depuis 24 mois.
+Rien ne devient obsolète en vieillissant, et par défaut **rien n'est
+supprimé** : la purge est réglée sur « jamais ».
 
 ## Le parcours
 
@@ -410,15 +410,33 @@ l'écran.
 
 ## Points à connaître
 
-**La purge ne porte plus sur la date du diagnostic.** Le CDC §9 demande de
-ne rien conserver au-delà de 24 mois. Appliquée à la date d'établissement,
-cette règle rendait le lot 2 impossible : la chronologie F4 remonte à 2013,
-et une annonce peut citer un DPE de 2022. La purge porte donc sur `revu_le`
-— la dernière fois que l'ADEME a servi la ligne. La règle garde son sens,
-rien n'est conservé sans être rafraîchi, et elle rend même un service à
-F4 : un DPE remplacé disparaît de la base active de l'ADEME, notre cache en
-garde la trace 24 mois de plus. C'est un écart assumé au texte du CDC,
-signalé ici pour que la décision reste la vôtre.
+**La purge est désactivée, et ne porte pas sur la date du diagnostic.**
+Le CDC §9 demande de ne rien conserver au-delà de 24 mois, sans préciser
+24 mois à compter de quoi. Les deux lectures possibles n'ont pas le même
+effet, mesuré sur Mimizan (4 343 DPE) :
+
+| Critère | Supprimés | Conservés |
+|---|---|---|
+| Date d'établissement du diagnostic | 2 770 | 1 573 |
+| `revu_le`, dernière fois que l'ADEME a servi la ligne | 0 | 4 343 |
+
+Purger sur la date d'établissement rendrait le lot 2 impossible : la
+chronologie F4 remonte à 2013, et une annonce peut citer un DPE de 2022
+(640 diagnostics cette année-là à Mimizan). Le critère retenu est donc
+`revu_le`.
+
+Le délai, lui, est réglé sur **0 — ne jamais purger**, l'exigence exprimée
+étant de garder le maximum d'historique. Ce que la valeur de 24 mois aurait
+détruit n'est pas anodin : un DPE que l'ADEME retire de sa base cesse
+d'être revu, et notre cache en devient l'unique trace — celle-là même que
+la chronologie F4 exploite.
+
+Ces deux choix sont des écarts assumés au texte du CDC §9. Le délai se
+change dans l'écran Réglages, sans redéploiement ; le critère est dans le
+code. À noter que la clause du CDC répond aussi à un souci de protection
+des données (§9 : « leur agrégation constitue un traitement de données
+personnelles ») : conserver sans limite l'affaiblit, sur un usage qui reste
+strictement privé et non exposé.
 
 **Le conteneur tourne en root**, comme `gestion-locative`. C'est ce qui
 évite les refus d'écriture sur le volume monté. L'application n'étant pas

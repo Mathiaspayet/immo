@@ -69,17 +69,21 @@ DEFAUTS = {
     # toutes les semaines. Le CDC 8 prevoit un rafraichissement mensuel.
     "cadastre_apres_jours": 30,
 
-    # Purge (CDC 9) : rien n'est conserve indefiniment.
-    #
-    # Elle porte sur `revu_le`, la derniere fois que l'ADEME a servi la
-    # ligne — pas sur la date du diagnostic. Purger sur la date du
+    # Purge (CDC 9), sur `revu_le` — la derniere fois que l'ADEME a servi la
+    # ligne — et non sur la date du diagnostic. Purger sur la date du
     # diagnostic rendrait le lot 2 impossible : la chronologie F4 remonte a
-    # 2013, et une annonce peut citer un DPE de 2022. Sur `revu_le`, la
-    # regle garde son sens — on ne conserve pas une donnee qu'on ne
-    # rafraichit plus — et elle rend meme un service a F4 : un DPE remplace
-    # disparait de la base active de l'ADEME, notre cache en garde la trace
-    # 24 mois de plus.
-    "purge_mois": 24,
+    # 2013, et une annonce peut citer un DPE de 2022.
+    #
+    # Zero veut dire « ne jamais purger », et c'est le defaut retenu :
+    # l'exigence exprimee est de garder le maximum d'historique. C'est un
+    # ecart assume au CDC 9, qui demande une purge a 24 mois. Il porte sur
+    # une seule chose : un DPE que l'ADEME retire de sa base cesse d'etre
+    # revu, et notre cache en devient l'unique trace — c'est precisement
+    # celle que la chronologie F4 exploite. La purge la detruirait.
+    #
+    # Toute valeur positive retablit une purge en mois ; le reglage se
+    # change dans l'ecran Reglages, sans redeploiement.
+    "purge_mois": 0,
 }
 
 
@@ -187,7 +191,7 @@ def valider(valeurs):
     for cle, mini, maxi in [("fenetre_jours", 1, 3650),
                             ("surface_min", 0, 10000),
                             ("surface_max", 0, 10000),
-                            ("purge_mois", 1, 600),
+                            ("purge_mois", 0, 600),   # 0 = jamais
                             ("rafraichir_apres_heures", 0, 8760),
                             ("cadastre_apres_jours", 0, 3650)]:
         if cle in valeurs:
