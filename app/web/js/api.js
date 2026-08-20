@@ -110,4 +110,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(valeurs),
     }),
+
+  etatAlerte: () => demander("/api/alertes"),
+
+  essaiAlerte: (destinataire) =>
+    demander("/api/alertes/essai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(destinataire ? { destinataire } : {}),
+    }),
 };

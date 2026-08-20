@@ -142,15 +142,16 @@ COLONNES = [
     "donnees_brutes_json",
 ]
 
-# A la mise a jour, on ne touche ni a `importe_le` ni a `vu_le` : la
-# premiere appartient a l'historique, la seconde a l'utilisateur.
+# A la mise a jour, on ne touche ni a `importe_le`, ni a `vu_le`, ni a
+# `alerte_le` : la premiere appartient a l'historique, la deuxieme a
+# l'utilisateur, la troisieme au journal des alertes deja parties.
 # `revu_le` en revanche est rafraichi a chaque passage : c'est lui qui dit
 # que l'ADEME sert encore cette ligne (voir 002_lot2.sql).
 _MAJ = ", ".join(f"{c} = excluded.{c}" for c in COLONNES if c != "n_dpe")
 
 SQL_UPSERT = (
-    f"INSERT INTO dpe ({', '.join(COLONNES)}, importe_le, revu_le, vu_le) "
-    f"VALUES ({', '.join('?' * len(COLONNES))}, ?, ?, ?) "
+    f"INSERT INTO dpe ({', '.join(COLONNES)}, importe_le, revu_le, vu_le, alerte_le) "
+    f"VALUES ({', '.join('?' * len(COLONNES))}, ?, ?, ?, ?) "
     f"ON CONFLICT(n_dpe) DO UPDATE SET {_MAJ}, revu_le = excluded.revu_le"
 )
 
@@ -389,15 +390,30 @@ def _moissonner(communes, jeux=None):
         connus = {ligne["n_dpe"] for ligne in conn.execute("SELECT n_dpe FROM dpe")}
         premier_import = not connus
 
+        # L'alerte se tait au PREMIER import d'une commune, et non
+        # seulement au premier import tout court. Explorer une commune
+        # nouvelle en fait paraitre le parc entier — plusieurs milliers de
+        # lignes — comme neuf : sans cette distinction, la decouvrir
+        # declencherait un courriel a chaque fois. Le badge « nouveau »,
+        # lui, garde son seuil global : une pastille de trop se ferme d'un
+        # clic, un courriel de trop est deja parti.
+        communes_connues = {
+            ligne["code_insee"] for ligne in
+            conn.execute("SELECT DISTINCT code_insee FROM dpe "
+                         "WHERE code_insee IS NOT NULL")}
+
         ajouts = 0
         for enregistrement in enregistrements.values():
             ajouts += enregistrement["n_dpe"] not in connus
             # Au tout premier import, tout est « nouveau » : marquer les
             # lignes comme deja vues evite de noyer l'ecran sous les badges.
             vu_le = maintenant if premier_import else None
+            alerte_le = (maintenant
+                         if enregistrement.get("code_insee") not in communes_connues
+                         else None)
             conn.execute(SQL_UPSERT,
                          [enregistrement[c] for c in COLONNES]
-                         + [maintenant, maintenant, vu_le])
+                         + [maintenant, maintenant, vu_le, alerte_le])
 
         # Le registre des communes consultees : c'est lui que le
         # rafraichissement hebdomadaire parcourra.

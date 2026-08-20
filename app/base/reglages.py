@@ -14,6 +14,7 @@ servent de point de depart a la premiere ouverture.
 import datetime
 import json
 import logging
+import re
 
 from app.base.connexion import connexion, transaction
 
@@ -84,6 +85,22 @@ DEFAUTS = {
     # Toute valeur positive retablit une purge en mois ; le reglage se
     # change dans l'ecran Reglages, sans redeploiement.
     "purge_mois": 0,
+
+    # --- Alerte courriel (F6) ----------------------------------------
+    # Ecart assume au CDC 9 (« aucun envoi automatique de courrier »), qui
+    # prevoyait un webhook Home Assistant : le courriel a ete demande
+    # explicitement. Il reste desactive par defaut — rien ne part tant
+    # qu'on ne l'a pas voulu, ni sans destinataire.
+    #
+    # Les identifiants SMTP ne sont PAS ici : ils vivent dans
+    # l'environnement du conteneur (voir app/config.py). Cette table est
+    # servie telle quelle par l'API des Reglages, un mot de passe y serait
+    # lisible depuis le navigateur.
+    "alerte_active": False,
+    "alerte_destinataire": "",
+    # Vide = tous les secteurs surveilles. Sinon, le nom d'un secteur
+    # (« bourg », « plage ») pour n'etre prevenu que de celui-la.
+    "alerte_zone": "",
 }
 
 
@@ -218,3 +235,19 @@ def valider(valeurs):
     if "type_batiment" in valeurs:
         if str(valeurs["type_batiment"]).lower() not in ("", "maison", "appartement"):
             raise ValueError("type_batiment : \"maison\", \"appartement\", ou vide.")
+
+    # Une adresse mal saisie ne se voit qu'au premier bien manque : le
+    # serveur SMTP accepte, puis rejette en silence. On la controle ici.
+    if "alerte_destinataire" in valeurs:
+        adresse = str(valeurs["alerte_destinataire"] or "").strip()
+        if adresse and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", adresse):
+            raise ValueError(f"Adresse de courriel invalide : {adresse!r}.")
+
+    # Activer l'alerte sans destinataire ne previendrait personne, et rien
+    # ne le dirait avant le premier DPE manque.
+    if valeurs.get("alerte_active"):
+        adresse = str(valeurs.get("alerte_destinataire",
+                                  lire("alerte_destinataire")) or "").strip()
+        if not adresse:
+            raise ValueError(
+                "Activer l'alerte demande une adresse de destinataire.")

@@ -395,6 +395,40 @@
     </section>
 
     <section>
+      <h2>Alerte par courriel</h2>
+      <p class="explication">
+        À la suite de l'import quotidien, un message part si de nouveaux DPE
+        répondent aux critères ci-dessus. Un bien n'est signalé qu'une fois,
+        et la découverte d'une commune n'en déclenche pas&nbsp;: son parc
+        entier paraîtrait neuf.
+      </p>
+      <div id="alerte-etat" class="explication"></div>
+      <div class="grille-champs">
+        <div class="champ">
+          <label for="r-alerte-active">Alerte activée</label>
+          <select id="r-alerte-active" class="donnee">
+            <option value="0">Non</option>
+            <option value="1">Oui</option>
+          </select>
+        </div>
+        <div class="champ">
+          <label for="r-alerte-destinataire">Destinataire</label>
+          <input type="email" id="r-alerte-destinataire" class="donnee"
+                 placeholder="vous@exemple.fr">
+        </div>
+        <div class="champ">
+          <label for="r-alerte-zone">Secteur (vide = tous)</label>
+          <input type="text" id="r-alerte-zone" class="donnee" placeholder="bourg">
+        </div>
+      </div>
+      <p>
+        <button type="button" class="bouton" id="essai-alerte">
+          Envoyer un message de contrôle
+        </button>
+      </p>
+    </section>
+
+    <section>
       <h2>Journal des imports</h2>
       <p class="explication" id="prochain-import">Chaque import est tracé, réussi ou non.</p>
       <table class="journal" id="journal"><tbody></tbody></table>

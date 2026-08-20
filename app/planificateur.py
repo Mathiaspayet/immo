@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-planificateur.py — L'import hebdomadaire automatique (CDC 8).
+planificateur.py — L'import quotidien automatique et l'alerte (CDC 8).
 
 APScheduler tourne dans un thread du meme processus : pas de second
 conteneur, pas de cron systeme a configurer sur le NAS.
@@ -15,21 +15,37 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app import config
-from app.metier import import_dpe
+from app.metier import alertes, import_dpe
 
 logger = logging.getLogger(__name__)
 
 _planificateur = None
-IDENTIFIANT = "import-hebdomadaire"
+IDENTIFIANT = "import-quotidien"
 
 
 def _tache():
-    """Lance l'import et avale l'erreur : elle est deja tracee au journal."""
-    logger.info("import hebdomadaire declenche")
+    """Lance l'import, puis l'alerte. Avale les erreurs : elles sont deja
+    tracees au journal, et un planificateur qui leve s'arrete."""
+    logger.info("import quotidien declenche")
     try:
         import_dpe.importer(declencheur="planifie")
     except Exception as erreur:                     # noqa: BLE001
-        logger.error("import hebdomadaire en echec : %s", erreur)
+        # L'import a echoue : rien de neuf n'est entre en base, donc rien a
+        # signaler. On ne tente pas l'alerte, qui n'aurait rien a dire.
+        logger.error("import quotidien en echec : %s", erreur)
+        return
+
+    # L'alerte suit l'import (CDC 8). Elle ne leve pas, mais on protege
+    # quand meme : une moisson reussie ne doit jamais etre annulee par un
+    # serveur de courriel injoignable.
+    try:
+        resultat = alertes.envoyer_si_besoin()
+        if resultat["envoye"]:
+            logger.info("alerte envoyee : %d bien(s)", resultat["biens"])
+        else:
+            logger.info("pas d'alerte (%s)", resultat["raison"])
+    except Exception as erreur:                     # noqa: BLE001
+        logger.error("alerte en echec : %s", erreur)
 
 
 def demarrer():
@@ -48,7 +64,7 @@ def demarrer():
         CronTrigger(day_of_week=config.IMPORT_JOUR, hour=config.IMPORT_HEURE,
                     minute=0, timezone=config.FUSEAU),
         id=IDENTIFIANT,
-        name="Import hebdomadaire des DPE",
+        name="Import quotidien des DPE, puis alerte",
         # Si le NAS etait eteint a l'heure prevue, on rattrape au demarrage
         # dans l'heure qui suit, mais on ne cumule pas les executions ratees.
         coalesce=True,
@@ -56,7 +72,7 @@ def demarrer():
         max_instances=1,
     )
     _planificateur.start()
-    logger.info("import hebdomadaire planifie : %s %dh00 (%s)",
+    logger.info("import quotidien planifie : %s %dh00 (%s)",
                 config.IMPORT_JOUR, config.IMPORT_HEURE, config.FUSEAU)
     return _planificateur
 

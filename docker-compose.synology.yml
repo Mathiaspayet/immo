@@ -47,15 +47,27 @@ services:
     # un. Les valeurs ci-dessous ont donc chacune un defaut, et restent
     # surchargeables par un .env pose a cote en SSH.
     environment:
-      # Indispensable : sans fuseau, l'import hebdomadaire partirait en UTC.
+      # Indispensable : sans fuseau, l'import quotidien partirait en UTC.
       TZ: ${TZ:-Europe/Paris}
-      # Jour et heure de l'import automatique (mon, tue, wed, thu, fri, sat, sun).
-      VEILLE_IMPORT_JOUR: ${VEILLE_IMPORT_JOUR:-mon}
+      # Jour et heure de l'import automatique. « * » = tous les jours ;
+      # sinon mon, tue, wed, thu, fri, sat, sun. L'alerte suit l'import.
+      VEILLE_IMPORT_JOUR: ${VEILLE_IMPORT_JOUR:-*}
       VEILLE_IMPORT_HEURE: ${VEILLE_IMPORT_HEURE:-7}
       # Mettre a 0 pour desactiver completement l'import automatique.
       VEILLE_PLANIFICATEUR: ${VEILLE_PLANIFICATEUR:-1}
       # DEBUG, INFO, WARNING, ERROR.
       VEILLE_LOG: ${VEILLE_LOG:-INFO}
+
+      # --- Alerte courriel (F6) ------------------------------------
+      # Les SEULS secrets de l'application. Les laisser vides desactive
+      # l'envoi ; l'application reste utilisable et le dit dans Reglages.
+      # A renseigner dans un .env pose a cote en SSH, jamais ici.
+      VEILLE_SMTP_HOTE: ${VEILLE_SMTP_HOTE:-}
+      VEILLE_SMTP_PORT: ${VEILLE_SMTP_PORT:-587}
+      VEILLE_SMTP_SSL: ${VEILLE_SMTP_SSL:-0}
+      VEILLE_SMTP_EXPEDITEUR: ${VEILLE_SMTP_EXPEDITEUR:-}
+      VEILLE_SMTP_UTILISATEUR: ${VEILLE_SMTP_UTILISATEUR:-}
+      VEILLE_SMTP_MOTDEPASSE: ${VEILLE_SMTP_MOTDEPASSE:-}
 
     volumes:
       # La base SQLite. Sans ce volume, tout serait perdu a chaque mise a

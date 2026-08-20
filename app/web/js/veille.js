@@ -260,9 +260,62 @@ async function chargerReglages() {
     $("#r-surface-max").value = reglages.surface_max;
     $("#r-purge").value = reglages.purge_mois;
     $("#r-zones-insee").value = reglages.zones_code_insee ?? "";
-
+    $("#r-alerte-active").value = reglages.alerte_active ? "1" : "0";
+    $("#r-alerte-destinataire").value = reglages.alerte_destinataire ?? "";
+    $("#r-alerte-zone").value = reglages.alerte_zone ?? "";
+    await chargerEtatAlerte();
   } catch (erreur) {
     afficherErreur("Impossible de lire les réglages.", erreur.message);
+  }
+}
+
+/**
+ * L'état de l'alerte : ce que les Réglages ne peuvent pas dire d'eux-mêmes.
+ *
+ * Les identifiants SMTP vivent dans l'environnement du conteneur, pas en
+ * base — le mot de passe n'a rien à faire dans une réponse d'API. L'écran
+ * ne peut donc pas deviner si l'envoi est possible : le serveur le lui dit.
+ */
+async function chargerEtatAlerte() {
+  const boite = $("#alerte-etat");
+  if (!boite) return;
+  try {
+    const etat = await api.etatAlerte();
+    if (!etat.smtp_configure) {
+      boite.innerHTML = `Aucun serveur SMTP configuré&nbsp;: renseignez
+        <span class="donnee">VEILLE_SMTP_HOTE</span> et
+        <span class="donnee">VEILLE_SMTP_EXPEDITEUR</span> dans le
+        <span class="donnee">.env</span> du conteneur, puis redémarrez-le.
+        Rien ne peut partir d'ici tant que ce n'est pas fait.`;
+      return;
+    }
+    const attente = etat.en_attente === 0
+      ? "aucun bien en attente"
+      : `${etat.en_attente} bien(s) seraient signalés au prochain import`;
+    boite.innerHTML = `Envoi par <span class="donnee">${echapper(etat.smtp_hote)}</span>
+      ${etat.smtp_authentifie ? "avec authentification" : "sans authentification"}
+      · ${echapper(attente)}.`;
+  } catch (erreur) {
+    boite.textContent = "État de l'alerte indisponible.";
+  }
+}
+
+/** Un message de contrôle, pour ne pas découvrir un mot de passe faux au
+ *  premier bien manqué. */
+async function envoyerEssaiAlerte() {
+  const bouton = $("#essai-alerte");
+  const libelle = bouton.textContent.trim();
+  masquerErreur();
+  bouton.disabled = true;
+  bouton.textContent = "Envoi…";
+  try {
+    const r = await api.essaiAlerte($("#r-alerte-destinataire").value.trim());
+    afficherSucces(`Message de contrôle envoyé à ${r.destinataire}.`);
+  } catch (erreur) {
+    afficherErreur("Le message de contrôle n'est pas parti.", erreur.message);
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = libelle;
   }
 }
 
@@ -278,6 +331,9 @@ async function enregistrerReglages() {
       surface_max: Number($("#r-surface-max").value),
       purge_mois: Number($("#r-purge").value),
       zones_code_insee: $("#r-zones-insee").value.trim(),
+      alerte_active: $("#r-alerte-active").value === "1",
+      alerte_destinataire: $("#r-alerte-destinataire").value.trim(),
+      alerte_zone: $("#r-alerte-zone").value.trim(),
     };
   } catch (erreur) {
     afficherErreur(erreur.message);
@@ -442,6 +498,7 @@ async function demarrer() {
   // Ce bouton n'a jamais été branché depuis le lot 1 : les réglages
   // s'affichaient, se modifiaient à l'écran, et rien n'était enregistré.
   $("#enregistrer-reglages").addEventListener("click", enregistrerReglages);
+  $("#essai-alerte").addEventListener("click", envoyerEssaiAlerte);
 
   // Ce qu'il faut rafraîchir quand un écran redevient visible.
   // Quand une moisson aboutit, l'écran se remet à jour tout seul.

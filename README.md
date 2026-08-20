@@ -23,7 +23,8 @@ Spécification complète : [`CAHIER_DES_CHARGES.md`](CAHIER_DES_CHARGES.md).
 | **F2** Identifier un bien depuis une annonce | livrée |
 | **F4** Fiche bien, chronologie, remplacements | livrée |
 | Import ADEME des trois bases, avec cache et journal | livré |
-| Import hebdomadaire automatique | livré |
+| Import quotidien automatique | livré |
+| Alerte courriel des nouveaux DPE (F6) | livré |
 | Écran Réglages, export CSV | livrés |
 | **F3** Recherche cadastrale | livrée |
 | **F5/F6** Suivi, notes, notifications | lot 4 |
@@ -182,7 +183,7 @@ le planificateur.
 app/
 ├── main.py          assemblage FastAPI, migrations au démarrage
 ├── config.py        variables d'environnement (chemins, port, fuseau)
-├── planificateur.py APScheduler — import hebdomadaire
+├── planificateur.py APScheduler — import quotidien, puis alerte
 ├── base/            SQLite : connexion, migrations SQL, réglages
 ├── sources/         API externes : ADEME (3 bases), geo.api.gouv.fr
 ├── metier/          logique portée des scripts d'origine
@@ -324,7 +325,7 @@ pas celle de l'ADEME.
 |---|---|
 | Établissement du DPE → réception par l'ADEME | médiane **0 jour** ; 79 % le jour même, 97 % sous une semaine |
 | Publication dans le jeu de données ouvert | **quotidienne** |
-| Import dans l'application | à la consultation d'une commune si elle date de plus de 24 h, et **hebdomadaire** (lundi 7 h) pour tout le registre |
+| Import dans l'application | à la consultation d'une commune si elle date de plus de 24 h, et **quotidien** (7 h) pour tout le registre |
 
 Le cache est donc au pire **24 heures** derrière la source dès lors que
 l'application est consultée, et 7 jours si elle ne l'est pas du tout. Mesures faites en août 2026 sur
@@ -378,7 +379,7 @@ chercher ses diagnostics et le dit ; si elle y est mais date de plus de
 24 h, elle affiche immédiatement ce qu'elle a et rafraîchit derrière.
 
 Rien ne se déclare à l'avance. Le registre des communes se remplit à mesure
-qu'on les consulte, et c'est lui que le rafraîchissement hebdomadaire
+qu'on les consulte, et c'est lui que le rafraîchissement quotidien
 parcourt. L'écran Réglages ne garde que ce qui relève vraiment d'un choix :
 secteurs, filtres par défaut, tolérances, rétention.
 
@@ -437,6 +438,39 @@ code. À noter que la clause du CDC répond aussi à un souci de protection
 des données (§9 : « leur agrégation constitue un traitement de données
 personnelles ») : conserver sans limite l'affaiblit, sur un usage qui reste
 strictement privé et non exposé.
+
+**L'alerte part par courriel, pas par webhook.** Le CDC §9 écrit « aucun
+envoi automatique de courrier », et F6 prévoyait un appel de webhook Home
+Assistant. Le courriel a été demandé explicitement : c'est un écart assumé,
+au même titre que la purge.
+
+Elle suit l'import quotidien (CDC §8) et reprend **les critères enregistrés
+dans les Réglages** — secteur, fenêtre, type de bien, surfaces — pour que ce
+qu'on reçoit soit ce que l'écran Veille montre, sans second jeu de règles à
+tenir à jour. Un secteur particulier peut la restreindre davantage.
+
+Trois garde-fous, parce qu'un courriel de trop est déjà parti :
+
+- **Un bien n'est signalé qu'une fois** (colonne `alerte_le`, migration 005).
+  Sans elle, chaque import quotidien réexpédierait les mêmes biens.
+- **Découvrir une commune ne déclenche rien.** Son parc entier paraît neuf —
+  4 343 DPE pour Mimizan. La suppression du premier import est donc par
+  commune, et non globale comme celle du badge « nouveau » : une pastille de
+  trop se ferme d'un clic, un courriel de trop est déjà parti.
+- **Un échec d'envoi ne consomme pas les biens.** Ils restent candidats pour
+  le lendemain : une alerte en retard vaut mieux qu'une alerte perdue. Et un
+  serveur injoignable n'annule jamais une moisson réussie.
+
+Les identifiants SMTP sont les seuls secrets de l'application. Ils vivent
+dans l'environnement du conteneur (`.env`, ignoré par git), jamais en base :
+l'API des Réglages sert sa table telle quelle, un mot de passe y serait
+lisible depuis le navigateur. Avec un mot de passe renseigné, l'envoi est
+**refusé** si le serveur n'annonce pas STARTTLS — il partirait en clair ;
+utiliser alors le port 465 avec `VEILLE_SMTP_SSL=1`.
+
+Le bouton **Envoyer un message de contrôle** des Réglages éprouve la
+configuration sans attendre qu'un DPE paraisse : sans lui, on ne saurait
+qu'un mot de passe est faux qu'au premier bien manqué.
 
 **Le conteneur tourne en root**, comme `gestion-locative`. C'est ce qui
 évite les refus d'écriture sur le volume monté. L'application n'étant pas
