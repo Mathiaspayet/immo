@@ -35,6 +35,53 @@ COLONNES = [
 ]
 
 
+def communes_en_cache():
+    """
+    Communes presentes en cache, avec leur nombre de DPE.
+
+    Regroupees par code INSEE, et non par nom : c'est le seul identifiant
+    stable d'une base a l'autre. Le nom affiche vient du referentiel
+    geo.api.gouv.fr quand il est connu, sinon de la variante la plus
+    frequente.
+    """
+    with connexion() as conn:
+        officiels = {ligne["code_insee"]: ligne["nom"]
+                     for ligne in conn.execute("SELECT code_insee, nom FROM commune")}
+        lignes = conn.execute(
+            "SELECT code_insee, commune, code_postal, count(*) AS dpe "
+            "FROM dpe WHERE code_insee IS NOT NULL "
+            "GROUP BY code_insee, commune ORDER BY dpe DESC").fetchall()
+
+    par_insee = {}
+    for ligne in lignes:
+        entree = par_insee.setdefault(ligne["code_insee"], {
+            "code_insee": ligne["code_insee"],
+            "nom": officiels.get(ligne["code_insee"]) or ligne["commune"],
+            "code_postal": ligne["code_postal"],
+            "dpe": 0,
+            "variantes": [],
+        })
+        entree["dpe"] += ligne["dpe"]
+        if ligne["commune"] and ligne["commune"] not in entree["variantes"]:
+            entree["variantes"].append(ligne["commune"])
+
+    return sorted(par_insee.values(), key=lambda c: -c["dpe"])
+
+
+def zones_en_cache():
+    """
+    Secteurs reellement portes par des logements en cache.
+
+    Les secteurs sont propres a une commune : en surveillant un autre
+    territoire, plus aucun logement n'en porte, et le filtre correspondant
+    n'a plus lieu d'etre affiche.
+    """
+    with connexion() as conn:
+        return [ligne["zone"] for ligne in conn.execute(
+            "SELECT zone, count(*) AS n FROM dpe WHERE zone IS NOT NULL "
+            "GROUP BY zone ORDER BY n DESC")]
+
+
 def filtres_par_defaut():
     """Filtres initiaux de l'ecran, tires des reglages."""
     parametres = reglages.tous()
@@ -42,6 +89,7 @@ def filtres_par_defaut():
         "fenetre_jours": parametres["fenetre_jours"],
         "commune": (parametres["communes"][0].get("commune") or "")
                    if parametres["communes"] else "",
+        "code_insee": "",
         "type_batiment": parametres["type_batiment"],
         "surface_min": parametres["surface_min"],
         "surface_max": parametres["surface_max"],
@@ -61,7 +109,14 @@ def _conditions(filtres):
         clauses.append("date_etablissement >= ?")
         parametres.append(depuis.isoformat())
 
-    if filtres.get("commune"):
+    # Le code INSEE prime sur le nom : l'ADEME ecrit la meme commune
+    # « Sainte-Eulalie-en-Born », « STE EULALIE EN BORN » ou
+    # « SAINTE-EULALIE-EN-BORN » selon les lignes, et aucun LIKE ne les
+    # rattrape toutes. Toutes les lignes portent un code INSEE.
+    if filtres.get("code_insee"):
+        clauses.append("code_insee = ?")
+        parametres.append(str(filtres["code_insee"]))
+    elif filtres.get("commune"):
         clauses.append("lower(commune) LIKE ?")
         parametres.append(f"%{str(filtres['commune']).lower()}%")
 

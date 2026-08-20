@@ -133,7 +133,7 @@ pip install pytest httpx                       # pour les tests
 VEILLE_BASE=./donnees/veille.db \
   python -m uvicorn app.main:application --reload --port 8020
 
-python -m pytest tests/ -q                     # 87 tests, aucun appel réseau
+python -m pytest tests/ -q                     # 115 tests, aucun appel réseau
 ```
 
 Ou avec Docker : `docker compose up --build`, puis <http://localhost:8020>.
@@ -250,10 +250,10 @@ pas celle de l'ADEME.
 |---|---|
 | Établissement du DPE → réception par l'ADEME | médiane **0 jour** ; 79 % le jour même, 97 % sous une semaine |
 | Publication dans le jeu de données ouvert | **quotidienne** |
-| Import dans l'application | **hebdomadaire**, lundi 7 h |
+| Import dans l'application | **hebdomadaire** (lundi 7 h), plus un rafraîchissement au lancement d'une recherche si la dernière moisson a plus de 24 h |
 
-Le cache est donc au pire **7 jours** derrière la source, et ce retard vient
-entièrement de notre propre cadence. Mesures faites en août 2026 sur
+Le cache est donc au pire **24 heures** derrière la source dès lors que
+l'application est consultée, et 7 jours si elle ne l'est pas du tout. Mesures faites en août 2026 sur
 1 000 DPE du 40200, en comparant `date_etablissement_dpe` et
 `date_reception_dpe`.
 
@@ -262,18 +262,54 @@ s'établit qu'environ **1,6 DPE par jour** sur tout le 40200, toutes
 communes et tous types confondus. Un filtre étroit sur quelques jours peut
 légitimement ne rien retourner.
 
-Pour passer à un import quotidien, une seule variable suffit — c'est une
+**Le rafraîchissement paresseux.** Ouvrir l'application ou changer un filtre
+est une recherche : si la dernière moisson remonte à plus de 24 h, une
+nouvelle part en tâche de fond. Les données déjà en cache s'affichent
+immédiatement — pas d'écran d'attente — et la liste se met à jour seule
+quand la moisson aboutit. Le déclencheur est bien l'action de recherche et
+jamais le simple affichage d'un écran, ce que le CDC §4 interdit : ouvrir la
+fiche d'un bien ou les réglages ne déclenche rien. Le seuil se règle par
+`rafraichir_apres_heures`, `0` désactivant le mécanisme.
+
+Pour forcer en plus un import quotidien planifié, une variable suffit —
 syntaxe cron, `*` valant « tous les jours » :
 
 ```yaml
 VEILLE_IMPORT_JOUR: "*"
 ```
 
-Le gain est faible : quelques jours d'avance sur une donnée qui bouge de
-une à deux lignes par jour.
-
 Rien ne devient obsolète en vieillissant : la purge ne retire que les
 lignes que l'ADEME ne sert plus depuis 24 mois.
+
+## Surveiller plusieurs communes
+
+Un code postal en couvre presque toujours plusieurs : le 40200 en compte
+cinq, le 31140 en compte sept. **Toutes** sont importées et consultables —
+l'écran Veille et l'écran Identifier proposent une liste déroulante des
+communes réellement présentes en cache, avec leur volume.
+
+Pour surveiller un autre territoire, ajoutez une ligne dans l'écran
+Réglages, au format `31140 Launaguet`, et lancez un import. Essai réel sur
+ce code postal : 15 910 DPE, sept communes, de 2013 à aujourd'hui.
+
+Le filtrage se fait sur le **code INSEE**, jamais sur le nom : l'ADEME écrit
+la même commune `Sainte-Eulalie-en-Born`, `STE EULALIE EN BORN` ou
+`SAINTE-EULALIE-EN-BORN` selon les lignes, et aucune recherche par nom ne
+les rattrape toutes. Les codes INSEE, eux, sont renseignés sur 100 % des
+lignes des trois bases.
+
+### Les secteurs sont propres à une commune
+
+Le découpage bourg / plage n'a de sens que là où ses points de référence ont
+été placés. Sans restriction, un logement d'Aureilhan se verrait étiqueter
+« bourg » au seul motif que c'est le repère le plus proche — et aucun seuil
+de distance ne sépare proprement les deux : Mimizan s'étend jusqu'à 4 083 m
+de ses repères, Aureilhan commence à 2 076 m.
+
+Le réglage `zones_code_insee` dit donc à quelle commune les secteurs
+s'appliquent (`40184`, Mimizan, par défaut ; vide = partout). Quand aucun
+logement en cache ne porte de secteur, le filtre correspondant disparaît de
+l'écran.
 
 ## Points à connaître
 
@@ -290,6 +326,17 @@ signalé ici pour que la décision reste la vôtre.
 **Le conteneur tourne en root**, comme `gestion-locative`. C'est ce qui
 évite les refus d'écriture sur le volume monté. L'application n'étant pas
 exposée publiquement, le compromis est assumé.
+
+**La version déployée est affichée en permanence** dans le bandeau, sous le
+titre : empreinte courte du commit et date de construction. C'est ce qu'on
+vient vérifier après un passage de Watchtower. L'infobulle donne l'empreinte
+complète.
+
+**Les positions aberrantes sont écartées.** L'ADEME sert des `_geopoint`
+hors de France — 39 lignes du 40200 portaient la latitude −5,98, en plein
+golfe de Guinée. Sans garde-fou, elles se voyaient attribuer un secteur et
+piquaient un marqueur au hasard sur la carte. Elles sont désormais
+déclarées sans position.
 
 **Mimizan-Plage n'a pas de code administratif propre** — ni code postal ni
 code INSEE distinct du bourg. La séparation se fait par la distance au

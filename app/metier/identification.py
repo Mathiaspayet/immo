@@ -56,7 +56,12 @@ def _nombre(valeur):
 def _candidats(filtres):
     """Tous les logements du perimetre, sans aucune elimination."""
     clauses, parametres = [], []
-    if filtres.get("commune"):
+    # Voir metier/veille.py : le code INSEE prime sur le nom, qui varie
+    # d'une base ADEME a l'autre.
+    if filtres.get("code_insee"):
+        clauses.append("code_insee = ?")
+        parametres.append(str(filtres["code_insee"]))
+    elif filtres.get("commune"):
         clauses.append("lower(commune) LIKE ?")
         parametres.append(f"%{str(filtres['commune']).lower()}%")
     if filtres.get("code_postal"):

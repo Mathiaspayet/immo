@@ -166,3 +166,133 @@ def test_marquage_avec_liste_vide_ne_marque_rien(base):
 
     assert veille.marquer_vus(None) == 1
     assert veille.resume(FILTRES)["nouveaux"] == 0
+
+
+# ---------------------------------------------------------------------
+#  Communes : plusieurs, et identifiees par leur code INSEE
+# ---------------------------------------------------------------------
+
+def test_le_cache_couvre_plusieurs_communes(base):
+    """
+    Un code postal couvre souvent plusieurs communes : le 40200 en compte
+    cinq. L'application doit toutes les proposer, pas seulement la premiere.
+    """
+    inserer_dpe(n_dpe="M1", adresse="1 rue A", commune="Mimizan", code_insee="40184")
+    inserer_dpe(n_dpe="M2", adresse="2 rue A", commune="Mimizan", code_insee="40184")
+    inserer_dpe(n_dpe="A1", adresse="3 rue B", commune="Aureilhan", code_insee="40019")
+
+    communes = veille.communes_en_cache()
+    assert [c["nom"] for c in communes] == ["Mimizan", "Aureilhan"]   # tri par volume
+    assert [c["dpe"] for c in communes] == [2, 1]
+
+
+def test_les_variantes_d_ecriture_sont_regroupees(base):
+    """
+    L'ADEME ecrit « Sainte-Eulalie-en-Born », « STE EULALIE EN BORN » ou
+    « SAINTE-EULALIE-EN-BORN » selon les lignes. Aucun LIKE ne les rattrape
+    toutes ; le code INSEE, lui, est le meme.
+    """
+    for numero, ecriture in [("A", "Sainte-Eulalie-en-Born"),
+                             ("B", "STE EULALIE EN BORN"),
+                             ("C", "SAINTE-EULALIE-EN-BORN")]:
+        inserer_dpe(n_dpe=numero, adresse=f"{numero} rue", commune=ecriture,
+                    code_insee="40257")
+
+    communes = veille.communes_en_cache()
+    assert len(communes) == 1
+    assert communes[0]["dpe"] == 3
+    assert len(communes[0]["variantes"]) == 3
+
+
+def test_le_nom_officiel_prime_sur_celui_de_l_ademe(base):
+    from app.base.connexion import transaction
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom, code_postal) "
+                     "VALUES ('40257', 'Sainte-Eulalie-en-Born', '40200')")
+    inserer_dpe(n_dpe="A", adresse="1 rue", commune="STE EULALIE EN BORN",
+                code_insee="40257")
+    assert veille.communes_en_cache()[0]["nom"] == "Sainte-Eulalie-en-Born"
+
+
+def test_filtre_par_code_insee_insensible_aux_variantes(base):
+    inserer_dpe(n_dpe="A", adresse="1 rue", commune="STE EULALIE EN BORN",
+                code_insee="40257", date_etablissement="2026-08-01")
+    inserer_dpe(n_dpe="B", adresse="2 rue", commune="Sainte-Eulalie-en-Born",
+                code_insee="40257", date_etablissement="2026-08-01")
+    inserer_dpe(n_dpe="C", adresse="3 rue", commune="Mimizan",
+                code_insee="40184", date_etablissement="2026-08-01")
+
+    filtres = {**FILTRES, "code_insee": "40257"}
+    assert {l["n_dpe"] for l in veille.lister(filtres)} == {"A", "B"}
+
+    # Le nom seul en aurait manque une.
+    par_nom = {**FILTRES, "commune": "Sainte-Eulalie-en-Born"}
+    assert {l["n_dpe"] for l in veille.lister(par_nom)} == {"B"}
+
+
+def test_le_code_insee_prime_sur_le_nom(base):
+    inserer_dpe(n_dpe="A", adresse="1 rue", commune="Mimizan", code_insee="40184",
+                date_etablissement="2026-08-01")
+    filtres = {**FILTRES, "code_insee": "40184", "commune": "Aureilhan"}
+    assert [l["n_dpe"] for l in veille.lister(filtres)] == ["A"]
+
+
+def test_les_secteurs_ne_debordent_pas_sur_les_communes_voisines(base):
+    """
+    Le decoupage bourg / plage est interne a Mimizan. Sans restriction, un
+    logement d'Aureilhan se verrait etiqueter « bourg » parce que c'est le
+    repere le plus proche — a 2 km. Aucun seuil de distance ne separe
+    proprement les deux, seule la commune le fait.
+    """
+    from app.metier.import_dpe import transformer
+
+    correspondances = {"numero_dpe": "n", "code_insee": "i", "latitude": "lat",
+                       "longitude": "lon", "adresse": "a"}
+    zones_points = {"bourg": [44.2011, -1.2286], "plage": [44.2044, -1.2914]}
+
+    mimizan = transformer(
+        {"n": "M", "i": "40184", "lat": 44.2015, "lon": -1.2280, "a": "1 rue"},
+        correspondances, zones_points, "existant", "40200", None, "40184")
+    assert mimizan["zone"] == "bourg"
+
+    aureilhan = transformer(
+        {"n": "A", "i": "40019", "lat": 44.2200, "lon": -1.2000, "a": "2 rue"},
+        correspondances, zones_points, "existant", "40200", None, "40184")
+    assert aureilhan["zone"] is None
+    assert aureilhan["distance_zone_m"] is None
+
+    # Reglage vide : les secteurs s'appliquent partout, comme avant.
+    partout = transformer(
+        {"n": "A", "i": "40019", "lat": 44.2200, "lon": -1.2000, "a": "2 rue"},
+        correspondances, zones_points, "existant", "40200", None, "")
+    assert partout["zone"] == "bourg"
+
+
+def test_les_secteurs_disponibles_suivent_le_contenu(base):
+    """
+    En surveillant un autre territoire, plus aucun logement ne porte de
+    secteur : le filtre correspondant n'a plus rien a filtrer et doit
+    disparaitre de l'ecran.
+    """
+    assert veille.zones_en_cache() == []
+
+    inserer_dpe(n_dpe="A", adresse="1 rue", zone="bourg")
+    inserer_dpe(n_dpe="B", adresse="2 rue", zone="plage")
+    inserer_dpe(n_dpe="C", adresse="3 rue", zone="bourg")
+    assert veille.zones_en_cache() == ["bourg", "plage"]    # tri par volume
+
+    inserer_dpe(n_dpe="D", adresse="4 rue", zone=None)
+    assert veille.zones_en_cache() == ["bourg", "plage"]
+
+
+@pytest.mark.parametrize("valeur, valide", [
+    ("40184", True), ("31282", True), ("", True),      # vide = partout
+    ("401", False), ("401845", False), ("40 18", False),
+])
+def test_reglage_commune_des_secteurs(base, valeur, valide):
+    if valide:
+        reglages.ecrire({"zones_code_insee": valeur})
+        assert reglages.lire("zones_code_insee") == valeur
+    else:
+        with pytest.raises(ValueError, match="Code INSEE invalide"):
+            reglages.ecrire({"zones_code_insee": valeur})

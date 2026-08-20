@@ -39,6 +39,11 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* `hidden` doit l'emporter sur les `display: flex` et `display: grid` de nos
+   composants : la feuille de l'auteur prime sur celle du navigateur, et un
+   element masque par `hidden` restait donc affiche. */
+[hidden] { display: none !important; }
+
 html { -webkit-text-size-adjust: 100%; }
 
 body {
@@ -162,7 +167,6 @@ a:hover { text-decoration-thickness: 2px; }
   border-bottom: 1px solid var(--trait);
   font-size: 0.88rem;
 }
-.message[hidden] { display: none; }
 .message-travail { background: #FBF3DF; border-left: 3px solid var(--ambre); }
 .message-erreur  { background: #F7E6E3; border-left: 3px solid var(--alerte); color: #6E2318; }
 .message-succes  { background: #E4EDE8; border-left: 3px solid var(--pin); }
@@ -283,4 +287,27 @@ input:focus-visible, select:focus-visible { border-color: var(--atlantique); }
     font-family: var(--titres);
     font-weight: 700;
   }
+  /* Cinq commandes — trois onglets, Filtres, Rafraichir — ne tiennent plus
+     sur une ligne de 320 px : elles passent dessous plutot que de deborder
+     et de faire defiler toute la page lateralement. */
+  .bandeau { flex-wrap: wrap; row-gap: calc(var(--pas) * 2); }
+  .bandeau .marque { flex: 1 0 100%; }
+  .bandeau .onglets { flex: 1 1 auto; }
+}
+
+/* Version déployée, en permanence dans le bandeau : savoir ce qui tourne
+   évite bien des doutes quand Watchtower vient de passer. */
+.bandeau .version {
+  margin: 2px 0 0;
+  font-size: 0.66rem;
+  color: var(--trait-fort);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Sur téléphone le sous-titre disparaît, la version reste : c'est elle
+   qu'on vient vérifier après une mise à jour. */
+@media (max-width: 700px) {
+  .bandeau .version { font-size: 0.62rem; }
 }

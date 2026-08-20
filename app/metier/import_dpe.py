@@ -72,7 +72,7 @@ def _maintenant():
 # ---------------------------------------------------------------------
 
 def transformer(ligne, correspondances, points_de_zone, jeu, code_postal_demande,
-                communes_par_insee=None):
+                communes_par_insee=None, zones_code_insee=""):
     """Convertit une ligne brute de l'API en dictionnaire pret pour la base."""
     lire = lambda concept: ligne.get(correspondances[concept]) if correspondances.get(concept) else None
 
@@ -84,7 +84,6 @@ def transformer(ligne, correspondances, points_de_zone, jeu, code_postal_demande
         geopoint=lire("geopoint"), x=lire("x_lambert"), y=lire("y_lambert"),
         latitude=lire("latitude"), longitude=lire("longitude"))
     latitude, longitude = position if position else (None, None)
-    zone, distance = zones.rattacher(latitude, longitude, points_de_zone)
 
     # La base ancienne ne porte aucun nom de commune : seul son code
     # INSEE l'identifie. On le traduit avec le referentiel de
@@ -95,6 +94,13 @@ def transformer(ligne, correspondances, points_de_zone, jeu, code_postal_demande
     code_insee = texte(lire("code_insee"))
     officiel = (communes_par_insee or {}).get(code_insee) or {}
     commune = officiel.get("nom") or texte(lire("commune"))
+
+    # Les secteurs ne valent que dans la commune ou leurs reperes ont ete
+    # places : ailleurs, le « point le plus proche » n'a aucun sens.
+    if zones_code_insee and code_insee != zones_code_insee:
+        zone, distance = None, None
+    else:
+        zone, distance = zones.rattacher(latitude, longitude, points_de_zone)
 
     return {
         "n_dpe": n_dpe,
@@ -265,7 +271,8 @@ def _executer(jeux=None):
                 for ligne in lignes:
                     enregistrement = transformer(ligne, correspondances,
                                                  points_de_zone, jeu, code_postal,
-                                                 communes_par_insee)
+                                                 communes_par_insee,
+                                                 parametres["zones_code_insee"])
                     if enregistrement:
                         enregistrements[enregistrement["n_dpe"]] = enregistrement
                         retenues += 1
@@ -362,6 +369,64 @@ def _fermer_journal(journal_id, statut, lignes, ajouts, message):
             "UPDATE journal_import SET fin = ?, statut = ?, lignes = ?, "
             "ajouts = ?, message = ? WHERE id = ?",
             (_maintenant(), statut, lignes, ajouts, (message or "")[:500], journal_id))
+
+
+# ---------------------------------------------------------------------
+#  Rafraichissement paresseux
+# ---------------------------------------------------------------------
+
+def age_dernier_import():
+    """
+    Nombre d'heures depuis la derniere moisson reussie, ou None si la base
+    n'en a jamais connu.
+    """
+    with connexion() as conn:
+        ligne = conn.execute(
+            "SELECT fin FROM journal_import WHERE statut = 'succes' "
+            "AND fin IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
+    if ligne is None:
+        return None
+    try:
+        fin = datetime.datetime.fromisoformat(ligne["fin"])
+    except ValueError:
+        return None
+    return (datetime.datetime.now() - fin).total_seconds() / 3600
+
+
+def rafraichir_si_perime(declencheur="recherche", seuil_heures=None):
+    """
+    Lance un import si la derniere moisson est trop vieille.
+
+    Appelee au lancement d'une recherche, pas a l'affichage d'un ecran : le
+    CDC 4 interdit qu'une page consultee declenche un appel externe. Les
+    resultats deja en cache s'affichent immediatement, l'import tourne
+    derriere et l'ecran se rafraichit quand il aboutit.
+
+    Ne leve jamais : un rafraichissement qui echoue ne doit pas empecher de
+    consulter ce qu'on a deja.
+    """
+    parametres = reglages.tous()
+    seuil = parametres["rafraichir_apres_heures"] if seuil_heures is None else seuil_heures
+    age = age_dernier_import()
+
+    if not seuil:
+        return {"lance": False, "raison": "desactive", "age_heures": age, "seuil_heures": seuil}
+    if _etat["en_cours"]:
+        return {"lance": False, "raison": "deja_en_cours", "age_heures": age, "seuil_heures": seuil}
+    if age is not None and age < float(seuil):
+        return {"lance": False, "raison": "a_jour", "age_heures": round(age, 2),
+                "seuil_heures": seuil}
+
+    try:
+        lancer_en_tache_de_fond(declencheur=declencheur)
+    except RuntimeError:
+        return {"lance": False, "raison": "deja_en_cours", "age_heures": age,
+                "seuil_heures": seuil}
+
+    return {"lance": True,
+            "raison": "jamais_importe" if age is None else "perime",
+            "age_heures": None if age is None else round(age, 2),
+            "seuil_heures": seuil}
 
 
 def journal(limite=20):

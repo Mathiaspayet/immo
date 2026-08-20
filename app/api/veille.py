@@ -21,12 +21,17 @@ routeur = APIRouter(prefix="/api/veille", tags=["veille"])
 
 
 def _filtres(fenetre_jours, commune, code_postal, zone, type_batiment,
-             surface_min, surface_max, etiquettes, seulement_nouveaux):
+             surface_min, surface_max, etiquettes, seulement_nouveaux,
+             code_insee=""):
     """Assemble les filtres, en completant par les valeurs des reglages."""
     defauts = veille.filtres_par_defaut()
     return {
         "fenetre_jours": defauts["fenetre_jours"] if fenetre_jours is None else fenetre_jours,
-        "commune": defauts["commune"] if commune is None else commune,
+        # Pas de commune par defaut : l'ecran propose desormais toutes
+        # celles du cache, et c'est a l'utilisateur de choisir. Le serveur
+        # n'a plus a deviner laquelle l'interesse.
+        "commune": commune or "",
+        "code_insee": code_insee or "",
         "code_postal": code_postal or "",
         "zone": zone or "",
         "type_batiment": defauts["type_batiment"] if type_batiment is None else type_batiment,
@@ -41,6 +46,7 @@ PARAMETRES = dict(
     fenetre_jours=Query(None, ge=1, le=3650, description="Fenetre en jours"),
     commune=Query(None, description="Filtre sur le nom de commune"),
     code_postal=Query(None),
+    code_insee=Query(None, description="Filtre exact sur la commune"),
     zone=Query(None, description="bourg, plage, ..."),
     type_batiment=Query(None),
     surface_min=Query(None, ge=0),
@@ -54,6 +60,7 @@ PARAMETRES = dict(
 def lister(fenetre_jours: int = PARAMETRES["fenetre_jours"],
            commune: str = PARAMETRES["commune"],
            code_postal: str = PARAMETRES["code_postal"],
+           code_insee: str = PARAMETRES["code_insee"],
            zone: str = PARAMETRES["zone"],
            type_batiment: str = PARAMETRES["type_batiment"],
            surface_min: float = PARAMETRES["surface_min"],
@@ -63,7 +70,8 @@ def lister(fenetre_jours: int = PARAMETRES["fenetre_jours"],
            limite: int = Query(500, ge=1, le=5000)):
     """Les DPE retenus, une ligne par adresse, du plus recent au plus ancien."""
     filtres = _filtres(fenetre_jours, commune, code_postal, zone, type_batiment,
-                       surface_min, surface_max, etiquettes, seulement_nouveaux)
+                       surface_min, surface_max, etiquettes, seulement_nouveaux,
+                       code_insee)
     return {
         "filtres": filtres,
         "resume": veille.resume(filtres),
@@ -75,6 +83,7 @@ def lister(fenetre_jours: int = PARAMETRES["fenetre_jours"],
 def exporter(fenetre_jours: int = PARAMETRES["fenetre_jours"],
              commune: str = PARAMETRES["commune"],
              code_postal: str = PARAMETRES["code_postal"],
+             code_insee: str = PARAMETRES["code_insee"],
              zone: str = PARAMETRES["zone"],
              type_batiment: str = PARAMETRES["type_batiment"],
              surface_min: float = PARAMETRES["surface_min"],
@@ -83,7 +92,8 @@ def exporter(fenetre_jours: int = PARAMETRES["fenetre_jours"],
              seulement_nouveaux: bool = PARAMETRES["seulement_nouveaux"]):
     """Le meme tableau, en CSV ouvrable directement dans Excel."""
     filtres = _filtres(fenetre_jours, commune, code_postal, zone, type_batiment,
-                       surface_min, surface_max, etiquettes, seulement_nouveaux)
+                       surface_min, surface_max, etiquettes, seulement_nouveaux,
+                       code_insee)
     contenu = veille.exporter_csv(filtres)
     nom = f"veille-dpe-{datetime.date.today():%Y-%m-%d}.csv"
     return Response(

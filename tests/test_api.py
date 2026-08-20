@@ -118,3 +118,65 @@ def test_chaine_sans_appel_reseau(client):
     corps = client.get("/api/fiche/chaine",
                        params={"n_dpe": "RECENT", "interroger_ademe": False}).json()
     assert [m["n_dpe"] for m in corps["maillons"]] == ["RECENT", "ANCIEN"]
+
+
+# =====================================================================
+#  Rafraichissement paresseux
+# =====================================================================
+
+def test_rafraichissement_ne_part_pas_si_la_moisson_est_recente(client):
+    import datetime
+
+    from app.base.connexion import transaction
+    recent = datetime.datetime.now().isoformat(timespec="seconds")
+    with transaction() as conn:
+        conn.execute("INSERT INTO journal_import (source, debut, fin, statut) "
+                     "VALUES ('essai', ?, ?, 'succes')", (recent, recent))
+
+    corps = client.post("/api/import/si-perime").json()
+    assert corps["lance"] is False
+    assert corps["raison"] == "a_jour"
+    assert corps["age_heures"] < 1
+
+
+def test_rafraichissement_desactivable(client):
+    """Un seuil a zero coupe completement le rafraichissement automatique."""
+    client.put("/api/reglages", json={"rafraichir_apres_heures": 0})
+    corps = client.post("/api/import/si-perime").json()
+    assert corps["lance"] is False
+    assert corps["raison"] == "desactive"
+
+
+def test_age_du_dernier_import(client):
+    assert client.get("/api/import/age").json()["age_heures"] is None
+
+
+def test_liste_des_communes(client):
+    inserer_dpe(n_dpe="A", adresse="1 rue", commune="Mimizan", code_insee="40184")
+    inserer_dpe(n_dpe="B", adresse="2 rue", commune="Aureilhan", code_insee="40019")
+    corps = client.get("/api/communes").json()
+    assert corps["total"] == 2
+    assert {c["code_insee"] for c in corps["communes"]} == {"40184", "40019"}
+
+
+def test_la_veille_ne_se_limite_plus_a_une_commune_par_defaut(client):
+    """
+    Le serveur ne devine plus la commune : sans filtre explicite, toutes les
+    communes du cache remontent.
+    """
+    inserer_dpe(n_dpe="A", adresse="1 rue", commune="Mimizan", code_insee="40184",
+                date_etablissement="2026-08-01")
+    inserer_dpe(n_dpe="B", adresse="2 rue", commune="Aureilhan", code_insee="40019",
+                date_etablissement="2026-08-01")
+    corps = client.get("/api/veille", params={"fenetre_jours": 3650}).json()
+    assert corps["resume"]["total"] == 2
+
+
+def test_filtre_par_code_insee_sur_l_api(client):
+    inserer_dpe(n_dpe="A", adresse="1 rue", commune="Mimizan", code_insee="40184",
+                date_etablissement="2026-08-01")
+    inserer_dpe(n_dpe="B", adresse="2 rue", commune="Aureilhan", code_insee="40019",
+                date_etablissement="2026-08-01")
+    corps = client.get("/api/veille",
+                       params={"fenetre_jours": 3650, "code_insee": "40019"}).json()
+    assert [l["n_dpe"] for l in corps["resultats"]] == ["B"]

@@ -52,6 +52,8 @@ export function versParametres(filtres) {
 export const api = {
   sante: () => demander("/api/sante"),
 
+  communes: () => demander("/api/communes"),
+
   veille: (filtres) => demander(`/api/veille?${versParametres(filtres)}`),
 
   urlExport: (filtres) => `/api/veille/export.csv?${versParametres(filtres)}`,
@@ -64,6 +66,11 @@ export const api = {
     }),
 
   lancerImport: () => demander("/api/import", { method: "POST" }),
+
+  /** Ne lance un import que si la dernière moisson est trop vieille. */
+  rafraichirSiPerime: () => demander("/api/import/si-perime", { method: "POST" }),
+
+  ageImport: () => demander("/api/import/age"),
 
   statutImport: () => demander("/api/import/statut"),
 

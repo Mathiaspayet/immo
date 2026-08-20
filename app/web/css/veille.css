@@ -15,6 +15,18 @@
   background: var(--papier-carte);
   border-bottom: 1px solid var(--trait);
 }
+/* La liste des communes porte des libellés longs (« toutes les communes »,
+   « Sainte-Eulalie-en-Born (342) ») : sans plancher, la colonne se calait
+   sur 128 px et tronquait tout. */
+/* Les libelles de communes sont longs (« Sainte-Eulalie-en-Born (342) »).
+   On elargit la PISTE de la grille, et seulement quand il y a la place :
+   un plancher en pixels sur l'element deborderait la piste sur telephone
+   et ferait defiler toute la page lateralement. */
+.filtres .champ-large select { width: 100%; min-width: 0; }
+/* Deux pistes, a toutes les largeurs : la grille en compte au moins deux
+   des 320 px, et `span 2` se ramene tout seul a une piste en dessous. */
+.filtres .champ-large { grid-column: span 2; }
+
 .filtres .actions-filtres {
   grid-column: 1 / -1;
   display: flex;

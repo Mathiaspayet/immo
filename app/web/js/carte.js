@@ -6,7 +6,10 @@
 //  — seules les tuiles manqueront alors.
 // ====================================================================
 
-const MIMIZAN = [44.2011, -1.2286];
+// Centre d'ouverture, le temps que les marqueurs arrivent : la France, pour
+// ne rien présumer du territoire surveillé. `afficher()` recadre ensuite sur
+// les biens trouvés.
+const FRANCE = [46.6, 2.4];
 
 const ATTRIBUTION_IGN =
   '<a href="https://geoservices.ign.fr/">IGN-F/Géoportail</a>';
@@ -23,8 +26,8 @@ function tuilesIgn(couche, format = "image/png") {
 export function creerCarte(identifiant, surSelection) {
   const plan = tuilesIgn("GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2");
   const carte = L.map(identifiant, {
-    center: MIMIZAN,
-    zoom: 13,
+    center: FRANCE,
+    zoom: 5,
     layers: [plan],
     zoomControl: true,
   });

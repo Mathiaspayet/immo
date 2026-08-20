@@ -24,6 +24,23 @@ C_L93 = 11754255.426096             # constante de projection
 XS_L93, YS_L93 = 700000.0, 12655612.049876   # coordonnees du pole
 LON0_L93 = math.radians(3.0)        # meridien d'origine : 3 degres est
 
+# Bornes de la France metropolitaine, Corse comprise.
+#
+# L'ADEME sert des `_geopoint` aberrants : 39 lignes du 40200 portaient
+# ainsi la latitude -5,98 — en plein golfe de Guinee. Sans ce garde-fou,
+# elles se voyaient attribuer un secteur (le point de reference le plus
+# proche l'emporte, meme a 5 500 km) et piquaient un marqueur sur la carte.
+# Mieux vaut declarer la position inconnue que la placer n'importe ou.
+LAT_MIN, LAT_MAX = 41.0, 51.6
+LON_MIN, LON_MAX = -5.6, 9.8
+
+
+def en_france(latitude, longitude):
+    """Vrai si le point tombe dans les bornes de la France metropolitaine."""
+    return (latitude is not None and longitude is not None
+            and LAT_MIN <= latitude <= LAT_MAX
+            and LON_MIN <= longitude <= LON_MAX)
+
 
 def lambert93_vers_wgs84(x, y):
     """Convertit des coordonnees Lambert-93 (metres) en (latitude, longitude)."""
@@ -64,7 +81,7 @@ def depuis_geopoint(valeur):
     latitude, longitude = nombre(morceaux[0]), nombre(morceaux[1])
     if latitude is None or longitude is None:
         return None
-    if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+    if not en_france(latitude, longitude):
         return None
     return latitude, longitude
 
@@ -84,15 +101,16 @@ def extraire(geopoint=None, x=None, y=None, latitude=None, longitude=None):
         return point
 
     latitude, longitude = nombre(latitude), nombre(longitude)
-    if latitude is not None and longitude is not None and (latitude or longitude):
-        if -90 <= latitude <= 90 and -180 <= longitude <= 180:
-            return latitude, longitude
+    if en_france(latitude, longitude) and (latitude or longitude):
+        return latitude, longitude
 
     x, y = nombre(x), nombre(y)
     # Le seuil ecarte les zeros et les valeurs aberrantes : une abscisse
     # Lambert-93 en France metropolitaine depasse toujours 100 000 metres.
     if x and y and x > 1000:
-        return lambert93_vers_wgs84(x, y)
+        point = lambert93_vers_wgs84(x, y)
+        if point and en_france(*point):
+            return point
     return None
 
 

@@ -32,6 +32,15 @@ DEFAUTS = {
         "plage": [44.2044, -1.2914],
     },
 
+    # Le decoupage bourg / plage est INTERNE a une commune : il n'a de sens
+    # que la ou les points de reference ont ete places. Sans cette
+    # restriction, un logement d'Aureilhan se verrait etiqueter « bourg »
+    # parce que c'est le point le plus proche — a 2 km. Et aucun seuil de
+    # distance ne separe proprement les deux : Mimizan s'etend jusqu'a
+    # 4 083 m de ses reperes, Aureilhan commence a 2 076 m.
+    # Vide = appliquer les secteurs a toutes les communes.
+    "zones_code_insee": "40184",      # Mimizan
+
     # Filtres par defaut de l'ecran Veille.
     "fenetre_jours": 120,
     "type_batiment": "maison",     # "maison", "appartement", ou "" pour tout
@@ -49,6 +58,16 @@ DEFAUTS = {
         "conso": 5.0,        # kWh/m2.an
         "ges": 1.5,          # kg CO2/m2.an
     },
+
+    # Rafraichissement paresseux : au lancement d'une recherche, si la
+    # derniere moisson reussie remonte a plus de ce nombre d'heures, un
+    # import part en tache de fond. 0 desactive completement.
+    #
+    # Le CDC 4 interdit tout appel externe declenche par le simple affichage
+    # d'une page. La regle est respectee : le declencheur est l'action de
+    # recherche, pas l'ouverture de l'ecran, et l'import tourne derriere
+    # sans bloquer l'affichage des donnees deja en cache.
+    "rafraichir_apres_heures": 24,
 
     # Purge (CDC 9) : rien n'est conserve indefiniment.
     #
@@ -179,7 +198,8 @@ def valider(valeurs):
     for cle, mini, maxi in [("fenetre_jours", 1, 3650),
                             ("surface_min", 0, 10000),
                             ("surface_max", 0, 10000),
-                            ("purge_mois", 1, 600)]:
+                            ("purge_mois", 1, 600),
+                            ("rafraichir_apres_heures", 0, 8760)]:
         if cle in valeurs:
             try:
                 nombre = float(valeurs[cle])
@@ -193,6 +213,13 @@ def valider(valeurs):
     if surface_min is not None and surface_max is not None:
         if float(surface_min) > float(surface_max):
             raise ValueError("La surface minimale depasse la surface maximale.")
+
+    if "zones_code_insee" in valeurs:
+        code = str(valeurs["zones_code_insee"] or "").strip()
+        if code and not (code.isalnum() and len(code) == 5):
+            raise ValueError(
+                f"Code INSEE invalide : {code!r} (cinq caracteres attendus, "
+                "ou vide pour appliquer les secteurs partout).")
 
     if "type_batiment" in valeurs:
         if str(valeurs["type_batiment"]).lower() not in ("", "maison", "appartement"):

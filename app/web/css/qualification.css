@@ -234,3 +234,8 @@
    défile, pas le tableau — `display: block` sur un <table> lui ferait
    perdre le calcul de ses largeurs de colonnes. */
 .cadre-defilant { overflow-x: auto; max-width: 100%; }
+
+/* Même principe que sur l'écran Veille : on élargit la piste de grille,
+   et seulement quand la largeur le permet. */
+.grille-champs .champ-large select { width: 100%; min-width: 0; }
+.grille-champs .champ-large { grid-column: span 2; }

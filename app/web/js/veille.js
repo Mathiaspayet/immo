@@ -1,12 +1,14 @@
 import { api, ErreurApi } from "./api.js";
 import { creerCarte } from "./carte.js";
+import {
+  auTermeDeLImport, lancerImport, rafraichirSiPerime, reprendreSuiviEventuel,
+} from "./import.js";
 import { ouvrirFiche } from "./fiche.js";
 import { initialiserIdentification } from "./identifier.js";
 import { auChangement, changerVue } from "./navigation.js";
 import {
-  $, afficherErreur, afficherSucces, afficherTravail, anciennete, dateFr,
-  debounce, echapper, entierFr, etiquetteHtml, liensExternes, masquerErreur,
-  masquerTravail, mesure, nombreFr,
+  $, afficherErreur, afficherSucces, anciennete, dateFr, echapper, entierFr,
+  etiquetteHtml, liensExternes, masquerErreur, mesure, nombreFr,
 } from "./format.js";
 
 const etat = {
@@ -54,7 +56,9 @@ function lireFiltres() {
   const etiquette = formulaire.etiquettes.value;
   return {
     fenetre_jours: formulaire.fenetre_jours.value,
-    commune: formulaire.commune.value.trim(),
+    // Le code INSEE plutôt que le nom : l'ADEME écrit la même commune de
+    // plusieurs façons, et lui seul identifie sans ambiguïté.
+    code_insee: formulaire.code_insee.value,
     zone: formulaire.zone.value,
     type_batiment: formulaire.type_batiment.value,
     surface_min: formulaire.surface_min.value,
@@ -77,7 +81,6 @@ function appliquerFiltres(filtres) {
     choix.add(new Option(`${fenetre} jours`, fenetre), 0);
   }
   choix.value = fenetre;
-  formulaire.commune.value = filtres.commune ?? "";
   formulaire.type_batiment.value = filtres.type_batiment ?? "";
   formulaire.surface_min.value = filtres.surface_min ?? "";
   formulaire.surface_max.value = filtres.surface_max ?? "";
@@ -169,10 +172,19 @@ function selectionner(numero) {
   }
 }
 
-async function charger() {
+/**
+ * Charge la liste. `recherche` distingue une vraie recherche — ouverture de
+ * l'application, changement de filtre — d'un simple rechargement après
+ * import : seule la première peut déclencher une moisson (CDC §4).
+ */
+async function charger({ recherche = false } = {}) {
   masquerErreur();
   etat.filtres = lireFiltres();
   $("#export-csv").href = api.urlExport(etat.filtres);
+
+  // Lancé sans attendre : les données déjà en cache s'affichent tout de
+  // suite, la moisson tourne derrière et rappellera charger() en finissant.
+  if (recherche) rafraichirSiPerime();
 
   try {
     const reponse = await api.veille(etat.filtres);
@@ -186,68 +198,6 @@ async function charger() {
       erreur instanceof ErreurApi ? "" : String(erreur)
     );
   }
-}
-
-// --------------------------------------------------------------------
-//  Import : lancement et suivi
-// --------------------------------------------------------------------
-
-async function lancerImport() {
-  masquerErreur();
-  $("#rafraichir").disabled = true;
-  try {
-    await api.lancerImport();
-    afficherTravail("Import démarré…");
-    suivreImport();
-  } catch (erreur) {
-    $("#rafraichir").disabled = false;
-    afficherErreur(erreur.message);
-  }
-}
-
-function suivreImport() {
-  clearInterval(etat.sondage);
-  etat.sondage = setInterval(async () => {
-    let statut;
-    try {
-      statut = await api.statutImport();
-    } catch (erreur) {
-      clearInterval(etat.sondage);
-      $("#rafraichir").disabled = false;
-      masquerTravail();
-      afficherErreur("Le suivi de l'import s'est interrompu.", erreur.message);
-      return;
-    }
-
-    if (statut.en_cours) {
-      const lignes = statut.lignes ? ` — ${entierFr.format(statut.lignes)} lignes` : "";
-      afficherTravail(`${statut.etape || "import en cours"}${lignes}`);
-      return;
-    }
-
-    clearInterval(etat.sondage);
-    $("#rafraichir").disabled = false;
-    masquerTravail();
-
-    if (statut.statut === "echec") {
-      afficherErreur("L'import a échoué.", statut.message || "");
-    } else if (statut.statut === "succes") {
-      afficherSucces(statut.message || "Import terminé.");
-    }
-    charger();
-  }, 1500);
-}
-
-/** Au chargement de la page, un import planifié peut déjà tourner. */
-async function reprendreSuiviEventuel() {
-  try {
-    const statut = await api.statutImport();
-    if (statut.en_cours) {
-      $("#rafraichir").disabled = true;
-      afficherTravail(statut.etape || "import en cours");
-      suivreImport();
-    }
-  } catch (_) { /* la page se chargera quand même */ }
 }
 
 // --------------------------------------------------------------------
@@ -282,6 +232,57 @@ function texteVersZones(texte) {
   return zones;
 }
 
+/**
+ * Remplit les listes de communes à partir de ce que le cache contient
+ * réellement — plutôt que de faire deviner une orthographe.
+ */
+async function chargerCommunes() {
+  try {
+    const { communes, zones } = await api.communes();
+    const selecteur = $("#f-commune");
+    const choisi = selecteur.value;
+    selecteur.innerHTML =
+      '<option value="">toutes les communes</option>' +
+      communes.map((commune) =>
+        `<option value="${echapper(commune.code_insee)}">` +
+        `${echapper(commune.nom)} (${entierFr.format(commune.dpe)})</option>`).join("");
+    selecteur.value = choisi;
+
+    // Le sous-titre dit ce qui est réellement surveillé : « Mimizan et
+    // communes voisines » était écrit en dur et devenait faux dès qu'on
+    // ajoutait un autre code postal.
+    const sousTitre = $("#sous-titre");
+    if (communes.length === 0) {
+      sousTitre.textContent = "DPE récents";
+    } else if (communes.length <= 3) {
+      sousTitre.textContent = "DPE récents · " +
+        communes.map((c) => c.nom).join(", ");
+    } else {
+      sousTitre.textContent = `DPE récents · ${communes[0].nom} ` +
+        `et ${communes.length - 1} communes voisines`;
+    }
+    // Le filtre par secteur ne s'affiche que s'il a de quoi filtrer : les
+    // secteurs sont propres à une commune, et disparaissent dès qu'on
+    // surveille un autre territoire.
+    const champSecteur = $("#f-zone").closest(".champ");
+    const selecteurZone = $("#f-zone");
+    if (!zones || zones.length === 0) {
+      champSecteur.hidden = true;
+      selecteurZone.value = "";
+    } else {
+      champSecteur.hidden = false;
+      const zoneChoisie = selecteurZone.value;
+      selecteurZone.innerHTML = '<option value="">tous</option>' +
+        zones.map((zone) => `<option>${echapper(zone)}</option>`).join("");
+      selecteurZone.value = zoneChoisie;
+    }
+
+    return communes;
+  } catch (_) {
+    return [];      // la liste reste sur « toutes les communes »
+  }
+}
+
 async function chargerReglages() {
   try {
     const { reglages } = await api.reglages();
@@ -292,13 +293,8 @@ async function chargerReglages() {
     $("#r-surface-min").value = reglages.surface_min;
     $("#r-surface-max").value = reglages.surface_max;
     $("#r-purge").value = reglages.purge_mois;
+    $("#r-zones-insee").value = reglages.zones_code_insee ?? "";
 
-    // Le sélecteur de secteur de l'écran Veille suit les réglages.
-    const selecteur = $("#f-zone");
-    const choisi = selecteur.value;
-    selecteur.innerHTML = '<option value="">tous</option>' +
-      Object.keys(reglages.zones).map((nom) => `<option>${echapper(nom)}</option>`).join("");
-    selecteur.value = choisi;
   } catch (erreur) {
     afficherErreur("Impossible de lire les réglages.", erreur.message);
   }
@@ -316,6 +312,7 @@ async function enregistrerReglages() {
       surface_min: Number($("#r-surface-min").value),
       surface_max: Number($("#r-surface-max").value),
       purge_mois: Number($("#r-purge").value),
+      zones_code_insee: $("#r-zones-insee").value.trim(),
     };
   } catch (erreur) {
     afficherErreur(erreur.message);
@@ -332,7 +329,47 @@ async function enregistrerReglages() {
   }
 }
 
+/** Version déployée, affichée en permanence dans le bandeau. */
+async function afficherVersion() {
+  try {
+    const sante = await api.sante();
+    const boite = $("#version");
+
+    if (!sante.version || sante.version === "dev") {
+      boite.textContent = "version locale";
+      boite.title = "Construite hors CI — pas de numéro de version";
+      return;
+    }
+
+    // BUILD_VERSION porte l'empreinte complète du commit : sept caractères
+    // suffisent à l'identifier, et tiennent dans le bandeau.
+    const abrege = sante.version.slice(0, 7);
+    const date = new Date(sante.date_build);
+    const horodatage = Number.isNaN(date.getTime())
+      ? ""
+      : " · " + date.toLocaleString("fr-FR", {
+          day: "2-digit", month: "2-digit", year: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        });
+
+    boite.textContent = abrege + horodatage;
+    boite.title = `Version ${sante.version}\nConstruite le ${sante.date_build}`;
+  } catch (_) { /* le bandeau reste vide, ce n'est pas bloquant */ }
+}
+
 async function chargerJournal() {
+  try {
+    // Ce que les codes postaux surveillés couvrent réellement : le 40200
+    // ne se limite pas à Mimizan, et rien ne le disait.
+    const { communes } = await api.communes();
+    $("#communes-couvertes").innerHTML = communes.length
+      ? "Actuellement en cache : " + communes.map((commune) =>
+          `<span class="donnee">${echapper(commune.nom)}</span> ` +
+          `(${entierFr.format(commune.dpe)} DPE, INSEE ${echapper(commune.code_insee)})`
+        ).join(" · ")
+      : "Aucune commune en cache : lancez un import depuis l'écran Veille.";
+  } catch (_) { /* section facultative */ }
+
   try {
     const [{ imports }, sante] = await Promise.all([api.journalImports(), api.sante()]);
 
@@ -398,9 +435,8 @@ async function demarrer() {
   initialiserCarte();
 
   $("#rafraichir").addEventListener("click", lancerImport);
-  $("#filtres").addEventListener("change", charger);
+  $("#filtres").addEventListener("change", () => charger({ recherche: true }));
   $("#filtres").addEventListener("submit", (e) => e.preventDefault());
-  $("#f-commune").addEventListener("input", debounce(charger, 400));
 
   $("#marquer-vus").addEventListener("click", async () => {
     try {
@@ -438,6 +474,10 @@ async function demarrer() {
   });
 
   // Ce qu'il faut rafraîchir quand un écran redevient visible.
+  // Quand une moisson aboutit, l'écran se remet à jour tout seul.
+  // Une moisson peut faire apparaître une commune jusque-là absente.
+  auTermeDeLImport(() => { chargerCommunes(); charger(); });
+
   auChangement("reglages", () => { chargerReglages(); chargerJournal(); });
   auChangement("veille", () => { if (etat.carte) etat.carte.redimensionner(); });
 
@@ -451,7 +491,11 @@ async function demarrer() {
   } catch (_) { /* charger() affichera l'erreur */ }
 
   await chargerReglages();
-  await charger();
+  await chargerCommunes();
+  afficherVersion();
+  // L'ouverture de l'application compte comme une recherche : c'est le
+  // moment où l'on veut des données du jour.
+  await charger({ recherche: true });
   await reprendreSuiviEventuel();
 }
 

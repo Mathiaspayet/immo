@@ -71,3 +71,41 @@ def test_rattachement_bourg_plage():
 
 def test_rattachement_sans_position():
     assert rattacher(None, None, {"bourg": MIMIZAN_BOURG}) == (None, None)
+
+
+# ---------------------------------------------------------------------
+#  Garde-fou geographique
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("geopoint", [
+    "-5.98385630920877,-1.363081210117898",   # cas reel : golfe de Guinee
+    "0,0",                                     # point nul
+    "48.8566,-70.0",                           # Quebec
+    "-33.86,151.2",                            # Sydney
+])
+def test_position_hors_de_france_rejetee(geopoint):
+    """
+    L'ADEME sert des `_geopoint` aberrants. Sans garde-fou, ils se voient
+    attribuer un secteur — le point de reference le plus proche l'emporte,
+    meme a 5 500 km — et piquent un marqueur au hasard sur la carte.
+    """
+    assert extraire(geopoint=geopoint) is None
+
+
+@pytest.mark.parametrize("point", [MIMIZAN_BOURG, (48.8566, 2.3522), (41.92, 8.73)])
+def test_positions_francaises_acceptees(point):
+    """Y compris la Corse."""
+    latitude, longitude = point
+    assert extraire(geopoint=f"{latitude},{longitude}") == point
+
+
+def test_lambert93_aberrant_rejete():
+    """Une conversion qui sort de France n'est pas une position exploitable."""
+    assert extraire(x=1_000_000, y=1_000_000) is None
+
+
+def test_une_position_rejetee_n_a_pas_de_secteur():
+    zones = {"bourg": MIMIZAN_BOURG, "plage": MIMIZAN_PLAGE}
+    point = extraire(geopoint="-5.98385630920877,-1.363081210117898")
+    assert point is None
+    assert rattacher(None, None, zones) == (None, None)

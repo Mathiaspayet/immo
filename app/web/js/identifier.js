@@ -12,6 +12,7 @@
 
 import { api } from "./api.js";
 import { ouvrirFiche } from "./fiche.js";
+import { auTermeDeLImport, rafraichirSiPerime } from "./import.js";
 import {
   $, afficherErreur, echapper, entierFr, etiquetteHtml, liensExternes,
   masquerErreur, mesure, nombreFr,
@@ -37,7 +38,8 @@ function lireFormulaire() {
       ges: valeur("#i-tol-ges") ?? undefined,
     },
     filtres: {
-      commune: $("#i-commune").value.trim(),
+      // Code INSEE : le nom de commune varie d'une base ADEME à l'autre.
+      code_insee: $("#i-commune").value,
       type_batiment: $("#i-type").value,
     },
   };
@@ -169,9 +171,17 @@ function dessinerResultats(reponse) {
   });
 }
 
+let derniereRecherche = null;
+
 async function chercher() {
   masquerErreur();
+  // Chercher, c'est demander des données à jour : si la dernière moisson
+  // remonte à plus de 24 h, elle repart en tâche de fond pendant que le
+  // classement s'affiche sur le cache existant.
+  rafraichirSiPerime();
+
   const corps = lireFormulaire();
+  derniereRecherche = corps;
   const bouton = $("#i-chercher");
   bouton.disabled = true;
   bouton.textContent = "Recherche…";
@@ -189,6 +199,10 @@ async function chercher() {
 }
 
 export function initialiserIdentification() {
+  // Une moisson qui aboutit pendant qu'on consulte le classement le rend
+  // caduc : on le rejoue, mais seulement si une recherche a déjà eu lieu.
+  auTermeDeLImport(() => { if (derniereRecherche) chercher(); });
+
   $("#formulaire-identification").addEventListener("submit", (evenement) => {
     evenement.preventDefault();
     chercher();
@@ -205,8 +219,14 @@ export function initialiserIdentification() {
     $("#i-tol-surface").placeholder = reglages.tolerances.surface;
     $("#i-tol-conso").placeholder = reglages.tolerances.conso;
     $("#i-tol-ges").placeholder = reglages.tolerances.ges;
-    if (reglages.communes.length) {
-      $("#i-commune").placeholder = reglages.communes[0].commune || "toutes";
-    }
   }).catch(() => { /* les tolérances du serveur s'appliqueront */ });
+
+  // Les communes réellement présentes en cache, avec leur volume.
+  api.communes().then(({ communes }) => {
+    $("#i-commune").innerHTML =
+      '<option value="">toutes les communes</option>' +
+      communes.map((commune) =>
+        `<option value="${echapper(commune.code_insee)}">` +
+        `${echapper(commune.nom)} (${entierFr.format(commune.dpe)})</option>`).join("");
+  }).catch(() => { /* la liste reste sur « toutes les communes » */ });
 }

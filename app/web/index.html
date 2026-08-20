@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<title>Veille immobilière — Mimizan</title>
+<title>Veille immobilière</title>
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="css/socle.css">
 <link rel="stylesheet" href="css/veille.css">
@@ -16,7 +16,8 @@
 <header class="bandeau">
   <div class="marque">
     <h1>Veille immobilière</h1>
-    <p class="sous-titre" id="sous-titre">DPE récents · Mimizan et communes voisines</p>
+    <p class="sous-titre" id="sous-titre">DPE récents</p>
+    <p class="version donnee" id="version" title="Version déployée"></p>
   </div>
   <nav class="onglets" aria-label="Écrans">
     <button type="button" class="bouton" data-vue="veille" aria-pressed="true">Veille</button>
@@ -50,9 +51,11 @@
           <option value="730">2 ans</option>
         </select>
       </div>
-      <div class="champ">
+      <div class="champ champ-large">
         <label for="f-commune">Commune</label>
-        <input type="text" id="f-commune" name="commune" placeholder="Mimizan">
+        <select id="f-commune" name="code_insee">
+          <option value="">toutes les communes</option>
+        </select>
       </div>
       <div class="champ">
         <label for="f-zone">Secteur</label>
@@ -162,9 +165,11 @@
           est un peu large. Laissez vide pour reprendre celle des réglages.
         </p>
         <div class="grille-champs">
-          <div class="champ">
+          <div class="champ champ-large">
             <label for="i-commune">Commune</label>
-            <input type="text" id="i-commune" placeholder="Mimizan">
+            <select id="i-commune">
+              <option value="">toutes les communes</option>
+            </select>
           </div>
           <div class="champ">
             <label for="i-type">Type de bâtiment</label>
@@ -215,7 +220,11 @@
         le code postal détermine ce qui est téléchargé chez l'ADEME, le nom qui suit
         sert de filtre d'affichage. Le 40200 couvre aussi Aureilhan et
         Saint-Paul-en-Born&nbsp;; laisser le nom vide les conserve toutes.
+        Ajoutez une ligne par code postal à surveiller — les communes
+        correspondantes apparaîtront ensuite dans la liste déroulante des
+        écrans Veille et Identifier.
       </p>
+      <p class="explication" id="communes-couvertes"></p>
       <div class="champ">
         <label for="r-communes">Codes postaux</label>
         <textarea id="r-communes" class="donnee" rows="3" style="font-size:0.88rem;padding:8px;border:1px solid var(--trait-fort);border-radius:3px;background:var(--papier-carte);resize:vertical"></textarea>
@@ -229,6 +238,18 @@
         donc rattaché au point de référence le plus proche. Un point par ligne,
         au format <span class="donnee">plage 44.2044 -1.2914</span>.
       </p>
+      <p class="explication">
+        Ce découpage est <strong>interne à une commune</strong> : indiquez
+        laquelle ci-dessous par son code INSEE. Sans cette restriction, un
+        logement de la commune voisine se verrait étiqueter « bourg » au seul
+        motif que c'est le repère le plus proche. Laisser vide applique les
+        secteurs partout.
+      </p>
+      <div class="champ" style="max-width:220px">
+        <label for="r-zones-insee">Commune des secteurs (code INSEE)</label>
+        <input type="text" id="r-zones-insee" class="donnee" maxlength="5"
+               placeholder="40184">
+      </div>
       <div class="champ">
         <label for="r-zones">Secteurs</label>
         <textarea id="r-zones" class="donnee" rows="3" style="font-size:0.88rem;padding:8px;border:1px solid var(--trait-fort);border-radius:3px;background:var(--papier-carte);resize:vertical"></textarea>

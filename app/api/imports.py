@@ -30,10 +30,28 @@ def lancer():
     return {"lance": True, "etat": import_dpe.etat()}
 
 
+@routeur.post("/si-perime", status_code=200)
+def si_perime():
+    """
+    Lance un import seulement si la derniere moisson est trop vieille.
+
+    Appelee par l'interface au lancement d'une recherche. Repond toujours
+    200, meme quand rien n'est lance : ce n'est pas une erreur, c'est le
+    cas courant. `raison` dit pourquoi.
+    """
+    return import_dpe.rafraichir_si_perime(declencheur="recherche")
+
+
 @routeur.get("/statut")
 def statut():
     """Progression de l'import en cours, ou resultat du dernier."""
     return import_dpe.etat()
+
+
+@routeur.get("/age")
+def age():
+    """Heures ecoulees depuis la derniere moisson reussie."""
+    return {"age_heures": import_dpe.age_dernier_import()}
 
 
 @routeur.get("/journal")
