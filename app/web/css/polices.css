@@ -1,40 +1,29 @@
 /* ------------------------------------------------------------------
    Polices auto-hebergees (CDC 3) : aucune requete vers un CDN, et
    l'application reste lisible si le NAS perd Internet.
-   Sous-ensemble latin uniquement, genere depuis Google Fonts.
-   Licences : SIL Open Font License 1.1 pour les trois familles.
+   Sous-ensemble latin uniquement. Licence SIL Open Font 1.1 pour les
+   trois familles.
+
+   Space Grotesk et Public Sans sont des polices VARIABLES : un seul
+   fichier couvre toute la plage de graisses. Les declarer graisse par
+   graisse embarquerait deux fois le meme fichier.
+   IBM Plex Mono, elle, est statique : un fichier par graisse.
    ------------------------------------------------------------------ */
 
 @font-face {
   font-family: 'Space Grotesk';
   font-style: normal;
-  font-weight: 500;
+  font-weight: 300 700;
   font-display: swap;
-  src: url('../polices/space-grotesk-500.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Space Grotesk';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('../polices/space-grotesk-700.woff2') format('woff2');
+  src: url('../polices/space-grotesk.woff2') format('woff2');
 }
 
 @font-face {
   font-family: 'Public Sans';
   font-style: normal;
-  font-weight: 400;
+  font-weight: 100 900;
   font-display: swap;
-  src: url('../polices/public-sans-400.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Public Sans';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('../polices/public-sans-600.woff2') format('woff2');
+  src: url('../polices/public-sans.woff2') format('woff2');
 }
 
 @font-face {
