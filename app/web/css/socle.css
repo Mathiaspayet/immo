@@ -1,0 +1,286 @@
+/* ====================================================================
+   socle.css — Fondations visuelles.
+
+   Registre : le document technique de l'administration fonciere. Le plan,
+   pas la brochure d'agence (CDC 7). Concretement : peu de couleur, des
+   traits fins, et toutes les mesures en chasse fixe pour que les colonnes
+   de chiffres soient comparables a l'oeil.
+   ==================================================================== */
+
+@import url('polices.css');
+
+:root {
+  /* --- Palette (CDC 7) ------------------------------------------- */
+  --encre:      #12262B;   /* texte, traces */
+  --papier:     #F1F3F1;   /* fond */
+  --pin:        #2E5B4C;   /* accents structurels */
+  --atlantique: #14708C;   /* interactif, liens */
+  --ambre:      #D9A441;   /* signal « nouveau » */
+  --alerte:     #A33A2A;
+
+  /* Nuances derivees, pour les fonds et les traits fins. */
+  --papier-creux: #E7EAE7;
+  --papier-carte: #FAFBFA;
+  --trait:        #C9D0CC;
+  --trait-fort:   #9AA6A0;
+  --encre-pale:   #5A6B6F;
+  --encre-douce:  #5D6E71;
+
+  /* --- Typographie ---------------------------------------------- */
+  --titres:  'Space Grotesk', 'Trebuchet MS', sans-serif;
+  --courant: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --donnees: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+
+  /* --- Rythme ---------------------------------------------------- */
+  --pas: 4px;
+  --rayon: 3px;          /* presque droit : c'est un document, pas une carte */
+  --bandeau-hauteur: 60px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--papier);
+  color: var(--encre);
+  font-family: var(--courant);
+  font-size: 15px;
+  line-height: 1.5;
+  /* Trame fine, comme le fond d'un plan. Discrete au point de ne se voir
+     qu'en pleine page — c'est voulu. */
+  background-image:
+    linear-gradient(var(--papier-creux) 1px, transparent 1px),
+    linear-gradient(90deg, var(--papier-creux) 1px, transparent 1px);
+  background-size: 32px 32px, 32px 32px;
+}
+
+h1, h2, h3 {
+  font-family: var(--titres);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+h1 { font-size: 1.15rem; }
+h2 { font-size: 1rem; }
+h3 { font-size: 0.98rem; font-weight: 500; }
+
+a { color: var(--atlantique); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+
+/* Toutes les donnees chiffrees : references, surfaces, consommations.
+   `tabular-nums` aligne les chiffres en colonne d'une ligne a l'autre. */
+.donnee {
+  font-family: var(--donnees);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'zero' 1;
+}
+
+/* --- Accessibilite : le focus clavier doit se voir (CDC 7) -------- */
+:focus-visible {
+  outline: 2px solid var(--atlantique);
+  outline-offset: 2px;
+  border-radius: var(--rayon);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ====================================================================
+   Composants communs
+   ==================================================================== */
+
+.bandeau {
+  position: sticky;
+  top: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pas) * 4);
+  min-height: var(--bandeau-hauteur);
+  padding: calc(var(--pas) * 2) calc(var(--pas) * 4);
+  background: var(--papier-carte);
+  border-bottom: 1px solid var(--trait-fort);
+}
+
+.bandeau .marque { flex: 1 1 auto; min-width: 0; }
+.bandeau .sous-titre {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--encre-douce);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.onglets { display: flex; gap: 2px; }
+
+.bouton {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: calc(var(--pas) * 2) calc(var(--pas) * 3);
+  min-height: 40px;               /* utilisable au doigt (CDC 7) */
+  color: var(--encre);
+  background: transparent;
+  border: 1px solid var(--trait-fort);
+  border-radius: var(--rayon);
+  cursor: pointer;
+}
+.bouton:hover { background: var(--papier-creux); }
+.bouton[aria-pressed="true"] {
+  background: var(--encre);
+  border-color: var(--encre);
+  color: var(--papier);
+}
+.bouton-principal {
+  background: var(--pin);
+  border-color: var(--pin);
+  color: #FFF;
+  font-weight: 600;
+}
+.bouton-principal:hover { background: #26483C; }
+.bouton:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.bouton-discret {
+  border-color: transparent;
+  color: var(--atlantique);
+  text-decoration: underline;
+  padding: var(--pas) calc(var(--pas) * 2);
+  min-height: 32px;
+}
+
+/* --- Bandeaux d'etat ---------------------------------------------- */
+.message {
+  margin: 0;
+  padding: calc(var(--pas) * 3) calc(var(--pas) * 4);
+  border-bottom: 1px solid var(--trait);
+  font-size: 0.88rem;
+}
+.message[hidden] { display: none; }
+.message-travail { background: #FBF3DF; border-left: 3px solid var(--ambre); }
+.message-erreur  { background: #F7E6E3; border-left: 3px solid var(--alerte); color: #6E2318; }
+.message-succes  { background: #E4EDE8; border-left: 3px solid var(--pin); }
+.message .detail { display: block; margin-top: var(--pas); font-size: 0.82rem; opacity: 0.85; }
+
+/* Barre de progression : une operation longue sans retour visuel est
+   indiscernable d'un plantage (CDC 7). */
+.jauge {
+  height: 3px;
+  margin-top: calc(var(--pas) * 2);
+  background: var(--papier-creux);
+  overflow: hidden;
+}
+.jauge span {
+  display: block;
+  height: 100%;
+  width: 35%;
+  background: var(--ambre);
+  animation: glisse 1.4s ease-in-out infinite;
+}
+@keyframes glisse {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+/* --- Etats vides : dire quoi faire, jamais « aucun resultat » ----- */
+.vide {
+  padding: calc(var(--pas) * 10) calc(var(--pas) * 5);
+  text-align: center;
+  color: var(--encre-douce);
+}
+.vide h3 { margin-bottom: calc(var(--pas) * 2); color: var(--encre); }
+.vide p { margin: 0 auto; max-width: 46ch; font-size: 0.88rem; }
+
+/* --- Champs de formulaire ----------------------------------------- */
+.champ { display: flex; flex-direction: column; gap: calc(var(--pas)); }
+.champ > label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--encre-douce);
+  font-weight: 600;
+}
+input, select {
+  font: inherit;
+  font-size: 0.88rem;
+  padding: calc(var(--pas) * 2);
+  min-height: 40px;
+  color: var(--encre);
+  background: var(--papier-carte);
+  border: 1px solid var(--trait-fort);
+  border-radius: var(--rayon);
+}
+input[type="number"], input.donnee { font-family: var(--donnees); }
+input:focus-visible, select:focus-visible { border-color: var(--atlantique); }
+
+.case { flex-direction: row; align-items: center; gap: calc(var(--pas) * 2); }
+.case input { min-height: auto; width: 18px; height: 18px; accent-color: var(--pin); }
+.case label { text-transform: none; letter-spacing: 0; font-size: 0.85rem; font-weight: 400; color: var(--encre); }
+
+/* --- Etiquettes energetiques --------------------------------------
+   L'echelle officielle vert-rouge jurerait avec la palette. On garde donc
+   la lettre en chasse fixe dans un carre, teinte d'un degrade sobre qui va
+   du pin a l'alerte. */
+.etiquette {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #FFF;
+  border-radius: 2px;
+  background: var(--trait-fort);
+}
+.etiquette-A { background: #2E5B4C; }
+.etiquette-B { background: #4A7A56; }
+.etiquette-C { background: #7A9A55; color: #12262B; }
+.etiquette-D { background: #C0A64A; color: #12262B; }
+.etiquette-E { background: #C08A3E; }
+.etiquette-F { background: #B4653A; }
+.etiquette-G { background: #A33A2A; }
+
+.pastille {
+  display: inline-block;
+  padding: 1px calc(var(--pas) * 2);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  border: 1px solid var(--trait-fort);
+  border-radius: 2px;
+  color: var(--encre-douce);
+}
+.pastille-nouveau {
+  background: var(--ambre);
+  border-color: #B9862C;
+  color: #3A2A07;
+}
+
+/* --- Telephone : l'en-tete doit tenir sur une ligne ----------------
+   Le sous-titre et le libelle long disparaissent les premiers ; les
+   commandes, elles, restent atteignables au pouce. */
+@media (max-width: 700px) {
+  .bandeau {
+    gap: calc(var(--pas) * 2);
+    padding: calc(var(--pas) * 2) calc(var(--pas) * 3);
+  }
+  .bandeau .sous-titre { display: none; }
+  h1 { font-size: 0.98rem; }
+  .bouton { padding: calc(var(--pas) * 2); font-size: 0.8rem; }
+}
+@media (max-width: 420px) {
+  h1 { font-size: 0; }              /* le titre cede la place aux commandes */
+  h1::after {
+    content: "Veille";
+    font-size: 0.95rem;
+    font-family: var(--titres);
+    font-weight: 700;
+  }
+}

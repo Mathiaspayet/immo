@@ -1,0 +1,248 @@
+/* ====================================================================
+   veille.css — Ecran Veille : filtres, releves, carte.
+   Concu pour le telephone d'abord : la consultation se fait souvent en
+   mobilite, devant une maison (CDC 7).
+   ==================================================================== */
+
+.contenu { padding: 0; }
+
+/* --- Filtres ------------------------------------------------------ */
+.filtres {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: calc(var(--pas) * 3);
+  padding: calc(var(--pas) * 4);
+  background: var(--papier-carte);
+  border-bottom: 1px solid var(--trait);
+}
+.filtres .actions-filtres {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--pas) * 2);
+}
+.filtres .espaceur { flex: 1 1 auto; }
+
+/* Sur telephone, les filtres occupaient tout l'ecran avant le premier
+   resultat. Ils sont donc replies par defaut, et le bouton « Filtres »
+   de l'en-tete les ouvre. Sur grand ecran ils restent toujours visibles. */
+.bascule-filtres { display: none; }
+@media (max-width: 700px) {
+  .bascule-filtres { display: inline-flex; }
+  .filtres[data-replie="oui"] { display: none; }
+}
+
+/* --- Compteurs ---------------------------------------------------- */
+.compteurs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--pas) * 5);
+  padding: calc(var(--pas) * 3) calc(var(--pas) * 4);
+  border-bottom: 1px solid var(--trait);
+  font-size: 0.82rem;
+  color: var(--encre-douce);
+}
+.compteurs .chiffre {
+  font-family: var(--donnees);
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--encre);
+}
+/* `gap` plutot qu'une marge : un conteneur flex supprime les noeuds de
+   texte purement blancs, l'espace entre le chiffre et son libelle doit
+   donc etre declare. */
+.compteurs .bloc { display: flex; align-items: baseline; gap: 0.4em; }
+.compteurs .separation {
+  border-left: 1px solid var(--trait);
+  height: 1em;
+  align-self: center;
+}
+
+/* --- Plan general : liste + carte ---------------------------------- */
+.plan {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 940px) {
+  .plan {
+    grid-template-columns: minmax(420px, 1fr) minmax(380px, 42%);
+    align-items: start;
+  }
+  .panneau-carte {
+    position: sticky;
+    top: calc(var(--bandeau-hauteur) + 1px);
+    height: calc(100vh - var(--bandeau-hauteur) - 1px);
+    border-left: 1px solid var(--trait);
+  }
+}
+
+.panneau-carte { background: var(--papier-creux); }
+#carte { width: 100%; height: 100%; min-height: 320px; }
+
+/* Sur telephone la carte est repliee par defaut : la liste passe d'abord. */
+@media (max-width: 939px) {
+  .panneau-carte { border-top: 1px solid var(--trait); }
+  .panneau-carte[data-replie="oui"] #carte { display: none; }
+  #carte { height: 300px; }
+}
+.bascule-carte {
+  display: none;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--trait);
+  background: var(--papier-carte);
+  justify-content: space-between;
+}
+@media (max-width: 939px) { .bascule-carte { display: flex; } }
+
+/* --- Un releve ----------------------------------------------------
+   Chaque bien est presente comme une ligne de releve : la date et la
+   reference en chasse fixe, les mesures alignees en colonne. */
+.liste { display: flex; flex-direction: column; }
+
+.releve {
+  padding: calc(var(--pas) * 4);
+  border-bottom: 1px solid var(--trait);
+  background: var(--papier-carte);
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+.releve:hover { background: #F4F7F5; }
+.releve[data-nouveau="oui"] { border-left-color: var(--ambre); }
+.releve[aria-current="true"] {
+  border-left-color: var(--atlantique);
+  background: #EAF2F5;
+}
+
+.releve-tete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--pas) * 2);
+  margin-bottom: calc(var(--pas) * 2);
+  font-size: 0.78rem;
+  color: var(--encre-douce);
+}
+.releve-tete .date { font-weight: 600; color: var(--encre); font-size: 0.85rem; }
+.releve-tete .secteur {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+  color: var(--pin);
+  font-weight: 600;
+}
+
+.releve .adresse {
+  margin: 0 0 calc(var(--pas) * 3);
+  font-family: var(--titres);
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+/* Les mesures : libelle discret au-dessus, valeur en chasse fixe. */
+.mesures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(98px, 1fr));
+  gap: calc(var(--pas) * 3) calc(var(--pas) * 4);
+  margin: 0 0 calc(var(--pas) * 3);
+  padding: calc(var(--pas) * 3) 0 0;
+  border-top: 1px solid var(--papier-creux);
+}
+.mesures > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.mesures dt {
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--encre-douce);
+}
+.mesures dd {
+  margin: 0;
+  white-space: nowrap;
+  font-family: var(--donnees);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.mesures dd.absent { color: var(--trait-fort); }
+
+.liens {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--pas) * 3);
+  font-size: 0.78rem;
+}
+.liens .reference {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--trait-fort);
+  letter-spacing: 0.02em;
+}
+
+/* --- Ecran Reglages ------------------------------------------------ */
+.reglages { padding: calc(var(--pas) * 5); max-width: 860px; }
+.reglages section {
+  margin-bottom: calc(var(--pas) * 8);
+  padding-bottom: calc(var(--pas) * 6);
+  border-bottom: 1px solid var(--trait);
+}
+.reglages section:last-child { border-bottom: 0; }
+.reglages h2 {
+  margin-bottom: calc(var(--pas) * 2);
+  padding-bottom: var(--pas);
+  border-bottom: 2px solid var(--pin);
+  display: inline-block;
+}
+.reglages .explication {
+  margin: 0 0 calc(var(--pas) * 4);
+  font-size: 0.85rem;
+  color: var(--encre-douce);
+  max-width: 62ch;
+}
+.grille-champs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: calc(var(--pas) * 4);
+  margin-bottom: calc(var(--pas) * 4);
+}
+
+/* Tableau du journal d'import */
+.journal { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.journal th {
+  text-align: left;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--encre-douce);
+  padding: calc(var(--pas) * 2);
+  border-bottom: 1px solid var(--trait-fort);
+}
+.journal td {
+  padding: calc(var(--pas) * 2);
+  border-bottom: 1px solid var(--papier-creux);
+  vertical-align: top;
+}
+.journal td.donnee { white-space: nowrap; }
+.journal .statut-echec { color: var(--alerte); font-weight: 600; }
+.journal .statut-succes { color: var(--pin); font-weight: 600; }
+.journal .message { border: 0; padding: calc(var(--pas) * 2); font-size: 0.78rem; color: var(--encre-douce); }
+
+/* --- Marqueurs de carte ------------------------------------------- */
+.marqueur {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--papier-carte);
+  background: var(--pin);
+  box-shadow: 0 0 0 1px var(--trait-fort);
+}
+.marqueur-nouveau { background: var(--ambre); }
+.marqueur-actif { background: var(--atlantique); transform: scale(1.45); }
+
+.leaflet-container { font-family: var(--courant); background: var(--papier-creux); }
+.leaflet-popup-content { font-size: 0.82rem; margin: 10px 12px; }
+.leaflet-popup-content .adresse-popup { font-family: var(--titres); font-weight: 500; display: block; margin-bottom: 4px; }
+.leaflet-popup-content .donnee { font-size: 0.78rem; color: var(--encre-douce); }

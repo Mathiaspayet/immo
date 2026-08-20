@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Veille immobilière — Mimizan</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="css/socle.css">
+<link rel="stylesheet" href="css/veille.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23F1F3F1'/><path d='M5 24V12l11-6 11 6v12' fill='none' stroke='%2312262B' stroke-width='2'/><path d='M5 24h22' stroke='%232E5B4C' stroke-width='2'/></svg>">
+</head>
+<body>
+
+<header class="bandeau">
+  <div class="marque">
+    <h1>Veille immobilière</h1>
+    <p class="sous-titre" id="sous-titre">DPE récents · Mimizan et communes voisines</p>
+  </div>
+  <nav class="onglets" aria-label="Écrans">
+    <button type="button" class="bouton" data-vue="veille" aria-pressed="true">Veille</button>
+    <button type="button" class="bouton" data-vue="reglages" aria-pressed="false">Réglages</button>
+  </nav>
+  <button type="button" class="bouton bascule-filtres" id="bascule-filtres"
+          aria-controls="filtres" aria-expanded="false">Filtres</button>
+  <button type="button" class="bouton bouton-principal" id="rafraichir">Rafraîchir</button>
+</header>
+
+<!-- Retour d'état : progression d'import, erreurs, confirmations.
+     aria-live pour que les lecteurs d'écran annoncent les changements. -->
+<p class="message message-travail" id="progression" role="status" aria-live="polite" hidden></p>
+<p class="message message-erreur" id="erreur" role="alert" hidden></p>
+<p class="message message-succes" id="succes" role="status" aria-live="polite" hidden></p>
+
+<main class="contenu">
+
+  <!-- ============================ VEILLE ============================ -->
+  <section id="vue-veille" aria-label="Veille des DPE récents">
+
+    <form class="filtres" id="filtres" data-replie="non">
+      <div class="champ">
+        <label for="f-fenetre">Fenêtre</label>
+        <select id="f-fenetre" name="fenetre_jours">
+          <option value="30">30 jours</option>
+          <option value="60">60 jours</option>
+          <option value="120" selected>120 jours</option>
+          <option value="365">1 an</option>
+          <option value="730">2 ans</option>
+        </select>
+      </div>
+      <div class="champ">
+        <label for="f-commune">Commune</label>
+        <input type="text" id="f-commune" name="commune" placeholder="Mimizan">
+      </div>
+      <div class="champ">
+        <label for="f-zone">Secteur</label>
+        <select id="f-zone" name="zone"><option value="">tous</option></select>
+      </div>
+      <div class="champ">
+        <label for="f-type">Type</label>
+        <select id="f-type" name="type_batiment">
+          <option value="">tous</option>
+          <option value="maison">maison</option>
+          <option value="appartement">appartement</option>
+        </select>
+      </div>
+      <div class="champ">
+        <label for="f-surface-min">Surface min (m²)</label>
+        <input type="number" id="f-surface-min" name="surface_min" min="0" step="5" inputmode="numeric">
+      </div>
+      <div class="champ">
+        <label for="f-surface-max">Surface max (m²)</label>
+        <input type="number" id="f-surface-max" name="surface_max" min="0" step="5" inputmode="numeric">
+      </div>
+      <div class="champ">
+        <label for="f-etiquette">Classe</label>
+        <select id="f-etiquette" name="etiquettes">
+          <option value="">toutes</option>
+          <option>A</option><option>B</option><option>C</option><option>D</option>
+          <option>E</option><option>F</option><option>G</option>
+        </select>
+      </div>
+
+      <div class="actions-filtres">
+        <div class="champ case">
+          <input type="checkbox" id="f-nouveaux" name="seulement_nouveaux">
+          <label for="f-nouveaux">Seulement les nouveautés</label>
+        </div>
+        <span class="espaceur"></span>
+        <button type="button" class="bouton bouton-discret" id="marquer-vus">Tout marquer comme vu</button>
+        <a class="bouton" id="export-csv" href="/api/veille/export.csv" download>Exporter en CSV</a>
+      </div>
+    </form>
+
+    <div class="compteurs" id="compteurs"></div>
+
+    <div class="plan">
+      <div class="liste" id="liste"></div>
+      <div class="panneau-carte" id="panneau-carte" data-replie="oui">
+        <button type="button" class="bouton bascule-carte" id="bascule-carte" aria-expanded="false">
+          <span>Carte</span><span aria-hidden="true">▾</span>
+        </button>
+        <div id="carte"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========================== RÉGLAGES =========================== -->
+  <section id="vue-reglages" class="reglages" aria-label="Réglages" hidden>
+
+    <section>
+      <h2>Communes surveillées</h2>
+      <p class="explication">
+        Un code postal par ligne, au format <span class="donnee">40200 Mimizan</span> :
+        le code postal détermine ce qui est téléchargé chez l'ADEME, le nom qui suit
+        sert de filtre d'affichage. Le 40200 couvre aussi Aureilhan et
+        Saint-Paul-en-Born&nbsp;; laisser le nom vide les conserve toutes.
+      </p>
+      <div class="champ">
+        <label for="r-communes">Codes postaux</label>
+        <textarea id="r-communes" class="donnee" rows="3" style="font-size:0.88rem;padding:8px;border:1px solid var(--trait-fort);border-radius:3px;background:var(--papier-carte);resize:vertical"></textarea>
+      </div>
+    </section>
+
+    <section>
+      <h2>Points de référence des secteurs</h2>
+      <p class="explication">
+        Mimizan-Plage n'a ni code postal ni code INSEE propre. Chaque logement est
+        donc rattaché au point de référence le plus proche. Un point par ligne,
+        au format <span class="donnee">plage 44.2044 -1.2914</span>.
+      </p>
+      <div class="champ">
+        <label for="r-zones">Secteurs</label>
+        <textarea id="r-zones" class="donnee" rows="3" style="font-size:0.88rem;padding:8px;border:1px solid var(--trait-fort);border-radius:3px;background:var(--papier-carte);resize:vertical"></textarea>
+      </div>
+    </section>
+
+    <section>
+      <h2>Filtres par défaut</h2>
+      <p class="explication">Ce que l'écran Veille affiche à l'ouverture.</p>
+      <div class="grille-champs">
+        <div class="champ">
+          <label for="r-fenetre">Fenêtre (jours)</label>
+          <input type="number" id="r-fenetre" min="1" max="3650" class="donnee">
+        </div>
+        <div class="champ">
+          <label for="r-type">Type de bâtiment</label>
+          <select id="r-type">
+            <option value="">tous</option>
+            <option value="maison">maison</option>
+            <option value="appartement">appartement</option>
+          </select>
+        </div>
+        <div class="champ">
+          <label for="r-surface-min">Surface min (m²)</label>
+          <input type="number" id="r-surface-min" min="0" class="donnee">
+        </div>
+        <div class="champ">
+          <label for="r-surface-max">Surface max (m²)</label>
+          <input type="number" id="r-surface-max" min="0" class="donnee">
+        </div>
+        <div class="champ">
+          <label for="r-purge">Purge (mois)</label>
+          <input type="number" id="r-purge" min="1" max="600" class="donnee">
+        </div>
+      </div>
+      <button type="button" class="bouton bouton-principal" id="enregistrer-reglages">Enregistrer</button>
+    </section>
+
+    <section>
+      <h2>Journal des imports</h2>
+      <p class="explication" id="prochain-import">Chaque import est tracé, réussi ou non.</p>
+      <table class="journal" id="journal"><tbody></tbody></table>
+    </section>
+
+    <section>
+      <h2>À propos</h2>
+      <p class="explication" id="a-propos"></p>
+    </section>
+  </section>
+</main>
+
+<!-- Leaflet est un script classique : `defer` garantit qu'il s'exécute
+     avant les modules qui suivent, dans l'ordre du document. -->
+<script defer src="vendor/leaflet/leaflet.js"></script>
+<script type="module" src="js/veille.js"></script>
+</body>
+</html>

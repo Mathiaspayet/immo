@@ -1,0 +1,48 @@
+# ====================================================================
+#  docker compose — Synology, Container Manager
+#
+#  INSTALLATION
+#    1. Copier ce fichier dans /volume1/docker/veille-immo/
+#    2. Copier .env.example en .env a cote, et l'ajuster
+#    3. Lancer :  docker compose -f docker-compose.synology.yml up -d
+#    4. Publier via DSM > Portail des applications (reverse proxy + HTTPS)
+#
+#  MISES A JOUR
+#    Aucune action. Le Watchtower deja installe pour gestion-locative
+#    surveille aussi ce conteneur : il porte le meme label de portee.
+#    Un push sur `main` reconstruit l'image, Watchtower la deploie dans
+#    les cinq minutes.
+# ====================================================================
+
+services:
+  veille-immo:
+    image: ghcr.io/mathiaspayet/immo:latest
+    container_name: veille_immo
+    restart: unless-stopped
+
+    ports:
+      # 8000 est deja pris par gestion-locative : on expose sur 8020.
+      - "${VEILLE_PORT_HOTE:-8020}:8000"
+
+    env_file:
+      - .env
+
+    environment:
+      # Repete ici pour que le fuseau s'applique meme sans fichier .env :
+      # sans lui, l'import hebdomadaire se declencherait en UTC.
+      TZ: ${TZ:-Europe/Paris}
+
+    volumes:
+      # La base SQLite. Sans ce volume, tout serait perdu a chaque mise a
+      # jour de l'image par Watchtower (CDC 2).
+      - veille-donnees:/data
+
+    labels:
+      # Portee du Watchtower deja en place sur le NAS. Ne pas la changer :
+      # c'est ce qui fait que ce conteneur est mis a jour automatiquement,
+      # sans avoir a lancer un second Watchtower.
+      - "com.centurylinklabs.watchtower.scope=gestion-locative"
+
+volumes:
+  veille-donnees:
+    driver: local

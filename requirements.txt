@@ -1,0 +1,6 @@
+# Dependances de production. Volontairement courtes : un seul conteneur,
+# moins de 400 Mo d'image, et rien qui impose une chaine de compilation.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+apscheduler==3.11.0
+certifi==2024.12.14

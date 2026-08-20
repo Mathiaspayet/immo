@@ -1,0 +1,22 @@
+# ====================================================================
+#  docker compose — poste de developpement
+#
+#  Lancement :  docker compose up --build
+#  Interface :  http://localhost:8020
+# ====================================================================
+
+services:
+  veille:
+    build:
+      context: .
+      args:
+        BUILD_VERSION: local
+    ports:
+      - "8020:8000"
+    environment:
+      TZ: Europe/Paris
+      VEILLE_LOG: INFO
+    volumes:
+      # En developpement, la base reste dans le dossier du projet : elle est
+      # ainsi consultable directement, et ignoree par git.
+      - ./donnees:/data
