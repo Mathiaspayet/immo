@@ -70,21 +70,37 @@ git push main → GitHub Actions (tests puis build)
               → Watchtower sur le NAS → conteneur remplacé
 ```
 
-### Première installation
+### Première installation — sans SSH, depuis DSM
+
+**Container Manager → Projet → Créer**
+
+- chemin : `/docker/veille-immo` (créer le dossier)
+- source : *Créer docker-compose.yml*
+- coller le contenu de [`docker-compose.synology.yml`](docker-compose.synology.yml)
+- Suivant jusqu'à Terminer
+
+Container Manager télécharge l'image lui-même. Le fichier fonctionne sans
+`.env` à côté : chaque réglage y porte une valeur par défaut.
+
+> **L'onglet « Registre » ne trouvera pas cette image.** Sa recherche
+> interroge Docker Hub, et GitHub Container Registry n'expose aucune API de
+> recherche : le champ restera vide même après avoir ajouté `ghcr.io` comme
+> registre. Ce n'est pas une limite du NAS. Le passage par un projet, comme
+> ci-dessus, télécharge l'image sans difficulté — le nom complet y est écrit
+> en toutes lettres.
+
+### Ou en SSH, si vous préférez
 
 ```bash
-# Sur le NAS, en SSH
 mkdir -p /volume1/docker/veille-immo && cd /volume1/docker/veille-immo
-
-# Récupérer docker-compose.synology.yml et .env.example depuis ce dépôt
-cp .env.example .env        # puis ajuster si besoin
-
+# y déposer docker-compose.synology.yml, et un .env si vous voulez
+# changer un réglage (voir .env.example)
 docker compose -f docker-compose.synology.yml up -d
 ```
 
 L'application répond alors sur `http://<nas>:8020`. Le port 8000 étant déjà
 pris par `gestion-locative`, celui-ci est décalé — modifiable par
-`VEILLE_PORT_HOTE` dans le `.env`.
+`VEILLE_PORT_HOTE` dans un `.env`.
 
 Publication en HTTPS : **DSM → Portail des applications → Proxy inversé**,
 avec authentification. L'application n'a pas de gestion de comptes : elle
