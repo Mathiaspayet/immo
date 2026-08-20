@@ -125,8 +125,10 @@ function dessinerListe(resultats, resume) {
            <h3>Aucun logement ne correspond à ces filtres</h3>
            <p>La base contient ${resume.total_base} DPE. Élargissez la fenêtre
               temporelle, retirez le filtre de commune ou desserrez les bornes de
-              surface. Un secteur peut aussi n'avoir aucun diagnostic récent :
-              la transmission des DPE à l'ADEME prend quelques semaines.</p>
+              surface. Un secteur peut aussi n'avoir simplement aucun
+              diagnostic récent : il ne s'établit qu'environ 1,6 DPE par jour
+              sur l'ensemble du 40200, toutes communes et tous types
+              confondus.</p>
          </div>`;
     return;
   }

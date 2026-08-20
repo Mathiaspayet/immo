@@ -241,6 +241,40 @@ Aucune autre. Ni CDN, ni police distante, ni mesure d'audience.
 
 ---
 
+## Fraîcheur des données
+
+Trois horloges se succèdent, et la plus lente est celle de l'application,
+pas celle de l'ADEME.
+
+| Étape | Délai mesuré |
+|---|---|
+| Établissement du DPE → réception par l'ADEME | médiane **0 jour** ; 79 % le jour même, 97 % sous une semaine |
+| Publication dans le jeu de données ouvert | **quotidienne** |
+| Import dans l'application | **hebdomadaire**, lundi 7 h |
+
+Le cache est donc au pire **7 jours** derrière la source, et ce retard vient
+entièrement de notre propre cadence. Mesures faites en août 2026 sur
+1 000 DPE du 40200, en comparant `date_etablissement_dpe` et
+`date_reception_dpe`.
+
+Un écran vide ne signifie pas que la base a pris du retard : il ne
+s'établit qu'environ **1,6 DPE par jour** sur tout le 40200, toutes
+communes et tous types confondus. Un filtre étroit sur quelques jours peut
+légitimement ne rien retourner.
+
+Pour passer à un import quotidien, une seule variable suffit — c'est une
+syntaxe cron, `*` valant « tous les jours » :
+
+```yaml
+VEILLE_IMPORT_JOUR: "*"
+```
+
+Le gain est faible : quelques jours d'avance sur une donnée qui bouge de
+une à deux lignes par jour.
+
+Rien ne devient obsolète en vieillissant : la purge ne retire que les
+lignes que l'ADEME ne sert plus depuis 24 mois.
+
 ## Points à connaître
 
 **La purge ne porte plus sur la date du diagnostic.** Le CDC §9 demande de
