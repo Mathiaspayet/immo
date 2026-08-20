@@ -256,3 +256,17 @@
 /* Une parcelle au bon gabarit QUI PORTE un diagnostic récent : c'est le
    croisement que cherche le CDC, il mérite d'être vu au premier coup d'œil. */
 .parcelle-signalee { border-left-color: var(--ambre); }
+
+/* Le cadastre manque : on le dit, et on propose de le charger sur place.
+   Arriver ici depuis « Les DPE récents » menait sinon à une impasse. */
+.extrait-manquant {
+  margin: calc(var(--pas) * 2) 0 0;
+  padding: calc(var(--pas) * 3);
+  background: var(--papier-carte);
+  border-left: 3px solid var(--atlantique);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--encre-douce);
+}
+.extrait-manquant .bouton-lien { font-size: 0.8rem; font-weight: 600; }
+.extrait-manquant .duree { color: var(--trait-fort); }

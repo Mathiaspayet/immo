@@ -14,7 +14,7 @@ import {
   $, afficherErreur, afficherTravail, debounce, echapper, entierFr,
   masquerErreur, masquerTravail,
 } from "./format.js";
-import { auTermeDeLImport, suivreImport } from "./import.js";
+import { auProchainTerme, auTermeDeLImport, suivreImport } from "./import.js";
 import { changerVue } from "./navigation.js";
 
 const parcours = { intention: null, commune: null };
@@ -165,10 +165,7 @@ async function choisirCommune(commune) {
 
   if (premiere) {
     $("#vue-commune").querySelector(".liste-communes").innerHTML = "";
-    auTermeDeLImport(function une_fois() {
-      abonnes.delete(une_fois);
-      afficherResultats();
-    });
+    auProchainTerme(afficherResultats);
   } else {
     afficherResultats();
   }

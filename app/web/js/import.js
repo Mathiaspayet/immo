@@ -20,9 +20,29 @@ import {
 let sondage = null;
 const abonnes = new Set();
 
-/** S'abonner à la fin d'un import (pour recharger l'écran concerné). */
+/**
+ * S'abonner à la fin d'un import, pour recharger l'écran concerné.
+ * Renvoie de quoi se désabonner.
+ */
 export function auTermeDeLImport(rappel) {
   abonnes.add(rappel);
+  return () => abonnes.delete(rappel);
+}
+
+/**
+ * S'abonner à la PROCHAINE fin d'import seulement.
+ *
+ * Sans cela, un rappel posé pour une action ponctuelle — « préviens-moi
+ * quand cette moisson-ci sera finie » — restait actif à vie et se
+ * déclenchait à chaque moisson suivante.
+ */
+export function auProchainTerme(rappel) {
+  const une_fois = (...arguments_) => {
+    abonnes.delete(une_fois);
+    rappel(...arguments_);
+  };
+  abonnes.add(une_fois);
+  return () => abonnes.delete(une_fois);
 }
 
 function prevenirLesAbonnes() {

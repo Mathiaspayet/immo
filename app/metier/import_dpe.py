@@ -220,26 +220,51 @@ def _terminer(journal_id, resume=None, erreur=None):
              ajouts=resume["ajouts"], etape="termine")
 
 
-def importer_commune(code_insee, declencheur="commune", jeux=None):
+def importer_commune(code_insee, declencheur="commune", jeux=None,
+                     avec_dpe=True, avec_cadastre=False):
     """
-    Moissonne UNE commune, dans les trois bases de l'ADEME.
+    Moissonne UNE commune : ses DPE, son cadastre, ou les deux.
 
     C'est l'operation de base de l'application : on consulte une commune, on
     l'importe. Le code postal ne sert plus a filtrer — le 31140 couvre sept
     communes, le 40200 en couvre cinq, et on n'en veut qu'une.
+
+    Les deux travaux sont independants : demander le cadastre d'une commune
+    dont les DPE sont a jour ne doit pas les retelecharger.
     """
     code_insee = str(code_insee).strip()
     fiche = geo.commune_par_insee(code_insee) or {}
     nom = fiche.get("nom") or code_insee
 
-    journal_id = _demarrer(declencheur, nom)
+    quoi = nom + ("" if avec_dpe else " — cadastre")
+    journal_id = _demarrer(declencheur, quoi)
+    resume = {"lignes": 0, "ajouts": 0, "message": ""}
+
     try:
-        resume = _moissonner([{"code_insee": code_insee, "nom": nom,
-                               "code_postal": fiche.get("code_postal")}], jeux)
+        if avec_dpe:
+            resume = _moissonner([{"code_insee": code_insee, "nom": nom,
+                                   "code_postal": fiche.get("code_postal")}], jeux)
     except Exception as erreur:                      # noqa: BLE001
         logger.exception("import de %s en echec : %s", nom, erreur)
         _terminer(journal_id, erreur=erreur)
         raise
+
+    if avec_cadastre:
+        # Le cadastre vient apres les DPE : il s'appuie sur eux pour le
+        # rattachement. Son echec ne doit pas invalider la moisson.
+        try:
+            _publier(etape=f"{nom} — cadastre")
+            cadastre = metier_parcelles.importer_cadastre(
+                code_insee, progression=lambda message: _publier(etape=message))
+            resume["message"] = " · ".join(
+                filter(None, [resume["message"], cadastre["message"]]))
+        except Exception as erreur:                  # noqa: BLE001
+            logger.warning("cadastre de %s indisponible : %s", nom, erreur)
+            resume["message"] = " · ".join(filter(None, [
+                resume["message"], f"cadastre indisponible ({erreur})"]))
+
+    if not resume["message"]:
+        resume["message"] = f"{nom} — rien a faire"
     _terminer(journal_id, resume=resume)
     return resume
 
@@ -491,23 +516,25 @@ def preparer_commune(code_insee, seuil_heures=None, declencheur="consultation",
     age = age_commune(code_insee)
     cadastre = besoin == "cadastre" and cadastre_a_refaire(code_insee)
 
-    if _etat["en_cours"]:
-        return {"lance": False, "raison": "deja_en_cours", "age_heures": age,
-                "en_cache": age is not None, "cadastre": cadastre}
-
+    # Les deux travaux sont decides separement : demander le cadastre d'une
+    # commune dont les DPE sont frais ne doit pas les retelecharger.
     if age is None:
-        raison = "jamais_moissonnee"
+        dpe, raison = True, "jamais_moissonnee"
     elif seuil and age >= float(seuil):
-        raison = "perimee"
+        dpe, raison = True, "perimee"
     elif cadastre:
-        raison = "cadastre_manquant"
+        dpe, raison = False, "cadastre_manquant"
     else:
         return {"lance": False, "raison": "a_jour", "age_heures": round(age, 2),
                 "en_cache": True, "cadastre": False}
 
+    if _etat["en_cours"]:
+        return {"lance": False, "raison": "deja_en_cours", "age_heures": age,
+                "en_cache": age is not None, "cadastre": cadastre}
+
     try:
         lancer_en_tache_de_fond(declencheur=declencheur, code_insee=code_insee,
-                                avec_cadastre=cadastre)
+                                avec_dpe=dpe, avec_cadastre=cadastre)
     except RuntimeError:
         return {"lance": False, "raison": "deja_en_cours", "age_heures": age,
                 "en_cache": age is not None, "cadastre": cadastre}
@@ -528,7 +555,8 @@ def journal(limite=20):
 #  Lancement en tache de fond
 # ---------------------------------------------------------------------
 
-def lancer_en_tache_de_fond(declencheur="manuel", code_insee=None, avec_cadastre=False):
+def lancer_en_tache_de_fond(declencheur="manuel", code_insee=None,
+                            avec_dpe=True, avec_cadastre=False):
     """
     Demarre une moisson sans bloquer l'appelant.
 
@@ -544,26 +572,12 @@ def lancer_en_tache_de_fond(declencheur="manuel", code_insee=None, avec_cadastre
     def travail():
         try:
             if code_insee:
-                importer_commune(code_insee, declencheur=declencheur)
+                importer_commune(code_insee, declencheur=declencheur,
+                                 avec_dpe=avec_dpe, avec_cadastre=avec_cadastre)
             else:
                 importer(declencheur=declencheur)
         except Exception:                            # noqa: BLE001
-            return    # deja journalise et publie dans l'etat
-
-        # Le cadastre vient apres les DPE : il s'appuie sur eux pour le
-        # rattachement, et son echec ne doit pas invalider la moisson.
-        if avec_cadastre and code_insee:
-            try:
-                _publier(en_cours=True, etape="cadastre — démarrage")
-                resume = metier_parcelles.importer_cadastre(
-                    code_insee, progression=lambda message: _publier(etape=message))
-                _publier(en_cours=False, etape="termine",
-                         message=(_etat.get("message") or "") + " · " + resume["message"])
-            except Exception as erreur:              # noqa: BLE001
-                logger.warning("cadastre de %s indisponible : %s", code_insee, erreur)
-                _publier(en_cours=False, etape="termine",
-                         message=(_etat.get("message") or "")
-                                 + f" · cadastre indisponible ({erreur})")
+            pass      # deja journalise et publie dans l'etat
 
     fil = threading.Thread(target=travail, name="import-dpe", daemon=True)
     fil.start()

@@ -151,7 +151,7 @@ def test_commune_perimee_est_rafraichie(client, monkeypatch):
     """Au-dela du seuil, la moisson repart — sans bloquer la consultation."""
     lances = []
     monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
-                        lambda declencheur, code_insee=None, avec_cadastre=False: lances.append(code_insee))
+                        lambda declencheur, code_insee=None, avec_dpe=True, avec_cadastre=False: lances.append(code_insee))
     _moisson("40184", il_y_a_heures=48, nom="Mimizan")
 
     corps = client.post("/api/communes/40184/preparer").json()
@@ -167,7 +167,7 @@ def test_commune_jamais_consultee_est_moissonnee(client, monkeypatch):
     """
     lances = []
     monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
-                        lambda declencheur, code_insee=None, avec_cadastre=False: lances.append(code_insee))
+                        lambda declencheur, code_insee=None, avec_dpe=True, avec_cadastre=False: lances.append(code_insee))
 
     corps = client.post("/api/communes/31282/preparer").json()
     assert corps["lance"] is True
@@ -183,7 +183,7 @@ def test_une_commune_inconnue_est_moissonnee_meme_seuil_desactive(client, monkey
     """
     lances = []
     monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
-                        lambda declencheur, code_insee=None, avec_cadastre=False: lances.append(code_insee))
+                        lambda declencheur, code_insee=None, avec_dpe=True, avec_cadastre=False: lances.append(code_insee))
     client.put("/api/reglages", json={"rafraichir_apres_heures": 0})
 
     assert client.post("/api/communes/31282/preparer").json()["lance"] is True
@@ -296,22 +296,37 @@ def test_preparer_une_commune_pour_le_cadastre(client, monkeypatch):
     """
     appels = []
     monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
-                        lambda declencheur, code_insee=None, avec_cadastre=False:
-                        appels.append((code_insee, avec_cadastre)))
+                        lambda declencheur, code_insee=None, avec_dpe=True, avec_cadastre=False:
+                        appels.append((code_insee, avec_dpe, avec_cadastre)))
     _moisson("31282", il_y_a_heures=2, nom="Launaguet")
 
-    # Les DPE sont a jour, mais le cadastre manque.
+    # Les DPE sont a jour, mais le cadastre manque : on ne telecharge QUE
+    # le cadastre. Retelecharger les DPE pour rien couterait une minute.
     corps = client.post("/api/communes/31282/preparer",
                         params={"besoin": "cadastre"}).json()
     assert corps["lance"] is True
     assert corps["raison"] == "cadastre_manquant"
-    assert appels == [("31282", True)]
+    assert appels == [("31282", False, True)]        # (commune, dpe, cadastre)
 
     # La meme commune pour les seuls DPE ne declenche rien.
     appels.clear()
     corps = client.post("/api/communes/31282/preparer").json()
     assert corps["lance"] is False and corps["raison"] == "a_jour"
     assert appels == []
+
+
+def test_une_commune_perimee_reprend_tout(client, monkeypatch):
+    """DPE perimes ET cadastre manquant : les deux partent d'un coup."""
+    appels = []
+    monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
+                        lambda declencheur, code_insee=None, avec_dpe=True, avec_cadastre=False:
+                        appels.append((code_insee, avec_dpe, avec_cadastre)))
+    _moisson("31282", il_y_a_heures=100, nom="Launaguet")
+
+    corps = client.post("/api/communes/31282/preparer",
+                        params={"besoin": "cadastre"}).json()
+    assert corps["raison"] == "perimee"
+    assert appels == [("31282", True, True)]
 
 
 def test_besoin_inconnu_refuse(client):

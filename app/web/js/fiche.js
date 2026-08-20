@@ -10,9 +10,10 @@
 
 import { api } from "./api.js";
 import {
-  $, afficherErreur, dateFr, echapper, entierFr, etiquetteHtml, liensExternes,
-  masquerErreur, nombreFr,
+  $, afficherErreur, afficherTravail, dateFr, echapper, entierFr, etiquetteHtml,
+  liensExternes, masquerErreur, masquerTravail, nombreFr,
 } from "./format.js";
+import { auProchainTerme, suivreImport } from "./import.js";
 import { changerVue } from "./navigation.js";
 
 let dernierRetour = "veille";
@@ -115,11 +116,7 @@ function extraitCadastral(bien, parcelle) {
         <circle r="46" fill="none" stroke="var(--pin)" stroke-width="1" stroke-dasharray="3 4"/>
         <path d="M-14 0 H14 M0 -14 V14" stroke="var(--encre)" stroke-width="1.2"/>
         <circle r="4.5" fill="var(--encre)"/>
-      </g>
-      <text x="200" y="196" text-anchor="middle" font-size="8"
-            fill="var(--trait-fort)" font-family="var(--donnees)">
-        parcelle non chargée
-      </text>`;
+      </g>`;
   } else {
     dessin = `<text x="200" y="115" text-anchor="middle" font-size="11"
                     fill="var(--trait-fort)" font-family="var(--donnees)">
@@ -155,6 +152,17 @@ function extraitCadastral(bien, parcelle) {
       <rect x="0.5" y="0.5" width="${L - 1}" height="${H - 1}" fill="none"
             stroke="var(--encre)" stroke-width="1"/>
     </svg>
+    ${!parcelle && bien.code_insee ? `
+      <p class="extrait-manquant">
+        Le cadastre de ${echapper(bien.commune || "cette commune")} n'est pas
+        encore chargé, le contour de la parcelle ne peut donc pas être tracé.
+        <button type="button" class="bouton-lien" data-charger-cadastre
+                data-insee="${echapper(bien.code_insee)}"
+                data-commune="${echapper(bien.commune || "")}">
+          Le charger maintenant
+        </button>
+        <span class="duree">une dizaine de secondes</span>
+      </p>` : ""}
     <figcaption>
       <span class="donnee">${reference}</span>
       ${parcelle
@@ -296,8 +304,50 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null, retour = null 
     <p><button type="button" class="bouton" id="fiche-retour">Retour</button></p>`;
 
   $("#fiche-retour").addEventListener("click", () => changerVue(dernierRetour));
+
+  const chargeur = $("#fiche-contenu").querySelector("[data-charger-cadastre]");
+  if (chargeur) {
+    chargeur.addEventListener("click", () => chargerLeCadastre(chargeur, principal));
+  }
   $("#fiche-contenu").querySelectorAll("[data-chaine]").forEach((bouton) => {
     bouton.addEventListener("click", () => remonterChaine(bouton.dataset.chaine));
+  });
+}
+
+/**
+ * Charge le cadastre de la commune du bien, puis redessine la fiche.
+ *
+ * Sans cela, arriver ici depuis « Les DPE récents » menait à une impasse :
+ * l'extrait annonçait une parcelle absente sans offrir de moyen de
+ * l'obtenir, et il fallait deviner qu'il fallait ressortir par l'accueil.
+ */
+async function chargerLeCadastre(bouton, bien) {
+  const commune = bouton.dataset.commune || "cette commune";
+  bouton.disabled = true;
+  bouton.textContent = "Téléchargement…";
+  masquerErreur();
+
+  let etat;
+  try {
+    etat = await api.preparerCommune(bouton.dataset.insee, "cadastre");
+  } catch (erreur) {
+    bouton.disabled = false;
+    bouton.textContent = "Le charger maintenant";
+    afficherErreur(`Le cadastre de ${commune} n'a pas pu être demandé.`, erreur.message);
+    return;
+  }
+
+  if (!etat.lance) {
+    // Déjà là, ou une moisson occupe la place : on retente l'affichage.
+    ouvrirFiche({ n_dpe: bien.n_dpe, retour: dernierRetour });
+    return;
+  }
+
+  afficherTravail(`Téléchargement du cadastre de ${commune}…`);
+  suivreImport();
+  auProchainTerme(() => {
+    masquerTravail();
+    ouvrirFiche({ n_dpe: bien.n_dpe, retour: dernierRetour });
   });
 }
 
