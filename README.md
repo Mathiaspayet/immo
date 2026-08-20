@@ -244,6 +244,27 @@ référence cadastrale en chasse fixe dans l'angle, les mesures alignées en
 colonne. Il porte aussi une barre d'échelle et une rose des vents, et un
 repère rouge marque la position du diagnostic dans la parcelle.
 
+Une parcelle tracée seule ne se lit pas : rien ne dit si ces 549 m² sont un
+mouchoir de poche en centre-bourg ou une parcelle ordinaire. L'extrait
+montre donc **le voisinage** — les parcelles limitrophes en trait fin, la
+parcelle du bien en trait plein — et **le bâti dessiné par-dessus**, hachuré
+pour le bâti léger. Le cadastre distingue en effet le dur du léger, et
+l'écart est net : à Launaguet, 129 m² de médiane pour le premier contre
+10 m² pour le second — une maison ne se confond pas avec un abri de jardin.
+Le cadre retenu est la parcelle plus 35 m de marge ; sur une parcelle
+courante de Launaguet cela donne 104 × 107 m, 15 voisines et 22 bâtiments.
+
+Ces contours sont désormais conservés en base (table `batiment`, 1,5 Mo pour
+Launaguet, 2,9 Mo pour Mimizan). Un cadastre importé avant ce changement n'a
+que des parcelles : l'application le détecte et le reprend une fois, sans
+rien demander.
+
+À droite du dessin, **une vue satellite au cadrage identique**. C'est le
+même rectangle géographique, aux mêmes proportions, avec le contour de la
+parcelle reporté dessus — de sorte que l'œil passe de l'un à l'autre sans
+recalage. Les deux vues sont côte à côte au-delà de 1 120 px de large, et
+l'une sous l'autre en dessous.
+
 Les degrés n'étant pas isotropes, le contour est projeté en mètres avant
 d'être dessiné — sans quoi une parcelle carrée apparaîtrait en rectangle.
 Tant que le cadastre de la commune n'est pas chargé, l'extrait retombe sur

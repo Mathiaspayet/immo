@@ -45,6 +45,15 @@ def lister(code_insee: str = Query(..., description="Commune, par son code INSEE
     }
 
 
+@routeur.get("/extrait")
+def extrait(n_dpe: str = Query(...)):
+    """
+    De quoi dessiner l'extrait cadastral d'un bien : sa parcelle, les
+    parcelles voisines, et les batiments du cadre.
+    """
+    return {"extrait": parcelles.extrait(n_dpe)}
+
+
 @routeur.get("/du-dpe")
 def du_dpe(n_dpe: str = Query(...)):
     """La parcelle qui porte ce DPE — sert a l'extrait de la fiche."""

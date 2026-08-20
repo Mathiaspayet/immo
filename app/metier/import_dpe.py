@@ -486,11 +486,16 @@ def age_dernier_import():
 
 
 def cadastre_a_refaire(code_insee):
-    """Le cadastre de cette commune manque-t-il, ou date-t-il trop ?"""
-    seuil_jours = reglages.lire("cadastre_apres_jours")
+    """Le cadastre de cette commune manque-t-il, date-t-il, ou est-il incomplet ?"""
     age = metier_parcelles.age_cadastre(code_insee)
     if age is None:
         return True
+    # Les cadastres importes avant que les contours de batiments ne soient
+    # conserves n'ont que des parcelles : la fiche ne peut rien dessiner
+    # dessus tant qu'on ne les a pas repris.
+    if metier_parcelles.batiments_manquants(code_insee):
+        return True
+    seuil_jours = reglages.lire("cadastre_apres_jours")
     return bool(seuil_jours) and age >= float(seuil_jours) * 24
 
 

@@ -19,7 +19,14 @@ COTE = 0.0009                          # ~100 m
 
 
 def carre(indice):
-    """Un carre de ~100 m, decale de `indice` cases vers l'est."""
+    """
+    Un carre de ~100 m, decale de `indice` cases vers l'est.
+
+    Le pas vaut deux cotes : les parcelles du fixture sont donc separees
+    par ~72 m de vide, et aucune n'est mitoyenne d'une autre. Un demi-pas
+    (indice=1.5) colle en revanche une parcelle contre le bord est de la
+    precedente.
+    """
     x = LON + indice * COTE * 2
     return [[x, LAT], [x + COTE, LAT], [x + COTE, LAT + COTE], [x, LAT + COTE], [x, LAT]]
 
@@ -167,3 +174,85 @@ def test_resume_d_une_commune_sans_cadastre(base):
     resultat = parcelles.resume("99999")
     assert resultat["parcelles"] == 0
     assert resultat["age_heures"] is None
+
+
+# ---------------------------------------------------------------------
+#  Extrait cadastral : parcelle, voisines et bati
+# ---------------------------------------------------------------------
+
+def inserer_batiment(identifiant, indice, parcelle_id=None, type_bati="01",
+                     surface=100.0, code_insee="31282"):
+    anneau = carre(indice)
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO batiment (code_insee, parcelle_id, type, surface_m2, "
+            "  lat_min, lat_max, lon_min, lon_max, geometrie_json, importe_le) "
+            "VALUES (?,?,?,?,?,?,?,?,?,'2026-08-20T10:00:00')",
+            (code_insee, parcelle_id, type_bati, surface,
+             LAT, LAT + COTE, anneau[0][0], anneau[1][0],
+             json.dumps({"type": "Polygon", "coordinates": [anneau]})))
+
+
+def test_extrait_ramene_le_voisinage(cadastre):
+    """
+    Une parcelle seule ne se lit pas : c'est le voisinage qui donne
+    l'echelle, et le bati qui montre ce qui est construit.
+    """
+    inserer_parcelle("P-MITOYENNE", indice=1.5)      # colle au bord est
+    inserer_dpe(n_dpe="D1", adresse="1 rue", code_insee="31282")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = 'P-BONNE' WHERE n_dpe = 'D1'")
+    inserer_batiment("B1", indice=1, parcelle_id="P-BONNE")
+    inserer_batiment("B2", indice=1.5, parcelle_id="P-MITOYENNE",
+                     type_bati="02", surface=9.0)
+
+    resultat = parcelles.extrait("D1")
+    assert resultat["parcelle"]["id"] == "P-BONNE"
+
+    # La mitoyenne est la, la parcelle elle-meme n'y est pas, et les
+    # lointaines (72 m de vide, pour 35 m de marge) restent dehors.
+    voisines = {v["id"] for v in resultat["voisines"]}
+    assert "P-MITOYENNE" in voisines
+    assert "P-BONNE" not in voisines
+    assert voisines.isdisjoint({"P-PETITE", "P-GRANDE"})
+
+    par_parcelle = {b["parcelle_id"]: b for b in resultat["batiments"]}
+    assert par_parcelle["P-BONNE"]["sur_la_parcelle"] is True
+    assert par_parcelle["P-MITOYENNE"]["sur_la_parcelle"] is False
+    # Le type distingue le bati dur du bati leger : a Launaguet, 10 m2 de
+    # mediane pour le leger contre 129 pour le dur.
+    assert par_parcelle["P-MITOYENNE"]["type"] == "02"
+
+
+def test_extrait_sans_parcelle(base):
+    inserer_dpe(n_dpe="D1", adresse="1 rue", code_insee="31282")
+    assert parcelles.extrait("D1") is None
+
+
+def test_le_cadre_deborde_la_parcelle(cadastre):
+    """Sans marge, la parcelle toucherait les bords et le voisinage
+    disparaitrait."""
+    inserer_dpe(n_dpe="D1", adresse="1 rue", code_insee="31282")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = 'P-BONNE' WHERE n_dpe = 'D1'")
+
+    resultat = parcelles.extrait("D1")
+    cadre, parcelle = resultat["cadre"], resultat["parcelle"]
+    assert cadre["lat_min"] < parcelle["lat_min"]
+    assert cadre["lat_max"] > parcelle["lat_max"]
+    assert cadre["lon_min"] < parcelle["lon_min"]
+    assert cadre["lon_max"] > parcelle["lon_max"]
+
+
+def test_cadastre_sans_batiments_est_a_refaire(cadastre):
+    """
+    Les cadastres importes avant que les contours ne soient conserves n'ont
+    que des parcelles : la fiche ne peut rien dessiner dessus.
+    """
+    assert parcelles.batiments_manquants("31282") is True
+    inserer_batiment("B1", indice=1, parcelle_id="P-BONNE")
+    assert parcelles.batiments_manquants("31282") is False
+
+
+def test_une_commune_sans_cadastre_n_est_pas_incomplete(base):
+    assert parcelles.batiments_manquants("31282") is False

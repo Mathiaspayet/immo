@@ -16,6 +16,7 @@ Repris de scripts_existants/parcelles.py.
 import datetime
 import json
 import logging
+import math
 
 from app.base.connexion import connexion, transaction
 from app.metier import geometrie
@@ -92,19 +93,34 @@ def importer_cadastre(code_insee, progression=None):
         index.ajouter(identifiant, anneaux)
 
     # --- Rattachement des batiments ----------------------------------
+    # Leurs contours sont conserves : la fiche d'un bien les dessine, avec
+    # les parcelles voisines. L'agregat seul ne suffisait plus.
     if progression:
         progression(f"cadastre — {len(objets_batiments)} bâtiments à rattacher")
     orphelins = 0
+    batiments = []
+
     for objet in objets_batiments:
+        type_bati = (objet.get("properties") or {}).get("type")
         for anneau in geometrie.anneaux_exterieurs(objet.get("geometry")):
             longitude, latitude = geometrie.centre(anneau)
             identifiant = index.trouver(longitude, latitude)
+            surface = geometrie.surface_m2(anneau)
+            boite = geometrie.boite_englobante([anneau])
+
             if identifiant is None:
                 orphelins += 1
-                continue
-            fiche = fiches[identifiant]
-            fiche["emprise_batie_m2"] += geometrie.surface_m2(anneau)
-            fiche["nb_batiments"] += 1
+            else:
+                fiche = fiches[identifiant]
+                fiche["emprise_batie_m2"] += surface
+                fiche["nb_batiments"] += 1
+
+            batiments.append((
+                code_insee, identifiant, type_bati, round(surface, 1),
+                boite[1], boite[3], boite[0], boite[2],
+                json.dumps({"type": "Polygon", "coordinates": [anneau]},
+                           separators=(",", ":")),
+            ))
 
     if not fiches:
         from app.sources.client_http import ErreurSource
@@ -118,6 +134,16 @@ def importer_cadastre(code_insee, progression=None):
         for fiche in fiches.values():
             fiche["emprise_batie_m2"] = round(fiche["emprise_batie_m2"], 1)
             conn.execute(SQL_UPSERT, [fiche[c] for c in COLONNES] + [maintenant])
+
+        # Les batiments se remplacent en bloc : le cadastre republie la
+        # commune entiere, et leurs identifiants ne sont pas stables.
+        conn.execute("DELETE FROM batiment WHERE code_insee = ?", (code_insee,))
+        conn.executemany(
+            "INSERT INTO batiment (code_insee, parcelle_id, type, surface_m2, "
+            "  lat_min, lat_max, lon_min, lon_max, geometrie_json, importe_le) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (ligne + (maintenant,) for ligne in batiments))
+
         conn.execute("UPDATE commune SET derniere_maj_cadastre = ? WHERE code_insee = ?",
                      (maintenant, code_insee))
 
@@ -327,3 +353,95 @@ def parcelle_de(n_dpe):
     except (TypeError, ValueError):
         parcelle.pop("geometrie_json", None)
     return parcelle
+
+
+# ---------------------------------------------------------------------
+#  Extrait cadastral d'un bien
+# ---------------------------------------------------------------------
+
+MARGE_EXTRAIT_M = 35        # ce qu'on montre autour de la parcelle
+
+
+def _degres(metres, latitude):
+    """Convertit une marge en metres en degres, aux deux axes."""
+    lat = metres / geometrie.METRES_PAR_DEGRE_LAT
+    lon = metres / (geometrie.METRES_PAR_DEGRE_LAT
+                    * max(math.cos(math.radians(latitude)), 0.01))
+    return lon, lat
+
+
+def _dans_le_cadre(conn, table, code_insee, cadre, colonnes):
+    """Objets dont la boite englobante croise le cadre."""
+    lon_min, lat_min, lon_max, lat_max = cadre
+    return conn.execute(
+        f"SELECT {colonnes} FROM {table} "
+        "WHERE code_insee = ? AND lat_max >= ? AND lat_min <= ? "
+        "  AND lon_max >= ? AND lon_min <= ?",
+        (code_insee, lat_min, lat_max, lon_min, lon_max)).fetchall()
+
+
+def extrait(n_dpe, marge_m=MARGE_EXTRAIT_M):
+    """
+    De quoi dessiner un extrait cadastral autour d'un bien.
+
+    Une parcelle seule ne se lit pas : c'est le voisinage qui donne
+    l'echelle et l'orientation, et le bati qui montre ce qui est construit.
+    On renvoie donc la parcelle, ses voisines et les batiments du cadre.
+    """
+    parcelle = parcelle_de(n_dpe)
+    if parcelle is None:
+        return None
+
+    code_insee = parcelle["code_insee"]
+    marge_lon, marge_lat = _degres(marge_m, parcelle["latitude"] or 46.0)
+    cadre = (parcelle["lon_min"] - marge_lon, parcelle["lat_min"] - marge_lat,
+             parcelle["lon_max"] + marge_lon, parcelle["lat_max"] + marge_lat)
+
+    with connexion() as conn:
+        voisines = _dans_le_cadre(
+            conn, "parcelle", code_insee, cadre,
+            "id, section, numero, contenance_m2, geometrie_json")
+        batiments = _dans_le_cadre(
+            conn, "batiment", code_insee, cadre,
+            "parcelle_id, type, surface_m2, geometrie_json")
+
+    def forme(ligne):
+        try:
+            return json.loads(ligne["geometrie_json"])
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "parcelle": parcelle,
+        "cadre": {"lon_min": cadre[0], "lat_min": cadre[1],
+                  "lon_max": cadre[2], "lat_max": cadre[3]},
+        "voisines": [
+            {"id": ligne["id"], "section": ligne["section"], "numero": ligne["numero"],
+             "contenance_m2": ligne["contenance_m2"], "geometrie": forme(ligne)}
+            for ligne in voisines
+            if ligne["id"] != parcelle["id"] and forme(ligne)
+        ],
+        "batiments": [
+            {"parcelle_id": ligne["parcelle_id"], "type": ligne["type"],
+             "surface_m2": ligne["surface_m2"], "geometrie": forme(ligne),
+             "sur_la_parcelle": ligne["parcelle_id"] == parcelle["id"]}
+            for ligne in batiments if forme(ligne)
+        ],
+    }
+
+
+def batiments_manquants(code_insee):
+    """
+    La commune a-t-elle des parcelles mais aucun batiment enregistre ?
+
+    C'est le cas des cadastres importes avant que les contours de batiments
+    ne soient conserves : il faut alors refaire l'import une fois.
+    """
+    with connexion() as conn:
+        parcelles_connues = conn.execute(
+            "SELECT count(*) FROM parcelle WHERE code_insee = ?",
+            (str(code_insee),)).fetchone()[0]
+        batis = conn.execute(
+            "SELECT count(*) FROM batiment WHERE code_insee = ?",
+            (str(code_insee),)).fetchone()[0]
+    return parcelles_connues > 0 and batis == 0

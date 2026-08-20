@@ -171,3 +171,82 @@ export function creerCarte(identifiant, surSelection) {
     },
   };
 }
+
+
+/**
+ * Vue satellite d'un extrait cadastral, cadrée exactement comme le dessin
+ * qui l'accompagne.
+ *
+ * `zoomSnap: 0` autorise un niveau de zoom fractionnaire : sans lui,
+ * Leaflet se cale sur un zoom entier et le cadrage ne correspond plus à
+ * celui de l'extrait — c'est justement la comparaison qui est demandée.
+ */
+export function creerVueSatellite(identifiant, bornes) {
+  const conteneur = document.getElementById(identifiant);
+  const carte = L.map(identifiant, {
+    zoomSnap: 0,
+    zoomControl: false,
+    attributionControl: false,
+    dragging: false,
+    scrollWheelZoom: false,
+    doubleClickZoom: false,
+    touchZoom: false,
+    keyboard: false,
+  });
+
+  tuilesIgn("ORTHOIMAGERY.ORTHOPHOTOS", "image/jpeg").addTo(carte);
+  carte.fitBounds([[bornes.lat_min, bornes.lon_min],
+                   [bornes.lat_max, bornes.lon_max]], { padding: [0, 0] });
+
+  const vue = {
+    /**
+     * Reporte le contour de la parcelle sur la photo.
+     *
+     * Deux traits superposés : un sombre et large dessous, un clair et fin
+     * dessus. C'est la solution cartographique classique — un trait d'une
+     * seule couleur disparaît selon ce qu'il survole, toiture claire ou
+     * ombre d'arbre.
+     */
+    tracer(geometrie, options = {}) {
+      if (!geometrie) return;
+      const dessiner = (couleur, epaisseur) =>
+        L.geoJSON(geometrie, {
+          style: { color: couleur, weight: epaisseur, fillOpacity: 0,
+                   lineJoin: "round" },
+        }).addTo(carte);
+      dessiner(options.gaine || "#12262B", (options.epaisseur || 2) + 2.5);
+      dessiner(options.couleur || "#FFFFFF", options.epaisseur || 2);
+    },
+    redimensionner() {
+      carte.invalidateSize();
+      carte.fitBounds([[bornes.lat_min, bornes.lon_min],
+                       [bornes.lat_max, bornes.lon_max]], { padding: [0, 0] });
+    },
+
+    // Les deux méthodes qui suivent servent à vérifier que le dessin et la
+    // photo montrent bien le même rectangle — c'est tout l'intérêt de les
+    // mettre côte à côte, et rien dans le rendu ne le prouve à l'œil.
+    // Mesurer le tracé par `getBoundingClientRect` ne marche pas : sous la
+    // pile de transformations de Leaflet, il ne rend pas la position écran.
+
+    /** Où tombe une coordonnée dans le conteneur, en pixels. */
+    pointDe(longitude, latitude) {
+      const p = carte.latLngToContainerPoint([latitude, longitude]);
+      return { x: p.x, y: p.y };
+    },
+
+    /** Ce que la vue montre réellement — sert à vérifier le cadrage. */
+    bornesAffichees() {
+      const b = carte.getBounds();
+      return { lon_min: b.getWest(), lon_max: b.getEast(),
+               lat_min: b.getSouth(), lat_max: b.getNorth() };
+    },
+
+    detruire() { carte.remove(); },
+  };
+
+  // Comme Leaflet marque ses conteneurs, on rattache la vue au sien : elle
+  // reste ainsi mesurable et destructible depuis l'extérieur.
+  conteneur._vueSatellite = vue;
+  return vue;
+}

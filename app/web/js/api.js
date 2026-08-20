@@ -91,6 +91,10 @@ export const api = {
 
   parcelleDuDpe: (n_dpe) => demander(`/api/parcelles/du-dpe?${versParametres({ n_dpe })}`),
 
+  /** Parcelle, voisines et bâtiments : de quoi dessiner un extrait. */
+  extraitCadastral: (n_dpe) =>
+    demander(`/api/parcelles/extrait?${versParametres({ n_dpe })}`),
+
   fiche: (parametres) => demander(`/api/fiche?${versParametres(parametres)}`),
 
   chaine: (n_dpe) => demander(`/api/fiche/chaine?${versParametres({ n_dpe })}`),

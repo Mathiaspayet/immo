@@ -100,8 +100,18 @@
   gap: calc(var(--pas) * 6);
   margin-bottom: calc(var(--pas) * 8);
 }
-@media (min-width: 780px) {
-  .fiche-entete { grid-template-columns: minmax(300px, 400px) 1fr; align-items: start; }
+/* La fiche porte deux vues côte à côte : elle a besoin de plus de largeur
+   que les écrans de réglages dont elle emprunte la mise en page. À 860 px,
+   les dessins tombaient à 236 px et ne se lisaient plus. */
+#vue-fiche { max-width: 1240px; }
+
+/* Deux vues et l'identité : trois colonnes quand la place le permet, deux
+   vues côte à côte sinon, tout empilé sur téléphone. */
+@media (min-width: 760px) {
+  .fiche-entete { grid-template-columns: 1fr 1fr; align-items: start; }
+}
+@media (min-width: 1120px) {
+  .fiche-entete { grid-template-columns: 1fr 1fr minmax(250px, 300px); }
 }
 
 .extrait { margin: 0; }
@@ -270,3 +280,13 @@
 }
 .extrait-manquant .bouton-lien { font-size: 0.8rem; font-weight: 600; }
 .extrait-manquant .duree { color: var(--trait-fort); }
+
+/* Le dessin et la photo, côte à côte au même cadrage : c'est la
+   comparaison qui informe, pas chaque vue prise seule. */
+.extrait-satellite .vue-satellite {
+  width: 100%;
+  aspect-ratio: 420 / 240;
+  background: var(--papier-creux);
+  border: 1px solid var(--encre);
+}
+.extrait-satellite .leaflet-container { background: var(--papier-creux); }
