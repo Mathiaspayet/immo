@@ -13,7 +13,7 @@ import { $ } from "./format.js";
 // Toute vue doit figurer ici : `changerVue` masque tout ce qu'elle
 // connait et montre le reste. Une vue absente de la liste n'est jamais
 // affichee — l'ecran reste vide, sans erreur pour le signaler.
-const VUES = ["accueil", "commune", "veille", "identifier", "parcelles",
+const VUES = ["accueil", "commune", "veille", "identifier",
               "carte", "reglages", "fiche"];
 
 const rappels = {};

@@ -261,19 +261,6 @@ def _parcelle(client, identifiant, contenance, emprise, batiments=1, code_insee=
             (identifiant, code_insee, contenance, emprise, batiments))
 
 
-def test_recherche_cadastrale(client):
-    _parcelle(client, "P1", 800, 120)
-    _parcelle(client, "P2", 50_000, 0, batiments=0)
-
-    corps = client.get("/api/parcelles", params={
-        "code_insee": "31282", "terrain_min": 400, "terrain_max": 2000}).json()
-    assert corps["total"] == 1
-    assert corps["resultats"][0]["id"] == "P1"
-    assert corps["resume"]["parcelles"] == 2
-
-
-def test_recherche_cadastrale_sans_commune_refusee(client):
-    assert client.get("/api/parcelles").status_code == 422
 
 
 def test_parcelle_du_dpe(client):

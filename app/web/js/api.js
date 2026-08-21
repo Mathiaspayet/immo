@@ -87,9 +87,6 @@ export const api = {
       body: JSON.stringify(corps),
     }),
 
-  parcelles: (parametres) => demander(`/api/parcelles?${versParametres(parametres)}`),
-
-  parcelleDuDpe: (n_dpe) => demander(`/api/parcelles/du-dpe?${versParametres({ n_dpe })}`),
 
   /** Parcelle, voisines et bâtiments : de quoi dessiner un extrait. */
   extraitCadastral: (n_dpe) =>

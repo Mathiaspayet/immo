@@ -28,7 +28,7 @@ Spécification complète : [`CAHIER_DES_CHARGES.md`](CAHIER_DES_CHARGES.md).
 | Import quotidien automatique | livré |
 | Alerte courriel des nouveaux DPE (F6) | livré |
 | Écran Réglages, export CSV | livrés |
-| **F3** Recherche cadastrale | livrée |
+| **F3** Cadastre, croisement avec les DPE | livrée |
 | **F5/F6** Suivi, notes, notifications | lot 4 |
 
 Sur un import réel du code postal 40200 : **7 593 DPE**, des trois bases de
@@ -50,25 +50,14 @@ colle sur les consommations, les émissions et les deux classes, et ne
 s'écarte que sur la surface : 149 m² en base contre 144 annoncés. Un filtre
 strict à ±3 m² aurait fait disparaître la bonne maison sans rien expliquer.
 
-### Ce que fait la recherche cadastrale (F3)
+### Ce que fait le cadastre (F3)
 
-On cherche un terrain : telle surface de parcelle, telle emprise bâtie au
-sol. Repère utile — une maison de 120 m² habitables de plain-pied occupe
-environ 120 m² au sol&nbsp;; la même sur deux niveaux, 60 à 70 m².
-
-Et surtout le croisement que demande le CDC : **une parcelle au bon gabarit
-qui porte en plus un diagnostic récent**. Les deux signaux sont
-indépendants, leur rencontre ne l'est pas. Sur Launaguet :
-
-```
-4 304 parcelles au cadastre
-1 228   au gabarit  (terrain 400–2 000 m², emprise 60–250 m²)
-  223     portant un DPE
-   16       dont le DPE date de moins de 120 jours
-```
-
-Ces seize-là sont les candidats. Ils s'affichent en liste et sur la carte,
-contour à l'encre, en ambre quand le diagnostic est frais.
+Le croisement que demande le CDC — **une parcelle qui porte à la fois un
+diagnostic et une vente** — se lit désormais sur la carte d'exploration,
+qui a remplacé l'écran de recherche par filtres. Cet écran proposait de
+filtrer par surface de terrain et emprise bâtie, avec un export CSV ; il a
+été retiré, la carte répondant à la même question de façon plus directe. Le
+filtrage par gabarit est la seule capacité perdue au passage.
 
 Le rattachement des bâtiments aux parcelles passe par un **index spatial en
 grille** : comparer chaque bâtiment à chaque parcelle serait 11 444 × 14 395
@@ -113,17 +102,38 @@ Pinsons, 2 avenue de Woolsack.
 On parcourt la commune sur photo aérienne IGN, parcellaire en surimpression,
 chaque parcelle colorée selon ce qu'on en sait :
 
-| | |
-|---|---|
-| **Ambre** | un DPE **et** une vente connus |
-| **Vert** | un DPE seul |
-| **Bleu** | une vente seule |
-| **Pâle** | rien encore |
+| État | Teinte | Opacité |
+|---|---|---|
+| un DPE **et** une vente | jaune `#EDA100` | 92 % |
+| un DPE seul | vert `#008300` | 70 % |
+| une vente seule | bleu `#2A78D6` | 70 % |
+| rien encore | voile blanc | 12 % |
 
-L'ambre — la couleur du signal « nouveau » ailleurs dans l'application — est
-réservée au croisement, parce que c'est lui qui informe : une parcelle
-vendue sans diagnostic récent et une parcelle diagnostiquée sans vente ne
-racontent pas la même histoire.
+Le jaune, le plus visible des trois, est réservé au croisement : c'est lui
+qui informe, une parcelle vendue sans diagnostic récent et une parcelle
+diagnostiquée sans vente ne racontant pas la même histoire.
+
+**Ces valeurs ne sont pas choisies à l'œil.** Une carte est un cas « toutes
+paires » — n'importe quelles deux parcelles peuvent se toucher — et le fond
+est une photographie, donc l'opacité mélange chaque teinte au paysage. Le
+couple (teinte, opacité) a été retenu en composant chaque état sur trois
+fonds réels du littoral landais — pinède `#4a5a3f`, teinte moyenne
+`#7d7a6a`, sable `#d8cbb0` — puis en mesurant la séparation obtenue.
+
+| | Séparation en vision normale | Sous daltonisme |
+|---|---|---|
+| Premier jeu (vert et bleu sombres, 45 %) | **10,5** | 10,1 |
+| Jeu retenu | **22,1** | 9,7 |
+| Seuil | 15 | 8 |
+
+Le premier jeu échouait au plancher : deux couleurs que l'œil ne
+distinguait pas — ce qui se voyait à l'usage. L'opacité compte autant que
+la teinte : à 45 % la photo l'emporte et les états se rejoignent ; il faut
+65 % pour franchir le plancher, d'où les 70 % retenus. Le jaune monte à
+92 % parce que c'est l'état le plus rare — 10 parcelles sur 550 — et celui
+qu'on cherche. Chaque contour porte enfin un liseré blanc plein : sur une
+photo, une teinte seule disparaît contre une toiture claire ou dans l'ombre
+d'un arbre.
 
 **Un clic ouvre la fiche, directement.** Les deux chemins y mènent : quand
 la parcelle porte un diagnostic, c'est la fiche du bien avec sa
@@ -290,7 +300,7 @@ app/
 │   ├── mutations.py         Ventes DVF, rattachées par la parcelle
 │   └── (carte : parcelles.pour_carte + chercher_sur_carte)
 │   ├── geometrie.py         surfaces, appartenance, index spatial en grille
-│   └── parcelles.py         F3 — cadastre et croisement avec les DPE
+│   ├── parcelles.py         F3 — cadastre, extrait, carte
 ├── api/             routes HTTP — ne font que traduire en JSON
 └── web/             interface : HTML, CSS, modules ES natifs
 ```

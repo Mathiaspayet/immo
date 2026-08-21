@@ -407,11 +407,14 @@
 }
 
 /* Les mêmes teintes que sur la carte, à la même opacité : la légende ne
-   vaut que si l'œil reconnaît la couleur qu'il vient de voir. */
-.legende-deux  { background: rgba(217, 164, 65, 0.55); }
-.legende-dpe   { background: rgba(46, 91, 76, 0.45); }
-.legende-vente { background: rgba(20, 112, 140, 0.45); }
-.legende-rien  { background: rgba(241, 243, 241, 0.35); }
+   vaut que si l'œil reconnaît la couleur qu'il vient de voir. Elles sont
+   posées sur un gris moyen, comme sur la photo — sur du blanc, le voile
+   de « rien de connu » serait invisible. */
+.pastille-legende { background-color: #7d7a6a; }
+.legende-deux  { box-shadow: inset 0 0 0 999px rgba(237, 161, 0, 0.92); }
+.legende-dpe   { box-shadow: inset 0 0 0 999px rgba(0, 131, 0, 0.70); }
+.legende-vente { box-shadow: inset 0 0 0 999px rgba(42, 120, 214, 0.70); }
+.legende-rien  { box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.12); }
 
 @media (max-width: 640px) {
   .carte-plein { height: clamp(320px, 60vh, 520px); }

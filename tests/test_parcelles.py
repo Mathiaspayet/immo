@@ -58,26 +58,8 @@ def cadastre(base):
     inserer_parcelle("P-GRANDE", indice=2, contenance=50_000.0, emprise=0.0, batiments=0)
 
 
-def test_filtre_par_surface_de_terrain(cadastre):
-    retenues = parcelles.lister("31282", {"terrain_min": 400, "terrain_max": 2000},
-                                avec_geometrie=False)
-    assert [p["id"] for p in retenues] == ["P-BONNE"]
 
 
-def test_filtre_par_emprise_batie(cadastre):
-    retenues = parcelles.lister("31282", {"emprise_min": 100}, avec_geometrie=False)
-    assert [p["id"] for p in retenues] == ["P-BONNE"]
-
-
-def test_filtre_batie(cadastre):
-    retenues = parcelles.lister("31282", {"batie": True}, avec_geometrie=False)
-    assert {p["id"] for p in retenues} == {"P-PETITE", "P-BONNE"}
-
-
-def test_une_commune_ne_voit_pas_le_cadastre_d_une_autre(cadastre):
-    inserer_parcelle("AILLEURS", indice=5, code_insee="40184")
-    assert len(parcelles.lister("31282", {}, avec_geometrie=False)) == 3
-    assert len(parcelles.lister("40184", {}, avec_geometrie=False)) == 1
 
 
 # ---------------------------------------------------------------------
@@ -87,8 +69,12 @@ def test_une_commune_ne_voit_pas_le_cadastre_d_une_autre(cadastre):
 def test_recoupement_dpe_parcelle(cadastre):
     """
     « Une adresse presente dans deux modules est un candidat quasi
-    certain » : la parcelle porte le compte de ses DPE et la date du plus
-    recent.
+    certain » (CDC F3) : la parcelle porte le compte de ses DPE et la date
+    du plus recent.
+
+    L'invariant portait sur la recherche par filtres, retiree avec l'ecran
+    « Chercher par le terrain ». Il vaut toujours, et se verifie sur le
+    chemin qui subsiste : celui de la carte.
     """
     inserer_dpe(n_dpe="D1", adresse="1 rue", code_insee="31282",
                 date_etablissement="2026-08-01")
@@ -97,30 +83,11 @@ def test_recoupement_dpe_parcelle(cadastre):
     with transaction() as conn:
         conn.execute("UPDATE dpe SET parcelle_id = 'P-BONNE' WHERE n_dpe IN ('D1','D2')")
 
-    par_id = {p["id"]: p for p in parcelles.lister("31282", {}, avec_geometrie=False)}
+    cadre = (LON - 0.01, LAT - 0.01, LON + 0.02, LAT + 0.01)
+    par_id = {p["id"]: p for p in parcelles.pour_carte("31282", cadre)["parcelles"]}
     assert par_id["P-BONNE"]["dpe"] == 2
-    assert par_id["P-BONNE"]["dpe_recent"] == "2026-08-01"
-    assert set(par_id["P-BONNE"]["adresses"]) == {"1 rue", "2 rue"}
+    assert par_id["P-BONNE"]["dpe_dernier"] == "2026-08-01"
     assert par_id["P-PETITE"]["dpe"] == 0
-
-
-def test_filtre_sur_un_dpe_recent(cadastre):
-    """Le croisement qui compte : bon gabarit ET diagnostic frais."""
-    import datetime
-    recent = (datetime.date.today() - datetime.timedelta(days=10)).isoformat()
-    vieux = (datetime.date.today() - datetime.timedelta(days=900)).isoformat()
-
-    inserer_dpe(n_dpe="FRAIS", adresse="1 rue", code_insee="31282",
-                date_etablissement=recent)
-    inserer_dpe(n_dpe="VIEUX", adresse="2 rue", code_insee="31282",
-                date_etablissement=vieux)
-    with transaction() as conn:
-        conn.execute("UPDATE dpe SET parcelle_id = 'P-BONNE' WHERE n_dpe = 'FRAIS'")
-        conn.execute("UPDATE dpe SET parcelle_id = 'P-PETITE' WHERE n_dpe = 'VIEUX'")
-
-    retenues = parcelles.lister("31282", {"dpe_depuis_jours": 120}, avec_geometrie=False)
-    assert [p["id"] for p in retenues] == ["P-BONNE"]
-
 
 def test_rattachement_par_la_geometrie(cadastre):
     """
@@ -163,17 +130,6 @@ def test_parcelle_d_un_dpe_pour_la_fiche(cadastre):
     assert parcelles.parcelle_de("INCONNU") is None
 
 
-def test_resume_du_cadastre(cadastre):
-    resultat = parcelles.resume("31282")
-    assert resultat["parcelles"] == 3
-    assert resultat["baties"] == 2
-    assert resultat["dpe_rattaches"] == 0
-
-
-def test_resume_d_une_commune_sans_cadastre(base):
-    resultat = parcelles.resume("99999")
-    assert resultat["parcelles"] == 0
-    assert resultat["age_heures"] is None
 
 
 # ---------------------------------------------------------------------

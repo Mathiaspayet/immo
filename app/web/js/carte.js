@@ -178,19 +178,37 @@ export function creerCarte(identifiant, surSelection) {
  *
  * C'est le CROISEMENT qui informe, pas chaque fait pris seul : une
  * parcelle vendue sans diagnostic récent et une parcelle diagnostiquée
- * sans vente ne racontent pas la même histoire. L'ambre — la couleur du
- * signal « nouveau » ailleurs dans l'application — est donc réservée aux
- * deux à la fois.
+ * sans vente ne racontent pas la même histoire. Le jaune, le plus visible
+ * des trois, est donc réservé aux deux à la fois.
  *
- * Les teintes sont posées sur photo aérienne : chaque contour porte un
- * liseré blanc, sans quoi il disparaîtrait sur une toiture claire ou dans
- * l'ombre d'un arbre.
+ * Trois teintes seulement portent de l'information : « rien de connu »
+ * est une absence, pas une catégorie, et se contente d'un voile blanc.
+ *
+ * LES VALEURS NE SONT PAS CHOISIES À L'ŒIL. Une carte est un cas « toutes
+ * paires » — n'importe quelles deux parcelles peuvent se toucher — et le
+ * fond est une photo, donc l'opacité mélange chaque teinte au paysage.
+ * Le couple (teinte, opacité) a été retenu en composant chaque état sur
+ * trois fonds réels du littoral landais — pinède #4a5a3f, teinte moyenne
+ * #7d7a6a, sable #d8cbb0 — puis en mesurant la séparation obtenue.
+ *
+ * Résultat : séparation en vision normale ≥ 22,1 (plancher 15) et sous
+ * daltonisme ≥ 9,7 (cible 8), sur les trois fonds. Le jeu précédent —
+ * vert et bleu sombres à 45 % — tombait à 10,5 en vision normale : deux
+ * couleurs que l'œil ne distinguait pas, ce qui se voyait à l'usage.
+ *
+ * L'opacité compte autant que la teinte : à 45 % la photo l'emporte et
+ * les états se rejoignent. Il faut 65 % pour franchir le plancher, d'où
+ * les 70 % retenus. « Les deux » monte à 92 % — c'est l'état le plus rare
+ * (10 parcelles sur 550) et celui qu'on cherche.
+ *
+ * Chaque contour porte un liseré blanc plein : sur une photo, une teinte
+ * seule disparaît contre une toiture claire ou dans l'ombre d'un arbre.
  */
 export const ETATS_PARCELLE = {
-  deux:  { libelle: "DPE et vente", couleur: "#D9A441", remplissage: 0.55 },
-  dpe:   { libelle: "DPE seul",     couleur: "#2E5B4C", remplissage: 0.45 },
-  vente: { libelle: "Vente seule",  couleur: "#14708C", remplissage: 0.45 },
-  rien:  { libelle: "Rien de connu", couleur: "#F1F3F1", remplissage: 0.10 },
+  deux:  { libelle: "DPE et vente",  couleur: "#EDA100", remplissage: 0.92 },
+  dpe:   { libelle: "DPE seul",      couleur: "#008300", remplissage: 0.70 },
+  vente: { libelle: "Vente seule",   couleur: "#2A78D6", remplissage: 0.70 },
+  rien:  { libelle: "Rien de connu", couleur: "#FFFFFF", remplissage: 0.12 },
 };
 
 export function etatParcelle(parcelle) {
@@ -271,8 +289,8 @@ export function creerCarteExploration(identifiant, { surDeplacement, surParcelle
         const forme = L.geoJSON(parcelle.geometrie, {
           style: {
             color: "#FFFFFF",
-            weight: 1.2,
-            opacity: 0.9,
+            weight: 1.5,
+            opacity: 1,
             fillColor: etat.couleur,
             fillOpacity: etat.remplissage,
             lineJoin: "round",
