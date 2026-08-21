@@ -278,7 +278,7 @@ export function creerCarteExploration(identifiant, { surDeplacement, surParcelle
             lineJoin: "round",
           },
         });
-        forme.on("click", () => surParcelle && surParcelle(parcelle, forme));
+        forme.on("click", () => surParcelle && surParcelle(parcelle));
         forme.addTo(couche);
       }
       return parcelles.length;

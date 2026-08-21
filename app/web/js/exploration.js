@@ -19,8 +19,8 @@
  */
 
 import { api } from "./api.js";
-import { creerCarteExploration, ETATS_PARCELLE, etatParcelle } from "./carte.js";
-import { $, afficherErreur, echapper, entierFr, euroFr, masquerErreur } from "./format.js";
+import { creerCarteExploration, etatParcelle } from "./carte.js";
+import { $, afficherErreur, echapper, entierFr, masquerErreur } from "./format.js";
 import { ouvrirFiche } from "./fiche.js";
 import { auTermeDeLImport } from "./import.js";
 import { auChangement } from "./navigation.js";
@@ -107,37 +107,24 @@ async function rafraichir() {
     : resume);
 }
 
-/** Ce qu'on montre au clic sur une parcelle. */
-function decrire(parcelle, forme) {
-  const reference = `${parcelle.section ?? ""}${parcelle.numero ?? ""}`;
-  const faits = [];
-  if (parcelle.contenance_m2) {
-    faits.push(`terrain ${entierFr.format(parcelle.contenance_m2)} m²`);
+/**
+ * Un clic sur une parcelle ouvre sa fiche, directement.
+ *
+ * La bulle intermédiaire n'apportait rien : elle répétait ce que la
+ * couleur disait déjà, et imposait un second clic pour arriver là où on
+ * allait de toute façon.
+ *
+ * Les deux chemins mènent à une fiche. Quand la parcelle porte un
+ * diagnostic, c'est la fiche du bien, avec sa chronologie ; sinon c'est
+ * celle de la parcelle — contour, voisinage, bâti, ventes. Le second cas
+ * est de loin le plus fréquent sur la carte.
+ */
+function ouvrir(parcelle) {
+  if (parcelle.n_dpe) {
+    ouvrirFiche({ n_dpe: parcelle.n_dpe, retour: "carte" });
+  } else {
+    ouvrirFiche({ parcelle_id: parcelle.id, retour: "carte" });
   }
-  if (parcelle.emprise_batie_m2) {
-    faits.push(`bâti ${entierFr.format(parcelle.emprise_batie_m2)} m²`);
-  }
-
-  const lignes = [];
-  if (parcelle.dpe > 0) {
-    lignes.push(`${entierFr.format(parcelle.dpe)} diagnostic(s)` +
-      (parcelle.dpe_dernier ? `, dernier le ${echapper(parcelle.dpe_dernier)}` : ""));
-  }
-  if (parcelle.ventes > 0) {
-    lignes.push(`${entierFr.format(parcelle.ventes)} vente(s) connue(s)`);
-  }
-  if (!lignes.length) lignes.push("Ni diagnostic ni vente connus.");
-
-  forme.bindPopup(
-    `<span class="adresse-popup">Parcelle ${echapper(reference)}</span>` +
-    `<span class="donnee">${echapper(faits.join(" · "))}</span>` +
-    `<span class="donnee">${lignes.join("<br>")}</span>` +
-    (parcelle.n_dpe
-      ? `<button type="button" class="bouton-lien" data-fiche="${echapper(parcelle.n_dpe)}">
-           Ouvrir la fiche →
-         </button>`
-      : "")
-  ).openPopup();
 }
 
 // --------------------------------------------------------------------
@@ -190,7 +177,7 @@ async function suggerer() {
 export function initialiserExploration() {
   carte = creerCarteExploration("carte-exploration", {
     surDeplacement: rafraichir,
-    surParcelle: decrire,
+    surParcelle: ouvrir,
   });
 
   // Leaflet mesure son conteneur à la création : l'écran étant masqué à ce
@@ -213,10 +200,4 @@ export function initialiserExploration() {
     minuterieRecherche = setTimeout(suggerer, 220);
   });
 
-  // Le bouton de la bulle est créé par Leaflet après coup : on écoute au
-  // niveau de la vue plutôt que sur un élément qui n'existe pas encore.
-  $("#vue-carte").addEventListener("click", (evenement) => {
-    const cible = evenement.target.closest("[data-fiche]");
-    if (cible) ouvrirFiche({ n_dpe: cible.dataset.fiche, retour: "carte" });
-  });
 }

@@ -125,12 +125,18 @@ réservée au croisement, parce que c'est lui qui informe : une parcelle
 vendue sans diagnostic récent et une parcelle diagnostiquée sans vente ne
 racontent pas la même histoire.
 
-Un clic ouvre le détail de la parcelle, et de là sa fiche. La boîte de
-recherche accepte indifféremment une adresse ou une référence cadastrale —
-distinguer les deux champs obligerait à savoir lequel remplir. Elle accepte
-aussi les deux écritures du numéro : la base le garde sans zéros de
-remplissage (`AT148`) là où l'identifiant affiché sur la fiche les porte
-(`AT0148`).
+**Un clic ouvre la fiche, directement.** Les deux chemins y mènent : quand
+la parcelle porte un diagnostic, c'est la fiche du bien avec sa
+chronologie ; sinon c'est celle de la parcelle — contour, voisinage, bâti,
+et ses ventes s'il y en a. Le second cas est de loin le plus fréquent, 468
+parcelles sur 550 dans une vue courante, et sans lui la carte mènerait à
+une impasse presque partout.
+
+La boîte de recherche accepte indifféremment une adresse ou une référence
+cadastrale — distinguer les deux champs obligerait à savoir lequel remplir.
+Elle accepte aussi les deux écritures du numéro : la base le garde sans
+zéros de remplissage (`AT148`) là où l'identifiant affiché sur la fiche les
+porte (`AT0148`).
 
 **Deux contraintes gouvernent cet écran.** Le volume d'abord : les 11 444
 parcelles de Mimizan pèsent 3,8 Mo, et les envoyer d'un bloc rendrait la

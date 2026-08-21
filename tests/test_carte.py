@@ -21,6 +21,15 @@ from tests.conftest import inserer_dpe
 LAT, LON, COTE = 44.20, -1.23, 0.0009
 
 
+@pytest.fixture()
+def client_carte(base):
+    from fastapi.testclient import TestClient
+
+    from app.main import application
+    with TestClient(application) as c:
+        yield c
+
+
 def _parcelle(identifiant, indice=0, code_insee="40184"):
     """Une parcelle carree, decalee de `indice` cases vers l'est."""
     x = LON + indice * COTE * 2
@@ -162,3 +171,60 @@ def test_une_adresse_sans_position_est_ecartee(base):
     inserer_dpe(n_dpe="D1", adresse="53 Chemin des Roseaux", code_insee="40184",
                 latitude=None, longitude=None)
     assert parcelles.chercher_sur_carte("40184", "roseaux") == []
+
+
+# ---------------------------------------------------------------------
+#  Ouvrir une parcelle depuis la carte
+# ---------------------------------------------------------------------
+
+def test_l_extrait_s_ouvre_par_la_parcelle(quatre_etats):
+    """
+    Le chemin de la carte. La plupart des parcelles ne portent aucun DPE —
+    468 sur 550 dans une vue courante de Mimizan — et cliquer dessus doit
+    mener quelque part.
+    """
+    # Les parcelles du fixture sont espacees de ~100 m, au-dela de la marge
+    # de l'extrait : on en colle une contre P-RIEN pour que le voisinage
+    # ait de quoi se peupler.
+    _parcelle("P-MITOYENNE", 3.5)
+
+    extrait = parcelles.extrait_parcelle("P-RIEN")
+    assert extrait is not None
+    assert extrait["parcelle"]["id"] == "P-RIEN"
+    # Le voisinage est ce qui donne l'echelle : il doit etre la aussi.
+    voisines = {v["id"] for v in extrait["voisines"]}
+    assert "P-MITOYENNE" in voisines
+    assert "P-RIEN" not in voisines
+
+
+def test_les_deux_chemins_donnent_le_meme_extrait(quatre_etats):
+    """Par le DPE ou par la parcelle, c'est le meme terrain."""
+    par_dpe = parcelles.extrait("D1")
+    par_parcelle = parcelles.extrait_parcelle("P-DEUX")
+    assert par_dpe["parcelle"]["id"] == par_parcelle["parcelle"]["id"]
+    assert par_dpe["cadre"] == par_parcelle["cadre"]
+
+
+def test_une_parcelle_inconnue_ne_fait_pas_tomber(base):
+    assert parcelles.parcelle("N-EXISTE-PAS") is None
+    assert parcelles.extrait_parcelle("N-EXISTE-PAS") is None
+
+
+def test_la_fiche_d_une_parcelle_rassemble_tout(client_carte, quatre_etats):
+    """Contour, voisinage, bati et ventes en une seule reponse."""
+    corps = client_carte.get("/api/parcelles/fiche-parcelle",
+                             params={"parcelle_id": "P-VENTE"}).json()
+    assert corps["parcelle"]["id"] == "P-VENTE"
+    assert corps["extrait"]["parcelle"]["id"] == "P-VENTE"
+    assert len(corps["ventes"]) == 1
+    assert corps["ventes"][0]["valeur_fonciere"] == 261030
+
+    # Une parcelle nue repond aussi : c'est la carte d'identite du terrain.
+    nue = client_carte.get("/api/parcelles/fiche-parcelle",
+                           params={"parcelle_id": "P-RIEN"}).json()
+    assert nue["ventes"] == []
+    assert nue["extrait"] is not None
+
+    manquante = client_carte.get("/api/parcelles/fiche-parcelle",
+                                 params={"parcelle_id": "AUCUNE"})
+    assert manquante.status_code == 404

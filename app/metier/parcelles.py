@@ -339,13 +339,7 @@ def resume(code_insee):
     }
 
 
-def parcelle_de(n_dpe):
-    """La parcelle qui porte ce DPE, geometrie comprise — pour la fiche."""
-    with connexion() as conn:
-        ligne = conn.execute(
-            "SELECT p.* FROM parcelle p "
-            "JOIN dpe d ON d.parcelle_id = p.id WHERE d.n_dpe = ?",
-            (str(n_dpe),)).fetchone()
+def _depuis_la_ligne(ligne):
     if ligne is None:
         return None
     parcelle = dict(ligne)
@@ -354,6 +348,28 @@ def parcelle_de(n_dpe):
     except (TypeError, ValueError):
         parcelle.pop("geometrie_json", None)
     return parcelle
+
+
+def parcelle_de(n_dpe):
+    """La parcelle qui porte ce DPE, geometrie comprise — pour la fiche."""
+    with connexion() as conn:
+        return _depuis_la_ligne(conn.execute(
+            "SELECT p.* FROM parcelle p "
+            "JOIN dpe d ON d.parcelle_id = p.id WHERE d.n_dpe = ?",
+            (str(n_dpe),)).fetchone())
+
+
+def parcelle(identifiant):
+    """
+    Une parcelle par son identifiant cadastral.
+
+    Sert a ouvrir une fiche depuis la carte : la plupart des parcelles ne
+    portent aucun DPE — sur une vue courante de Mimizan, 468 sur 550 — et
+    il faut pouvoir les consulter tout de meme.
+    """
+    with connexion() as conn:
+        return _depuis_la_ligne(conn.execute(
+            "SELECT * FROM parcelle WHERE id = ?", (str(identifiant),)).fetchone())
 
 
 # ---------------------------------------------------------------------
@@ -382,14 +398,23 @@ def _dans_le_cadre(conn, table, code_insee, cadre, colonnes):
 
 
 def extrait(n_dpe, marge_m=MARGE_EXTRAIT_M):
+    """L'extrait cadastral autour du bien porteur de ce DPE."""
+    return extrait_de(parcelle_de(n_dpe), marge_m)
+
+
+def extrait_parcelle(identifiant, marge_m=MARGE_EXTRAIT_M):
+    """Le meme extrait, demande par la parcelle — le chemin de la carte."""
+    return extrait_de(parcelle(identifiant), marge_m)
+
+
+def extrait_de(parcelle, marge_m=MARGE_EXTRAIT_M):
     """
-    De quoi dessiner un extrait cadastral autour d'un bien.
+    De quoi dessiner un extrait cadastral autour d'une parcelle.
 
     Une parcelle seule ne se lit pas : c'est le voisinage qui donne
     l'echelle et l'orientation, et le bati qui montre ce qui est construit.
     On renvoie donc la parcelle, ses voisines et les batiments du cadre.
     """
-    parcelle = parcelle_de(n_dpe)
     if parcelle is None:
         return None
 

@@ -76,6 +76,27 @@ def chercher(code_insee: str = Query(...),
     return {"resultats": parcelles.chercher_sur_carte(code_insee, q)}
 
 
+@routeur.get("/fiche-parcelle")
+def fiche_parcelle(parcelle_id: str = Query(...)):
+    """
+    Tout ce qu'on sait d'une parcelle qui ne porte aucun DPE.
+
+    La carte en montre beaucoup — 468 sur 550 dans une vue courante de
+    Mimizan. Cliquer dessus doit mener quelque part : le contour, le
+    voisinage, le bati, et les ventes s'il y en a. C'est la carte
+    d'identite du terrain, a defaut de celle d'un logement.
+    """
+    parcelle = parcelles.parcelle(parcelle_id)
+    if parcelle is None:
+        raise HTTPException(status_code=404,
+                            detail=f"Parcelle {parcelle_id} inconnue.")
+    return {
+        "parcelle": parcelle,
+        "extrait": parcelles.extrait_parcelle(parcelle_id),
+        "ventes": mutations.pour_parcelle(parcelle_id),
+    }
+
+
 @routeur.get("/ventes")
 def ventes(n_dpe: str = Query(...)):
     """

@@ -362,11 +362,21 @@ const LECTURE = `
         toutefois été invalidés par la réforme.</li>
   </ul>`;
 
-export async function ouvrirFiche({ n_dpe = null, adresse = null, retour = null } = {}) {
+export async function ouvrirFiche({ n_dpe = null, adresse = null,
+                                    parcelle_id = null, retour = null } = {}) {
   masquerErreur();
   dernierRetour = retour || "veille";
   changerVue("fiche");
   $("#fiche-contenu").innerHTML = '<p class="message message-travail">Chargement de la fiche…</p>';
+
+  // Une parcelle sans aucun DPE n'a pas de chronologie à montrer, mais
+  // elle a une identité : son contour, son voisinage, son bâti, et ses
+  // ventes s'il y en a. C'est le cas le plus fréquent sur la carte — 468
+  // parcelles sur 550 dans une vue courante de Mimizan.
+  if (parcelle_id && !n_dpe && !adresse) {
+    await ouvrirFicheParcelle(parcelle_id);
+    return;
+  }
 
   let reponse;
   try {
@@ -478,6 +488,75 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null, retour = null 
     bouton.addEventListener("click", () => remonterChaine(bouton.dataset.chaine));
   });
 }
+
+/**
+ * La fiche d'une parcelle qui ne porte aucun diagnostic.
+ *
+ * Elle reprend l'en-tête de la fiche d'un bien — extrait cadastral et vue
+ * aérienne au même cadrage — et dit franchement ce qui manque. Sans elle,
+ * cliquer sur une parcelle de la carte mènerait à une impasse dans la
+ * grande majorité des cas.
+ */
+async function ouvrirFicheParcelle(identifiant) {
+  let reponse;
+  try {
+    reponse = await api.ficheParcelle(identifiant);
+  } catch (erreur) {
+    $("#fiche-contenu").innerHTML = "";
+    afficherErreur("Impossible d'ouvrir cette parcelle.", erreur.message);
+    return;
+  }
+
+  const { parcelle, extrait, ventes } = reponse;
+  const reference = `${parcelle.section ?? ""}${parcelle.numero ?? ""}`;
+
+  $("#fiche-contenu").innerHTML = `
+    <div class="fiche-entete">
+      ${extraitCadastral({ latitude: parcelle.latitude,
+                           longitude: parcelle.longitude }, extrait)}
+      ${panneauSatellite(extrait)}
+      <div class="fiche-identite">
+        <h1>Parcelle ${echapper(reference)}</h1>
+        <p class="explication">
+          ${echapper(parcelle.id)}
+        </p>
+        <dl class="mesures mesures-colonne">
+          <div><dt>terrain</dt><dd>${parcelle.contenance_m2 != null
+            ? entierFr.format(parcelle.contenance_m2) + " m²" : "—"}</dd></div>
+          <div><dt>emprise bâtie</dt><dd>${parcelle.emprise_batie_m2
+            ? entierFr.format(parcelle.emprise_batie_m2) + " m²" : "—"}</dd></div>
+          <div><dt>bâtiments</dt><dd>${entierFr.format(parcelle.nb_batiments ?? 0)}</dd></div>
+        </dl>
+      </div>
+    </div>
+
+    ${blocVentes(ventes)}
+
+    <div class="vide">
+      <h3>Aucun diagnostic connu sur cette parcelle</h3>
+      <p>
+        Cela ne veut pas dire qu'il n'y a rien à voir&nbsp;: un logement peut
+        n'avoir jamais été diagnostiqué, ou l'avoir été sous une adresse que
+        l'ADEME rattache ailleurs. ${ventes.length
+          ? "La ou les ventes ci-dessus, elles, sont attestées."
+          : "Aucune vente n'est connue non plus sur les cinq derniers millésimes."}
+      </p>
+    </div>
+
+    <p><button type="button" class="bouton" id="fiche-retour">Retour</button></p>`;
+
+  if (extrait) {
+    requestAnimationFrame(() => {
+      if (!document.getElementById("satellite-fiche")) return;
+      const satellite = creerVueSatellite("satellite-fiche",
+                                          cadrerPourSatellite(extrait.cadre));
+      satellite.tracer(extrait.parcelle.geometrie,
+                       { couleur: "#FFFFFF", epaisseur: 2.5 });
+    });
+  }
+  $("#fiche-retour").addEventListener("click", () => changerVue(dernierRetour));
+}
+
 
 /**
  * Charge le cadastre de la commune du bien, puis redessine la fiche.

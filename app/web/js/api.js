@@ -120,6 +120,9 @@ export const api = {
     demander(`/api/parcelles/chercher?code_insee=${encodeURIComponent(code_insee)}`
       + `&q=${encodeURIComponent(q)}`),
 
+  ficheParcelle: (parcelle_id) =>
+    demander(`/api/parcelles/fiche-parcelle?parcelle_id=${encodeURIComponent(parcelle_id)}`),
+
   ventes: (n_dpe) =>
     demander(`/api/parcelles/ventes?n_dpe=${encodeURIComponent(n_dpe)}`),
 
