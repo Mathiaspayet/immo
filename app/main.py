@@ -84,6 +84,33 @@ def sante():
     }
 
 
+class StatiquesRevalidees(StaticFiles):
+    """
+    Les fichiers de l'interface, avec obligation de revalider.
+
+    Starlette pose un ETag et un Last-Modified, mais aucun Cache-Control.
+    Sans consigne, le navigateur applique sa propre heuristique et peut
+    reutiliser un fichier SANS RIEN DEMANDER — c'est ainsi qu'apres une mise
+    a jour par Watchtower, un index.html neuf s'est retrouve a cote d'un
+    veille.js d'une version precedente : les champs existaient, le code qui
+    les remplit non.
+
+    « no-cache » ne veut pas dire « ne garde rien » : le navigateur garde le
+    fichier, mais demande a chaque fois s'il a change. L'ETag rend la
+    reponse vide (304) quand ce n'est pas le cas — le cout est une requete
+    sans corps, sur un reseau local.
+
+    Les fichiers portant une empreinte dans leur nom pourraient etre mis en
+    cache pour un an ; aucun n'en porte ici, l'interface n'ayant pas d'etape
+    de construction (CDC 3).
+    """
+
+    def file_response(self, *args, **kwargs):
+        reponse = super().file_response(*args, **kwargs)
+        reponse.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return reponse
+
+
 # Monte en dernier : tout ce qui n'est pas /api est un fichier de l'interface.
 application.mount(
-    "/", StaticFiles(directory=str(config.DOSSIER_WEB), html=True), name="web")
+    "/", StatiquesRevalidees(directory=str(config.DOSSIER_WEB), html=True), name="web")

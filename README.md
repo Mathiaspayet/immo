@@ -494,6 +494,21 @@ Le bouton **Envoyer un message de contrôle** des Réglages éprouve la
 configuration sans attendre qu'un DPE paraisse : sans lui, on ne saurait
 qu'un mot de passe est faux qu'au premier bien manqué.
 
+**Les fichiers de l'interface se revalident à chaque chargement.** Starlette
+pose un ETag et un `Last-Modified`, mais aucun `Cache-Control` : sans
+consigne, le navigateur applique sa propre heuristique et peut réutiliser un
+fichier **sans rien demander**. Après une mise à jour par Watchtower, un
+`index.html` neuf s'est ainsi retrouvé à côté d'un `veille.js` d'une version
+précédente — les champs de l'écran existaient, le code qui les remplit non,
+et le symptôme était une liste déroulante vide et un message obsolète.
+
+`Cache-Control: no-cache` corrige cela, et ne veut pas dire « ne garde
+rien » : le navigateur garde le fichier mais demande à chaque fois s'il a
+changé. L'ETag rend la réponse vide — 304, sans corps — quand ce n'est pas
+le cas. Sur un réseau local, le coût est nul. Un cache long serait légitime
+pour des fichiers portant une empreinte dans leur nom ; aucun n'en porte
+ici, l'interface n'ayant pas d'étape de construction (CDC §3).
+
 **Le conteneur tourne en root**, comme `gestion-locative`. C'est ce qui
 évite les refus d'écriture sur le volume monté. L'application n'étant pas
 exposée publiquement, le compromis est assumé.
