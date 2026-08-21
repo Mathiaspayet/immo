@@ -1,9 +1,11 @@
 import { api, ErreurApi } from "./api.js";
 import { creerCarte } from "./carte.js";
 import { auTermeDeLImport, lancerImport, reprendreSuiviEventuel } from "./import.js";
+import { initialiserExploration } from "./exploration.js";
 import { initialiserParcelles } from "./parcelles.js";
 import {
-  communeCourante, dessinerContexte, initialiserParcours, surCommunePrete,
+  communeCourante, dessinerContexte, initialiserParcours, libelleIntention,
+  surCommunePrete,
 } from "./parcours.js";
 import { ouvrirFiche } from "./fiche.js";
 import { initialiserIdentification } from "./identifier.js";
@@ -225,9 +227,10 @@ async function chargerContexte() {
     const { communes, zones } = await api.communes();
     const ici = communes.find((c) => c.code_insee === commune?.code_insee);
 
-    $("#sous-titre").textContent = commune
-      ? `DPE récents · ${commune.nom}`
-      : "DPE récents";
+    // Le sous-titre suit l'intention : « DPE récents » était juste quand
+    // la veille était l'écran unique, il ne l'est plus.
+    const quoi = libelleIntention();
+    $("#sous-titre").textContent = commune ? `${quoi} · ${commune.nom}` : quoi;
     dessinerContexte({ dpe: ici?.dpe });
 
     // Les secteurs sont propres à une commune : ailleurs, plus rien n'en
@@ -575,6 +578,7 @@ async function demarrer() {
 
   // Le parcours prend la main : accueil, puis commune, puis résultats.
   initialiserParcelles();
+  initialiserExploration();
   initialiserParcours();
   await reprendreSuiviEventuel();
 }

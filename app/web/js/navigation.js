@@ -10,8 +10,11 @@ import { $ } from "./format.js";
 
 // La fiche n'est pas un onglet : on y entre depuis un relevé ou un
 // résultat d'identification, et on en revient.
+// Toute vue doit figurer ici : `changerVue` masque tout ce qu'elle
+// connait et montre le reste. Une vue absente de la liste n'est jamais
+// affichee — l'ecran reste vide, sans erreur pour le signaler.
 const VUES = ["accueil", "commune", "veille", "identifier", "parcelles",
-              "reglages", "fiche"];
+              "carte", "reglages", "fiche"];
 
 const rappels = {};
 

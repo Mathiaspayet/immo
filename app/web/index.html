@@ -59,6 +59,15 @@
         </span>
         <span class="carte-suite">Choisir une commune →</span>
       </button>
+      <button type="button" class="carte-choix" data-intention="carte">
+        <span class="carte-titre">Explorer la carte</span>
+        <span class="carte-texte">
+          Parcourir la commune sur photo aérienne, chaque parcelle colorée
+          selon ce qu'on en sait&nbsp;: un diagnostic, une vente, les deux, ou
+          rien encore. C'est le croisement qui parle.
+        </span>
+        <span class="carte-suite">Choisir une commune →</span>
+      </button>
       <button type="button" class="carte-choix" data-intention="parcelles">
         <span class="carte-titre">Chercher par le terrain</span>
         <span class="carte-texte">
@@ -258,6 +267,33 @@
   </section>
 
   <!-- =========================== PARCELLES =========================== -->
+  <section id="vue-carte" aria-label="Exploration cartographique" hidden>
+    <div class="carte-barre">
+      <div class="champ champ-adresse">
+        <label for="carte-adresse">Aller à une adresse</label>
+        <input type="search" id="carte-adresse" class="donnee" autocomplete="off"
+               placeholder="12 rue des Pins, ou une parcelle AB0123">
+        <ul id="carte-suggestions" class="suggestions" hidden></ul>
+      </div>
+      <p class="explication" id="carte-etat">Choisissez une commune pour commencer.</p>
+    </div>
+
+    <div id="carte-exploration" class="carte carte-plein"></div>
+
+    <ul class="legende">
+      <li><span class="pastille-legende legende-deux"></span> DPE et vente connus</li>
+      <li><span class="pastille-legende legende-dpe"></span> DPE seul</li>
+      <li><span class="pastille-legende legende-vente"></span> Vente seule</li>
+      <li><span class="pastille-legende legende-rien"></span> Rien de connu</li>
+    </ul>
+
+    <p class="explication">
+      Les couleurs disent ce que l'application sait, pas ce qui existe&nbsp;:
+      une parcelle sans DPE peut simplement n'avoir jamais été diagnostiquée.
+      Les ventes ne couvrent que cinq millésimes, et jamais l'Alsace-Moselle.
+    </p>
+  </section>
+
   <section id="vue-parcelles" aria-label="Recherche cadastrale" hidden>
 
     <div class="contexte" id="contexte-parcelles"></div>

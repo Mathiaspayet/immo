@@ -16,6 +16,7 @@ Repris de scripts_existants/parcelles.py.
 import datetime
 import json
 import logging
+import re
 import math
 
 from app.base.connexion import connexion, transaction
@@ -433,6 +434,131 @@ def extrait(n_dpe, marge_m=MARGE_EXTRAIT_M):
             for ligne in batiments if forme(ligne)
         ],
     }
+
+
+# Au-dela, le navigateur peine a tracer et la carte devient illisible :
+# mieux vaut demander de zoomer que de rendre une bouillie de polygones.
+MAX_CARTE = 1200
+
+
+def pour_carte(code_insee, cadre, limite=MAX_CARTE):
+    """
+    Les parcelles visibles dans un cadre, avec ce qu'on sait d'elles.
+
+    Renvoyer la commune entiere n'est pas envisageable : les geometries de
+    Mimizan pesent 3,8 Mo pour 11 444 parcelles. On filtre donc par le
+    cadre affiche, en s'appuyant sur l'index des boites englobantes.
+
+    Chaque parcelle porte deux drapeaux — un DPE connu, une vente connue —
+    dont le croisement fait les quatre couleurs de la carte. C'est ce
+    croisement qui informe : une parcelle vendue sans DPE recent, ou
+    diagnostiquee sans vente, ne racontent pas la meme histoire.
+    """
+    lon_min, lat_min, lon_max, lat_max = cadre
+    with connexion() as conn:
+        lignes = conn.execute(
+            "SELECT p.id, p.section, p.numero, p.contenance_m2,"
+            "       p.emprise_batie_m2, p.nb_batiments, p.latitude, p.longitude,"
+            "       p.geometrie_json,"
+            "       count(DISTINCT d.n_dpe) AS dpe,"
+            "       max(d.date_etablissement) AS dpe_dernier,"
+            "       min(d.n_dpe) AS n_dpe,"
+            "       count(DISTINCT mp.mutation_id) AS ventes"
+            "  FROM parcelle p"
+            "  LEFT JOIN dpe d ON d.parcelle_id = p.id"
+            "  LEFT JOIN mutation_parcelle mp ON mp.parcelle_id = p.id"
+            " WHERE p.code_insee = ?"
+            "   AND p.lat_max >= ? AND p.lat_min <= ?"
+            "   AND p.lon_max >= ? AND p.lon_min <= ?"
+            " GROUP BY p.id"
+            # Les parcelles renseignees passent d'abord : si le cadre est
+            # trop large pour tout envoyer, autant garder les informatives.
+            " ORDER BY (count(DISTINCT d.n_dpe) > 0) DESC,"
+            "          (count(DISTINCT mp.mutation_id) > 0) DESC, p.id"
+            " LIMIT ?",
+            (str(code_insee), lat_min, lat_max, lon_min, lon_max,
+             int(limite) + 1)).fetchall()
+
+    tronque = len(lignes) > int(limite)
+    resultats = []
+    for ligne in lignes[:int(limite)]:
+        entree = dict(ligne)
+        try:
+            entree["geometrie"] = json.loads(entree.pop("geometrie_json"))
+        except (TypeError, ValueError):
+            continue
+        entree["dpe"] = entree["dpe"] or 0
+        entree["ventes"] = entree["ventes"] or 0
+        resultats.append(entree)
+
+    return {"parcelles": resultats, "tronque": tronque, "limite": int(limite)}
+
+
+def chercher_sur_carte(code_insee, texte, combien=8):
+    """
+    Trouve un point de la commune, par adresse ou par reference cadastrale.
+
+    Les deux entrees se melangent volontairement dans une seule boite : on
+    cherche « rue des Pins » ou « AB 123 » selon ce qu'on a sous la main, et
+    distinguer les deux champs obligerait a savoir lequel remplir.
+    """
+    recherche = " ".join(str(texte or "").split()).strip()
+    if len(recherche) < 2:
+        return []
+
+    code_insee = str(code_insee)
+    resultats, vus = [], set()
+
+    # Reference cadastrale : « AB123 », « AB 123 », « AB0123 », ou
+    # l'identifiant complet tel que la fiche l'affiche.
+    #
+    # Les deux ecritures du numero doivent passer : la colonne le garde
+    # sans zeros de remplissage (« 148 ») quand l'identifiant les porte
+    # (« AT0148 »). On interroge donc les deux formes — sans quoi la
+    # reference lue sur la fiche ne se retrouverait pas sur la carte.
+    compact = re.sub(r"[^A-Za-z0-9]", "", recherche).upper()
+    if compact:
+        with connexion() as conn:
+            for ligne in conn.execute(
+                    "SELECT id, section, numero, latitude, longitude"
+                    "  FROM parcelle WHERE code_insee = ?"
+                    "   AND (upper(section) || upper(numero) LIKE ?"
+                    "        OR upper(id) LIKE ?) LIMIT ?",
+                    (code_insee, f"%{compact}%", f"%{compact}%", combien)):
+                vus.add(ligne["id"])
+                resultats.append({
+                    "type": "parcelle",
+                    "libelle": f"Parcelle {ligne['section']}{ligne['numero']}",
+                    "parcelle_id": ligne["id"],
+                    "latitude": ligne["latitude"], "longitude": ligne["longitude"],
+                })
+
+    # Adresses : celles des DPE de la commune, qui portent une position.
+    reste = combien - len(resultats)
+    if reste > 0:
+        motif = f"%{recherche.lower()}%"
+        with connexion() as conn:
+            for ligne in conn.execute(
+                    "SELECT adresse, parcelle_id,"
+                    "       avg(latitude) AS latitude, avg(longitude) AS longitude,"
+                    "       count(*) AS diagnostics, min(n_dpe) AS n_dpe"
+                    "  FROM dpe"
+                    " WHERE code_insee = ? AND adresse IS NOT NULL"
+                    "   AND lower(adresse) LIKE ?"
+                    " GROUP BY lower(trim(adresse))"
+                    " ORDER BY count(*) DESC, adresse LIMIT ?",
+                    (code_insee, motif, reste)):
+                if ligne["latitude"] is None:
+                    continue
+                resultats.append({
+                    "type": "adresse",
+                    "libelle": ligne["adresse"],
+                    "parcelle_id": ligne["parcelle_id"],
+                    "n_dpe": ligne["n_dpe"],
+                    "diagnostics": ligne["diagnostics"],
+                    "latitude": ligne["latitude"], "longitude": ligne["longitude"],
+                })
+    return resultats
 
 
 def batiments_manquants(code_insee):

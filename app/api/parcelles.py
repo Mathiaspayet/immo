@@ -5,7 +5,7 @@ api/parcelles.py — F3 : la recherche cadastrale.
 
 import logging
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from app.metier import mutations, parcelles
 
@@ -43,6 +43,37 @@ def lister(code_insee: str = Query(..., description="Commune, par son code INSEE
         "resultats": resultats,
         "total": len(resultats),
     }
+
+
+@routeur.get("/carte")
+def carte(code_insee: str = Query(...),
+          bbox: str = Query(..., description="lon_min,lat_min,lon_max,lat_max"),
+          limite: int = Query(parcelles.MAX_CARTE, ge=1, le=3000)):
+    """
+    Les parcelles visibles dans un cadre, avec leurs drapeaux.
+
+    Le filtrage par cadre n'est pas un confort : les geometries d'une
+    commune comme Mimizan pesent 3,8 Mo pour 11 444 parcelles, et les
+    envoyer d'un bloc rendrait la carte inutilisable sur telephone.
+    """
+    try:
+        lon_min, lat_min, lon_max, lat_max = (float(v) for v in bbox.split(","))
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="bbox attendu sous la forme lon_min,lat_min,lon_max,lat_max.")
+    if lon_min > lon_max or lat_min > lat_max:
+        raise HTTPException(status_code=400, detail="bbox incoherent.")
+
+    return parcelles.pour_carte(code_insee, (lon_min, lat_min, lon_max, lat_max),
+                                limite=limite)
+
+
+@routeur.get("/chercher")
+def chercher(code_insee: str = Query(...),
+             q: str = Query(..., min_length=2)):
+    """Une adresse ou une reference cadastrale, pour se rendre sur la carte."""
+    return {"resultats": parcelles.chercher_sur_carte(code_insee, q)}
 
 
 @routeur.get("/ventes")

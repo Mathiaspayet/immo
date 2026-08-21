@@ -111,6 +111,15 @@ export const api = {
       body: JSON.stringify(valeurs),
     }),
 
+  parcellesCarte: (code_insee, bbox, limite) =>
+    demander(`/api/parcelles/carte?code_insee=${encodeURIComponent(code_insee)}`
+      + `&bbox=${encodeURIComponent(bbox)}`
+      + (limite ? `&limite=${limite}` : "")),
+
+  chercherSurCarte: (code_insee, q) =>
+    demander(`/api/parcelles/chercher?code_insee=${encodeURIComponent(code_insee)}`
+      + `&q=${encodeURIComponent(q)}`),
+
   ventes: (n_dpe) =>
     demander(`/api/parcelles/ventes?n_dpe=${encodeURIComponent(n_dpe)}`),
 

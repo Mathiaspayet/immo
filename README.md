@@ -23,6 +23,7 @@ Spécification complète : [`CAHIER_DES_CHARGES.md`](CAHIER_DES_CHARGES.md).
 | **F2** Identifier un bien depuis une annonce | livrée |
 | **F4** Fiche bien, chronologie, remplacements | livrée |
 | Historique des ventes (DVF) | livré |
+| Carte d'exploration, parcelles colorées | livrée |
 | Import ADEME des trois bases, avec cache et journal | livré |
 | Import quotidien automatique | livré |
 | Alerte courriel des nouveaux DPE (F6) | livré |
@@ -106,6 +107,42 @@ partageant une même date. Sur Mimizan, des 552 adresses portant plusieurs
 DPE, la règle en requalifie 328 en maison revisitée et maintient 224
 adresses réellement multiples — 4 diagnostics le même jour rue des
 Pinsons, 2 avenue de Woolsack.
+
+### La carte d'exploration
+
+On parcourt la commune sur photo aérienne IGN, parcellaire en surimpression,
+chaque parcelle colorée selon ce qu'on en sait :
+
+| | |
+|---|---|
+| **Ambre** | un DPE **et** une vente connus |
+| **Vert** | un DPE seul |
+| **Bleu** | une vente seule |
+| **Pâle** | rien encore |
+
+L'ambre — la couleur du signal « nouveau » ailleurs dans l'application — est
+réservée au croisement, parce que c'est lui qui informe : une parcelle
+vendue sans diagnostic récent et une parcelle diagnostiquée sans vente ne
+racontent pas la même histoire.
+
+Un clic ouvre le détail de la parcelle, et de là sa fiche. La boîte de
+recherche accepte indifféremment une adresse ou une référence cadastrale —
+distinguer les deux champs obligerait à savoir lequel remplir. Elle accepte
+aussi les deux écritures du numéro : la base le garde sans zéros de
+remplissage (`AT148`) là où l'identifiant affiché sur la fiche les porte
+(`AT0148`).
+
+**Deux contraintes gouvernent cet écran.** Le volume d'abord : les 11 444
+parcelles de Mimizan pèsent 3,8 Mo, et les envoyer d'un bloc rendrait la
+carte inutilisable sur téléphone. On ne charge donc que le cadre affiché —
+602 parcelles pour un quartier de 700 m, 375 Ko, 24 ms — et quand il en
+reste au-delà, l'écran le dit plutôt que d'en tracer une bouillie. Les
+parcelles renseignées passent d'ailleurs en premier : tronquer ne doit pas
+faire disparaître celles qui portent l'information.
+
+L'échelle ensuite : en dessous du zoom 15, une commune entière tient à
+l'écran et ses parcelles font quelques pixels. La carte demande alors de
+zoomer, au lieu de peiner en silence.
 
 ### L'historique des ventes (DVF)
 
@@ -245,6 +282,7 @@ app/
 │   ├── identification.py    F2 — l'entonnoir et le classement
 │   ├── fiche.py             F4 — chronologie, remplacements, comparaison
 │   ├── mutations.py         Ventes DVF, rattachées par la parcelle
+│   └── (carte : parcelles.pour_carte + chercher_sur_carte)
 │   ├── geometrie.py         surfaces, appartenance, index spatial en grille
 │   └── parcelles.py         F3 — cadastre et croisement avec les DPE
 ├── api/             routes HTTP — ne font que traduire en JSON

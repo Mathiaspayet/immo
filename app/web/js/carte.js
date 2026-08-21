@@ -174,6 +174,152 @@ export function creerCarte(identifiant, surSelection) {
 
 
 /**
+ * Les quatre états d'une parcelle sur la carte d'exploration.
+ *
+ * C'est le CROISEMENT qui informe, pas chaque fait pris seul : une
+ * parcelle vendue sans diagnostic récent et une parcelle diagnostiquée
+ * sans vente ne racontent pas la même histoire. L'ambre — la couleur du
+ * signal « nouveau » ailleurs dans l'application — est donc réservée aux
+ * deux à la fois.
+ *
+ * Les teintes sont posées sur photo aérienne : chaque contour porte un
+ * liseré blanc, sans quoi il disparaîtrait sur une toiture claire ou dans
+ * l'ombre d'un arbre.
+ */
+export const ETATS_PARCELLE = {
+  deux:  { libelle: "DPE et vente", couleur: "#D9A441", remplissage: 0.55 },
+  dpe:   { libelle: "DPE seul",     couleur: "#2E5B4C", remplissage: 0.45 },
+  vente: { libelle: "Vente seule",  couleur: "#14708C", remplissage: 0.45 },
+  rien:  { libelle: "Rien de connu", couleur: "#F1F3F1", remplissage: 0.10 },
+};
+
+export function etatParcelle(parcelle) {
+  const dpe = Number(parcelle.dpe) > 0;
+  const vente = Number(parcelle.ventes) > 0;
+  if (dpe && vente) return "deux";
+  if (dpe) return "dpe";
+  if (vente) return "vente";
+  return "rien";
+}
+
+
+/**
+ * La carte d'exploration : photo aérienne, parcellaire, et nos parcelles
+ * colorées par-dessus.
+ *
+ * Elle diffère de `creerCarte` sur un point qui change tout : elle expose
+ * son cadre et prévient quand il bouge. C'est ce qui permet de ne charger
+ * que les parcelles visibles — les 11 444 de Mimizan pèsent 3,8 Mo, et les
+ * envoyer d'un bloc rendrait la carte inutilisable sur téléphone.
+ */
+export function creerCarteExploration(identifiant, { surDeplacement, surParcelle }) {
+  const aerienne = tuilesIgn("ORTHOIMAGERY.ORTHOPHOTOS", "image/jpeg");
+  const carte = L.map(identifiant, {
+    center: FRANCE,
+    zoom: 6,
+    layers: [aerienne],
+    zoomControl: true,
+  });
+
+  const parcellaire = L.tileLayer(
+    "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
+      "&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=PCI%20vecteur" +
+      "&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}",
+    { maxZoom: 19, opacity: 0.6, attribution: ATTRIBUTION_IGN }
+  ).addTo(carte);
+
+  L.control.layers(
+    {
+      "Vue aérienne": aerienne,
+      "Plan IGN": tuilesIgn("GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2"),
+      OpenStreetMap: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      }),
+    },
+    { "Parcellaire IGN": parcellaire },
+    { position: "topright" }
+  ).addTo(carte);
+
+  const couche = L.layerGroup().addTo(carte);
+  let dernierTrace = null;
+
+  // Le déplacement est continu, le rechargement ne doit pas l'être : on
+  // attend que la main se pose. Sans cela, un simple glissement lancerait
+  // dix requêtes dont neuf seraient périmées à l'arrivée.
+  let minuterie = null;
+  carte.on("moveend", () => {
+    clearTimeout(minuterie);
+    minuterie = setTimeout(() => surDeplacement && surDeplacement(), 250);
+  });
+
+  return {
+    /** Le cadre affiché, dans l'ordre attendu par l'API. */
+    cadre() {
+      const b = carte.getBounds();
+      return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(",");
+    },
+
+    zoom() { return carte.getZoom(); },
+
+    /** Trace les parcelles reçues, chacune selon son état. */
+    dessiner(parcelles) {
+      couche.clearLayers();
+      for (const parcelle of parcelles) {
+        if (!parcelle.geometrie) continue;
+        const etat = ETATS_PARCELLE[etatParcelle(parcelle)];
+        const forme = L.geoJSON(parcelle.geometrie, {
+          style: {
+            color: "#FFFFFF",
+            weight: 1.2,
+            opacity: 0.9,
+            fillColor: etat.couleur,
+            fillOpacity: etat.remplissage,
+            lineJoin: "round",
+          },
+        });
+        forme.on("click", () => surParcelle && surParcelle(parcelle, forme));
+        forme.addTo(couche);
+      }
+      return parcelles.length;
+    },
+
+    /** Met une parcelle en avant, et l'amène à l'écran. */
+    surligner(parcelle) {
+      if (dernierTrace) { couche.removeLayer(dernierTrace); dernierTrace = null; }
+      if (!parcelle?.geometrie) return;
+      dernierTrace = L.geoJSON(parcelle.geometrie, {
+        style: { color: "#A33A2A", weight: 3, fillOpacity: 0, lineJoin: "round" },
+      }).addTo(couche);
+      carte.fitBounds(dernierTrace.getBounds(), { padding: [60, 60], maxZoom: 19 });
+    },
+
+    allerA(latitude, longitude, zoom = 18) {
+      if (latitude == null || longitude == null) return;
+      carte.setView([latitude, longitude], zoom);
+    },
+
+    /**
+     * Amène la carte sur une commune, à une échelle où elle sert.
+     *
+     * Cadrer la commune entière n'est pas ce qu'on veut : Mimizan fait 7 km
+     * de large, ce qui place la carte sous le seuil d'affichage des
+     * parcelles — on arriverait sur une photo vide et un message. On se
+     * pose donc au centre, à une échelle de quartier, quitte à laisser
+     * dézoomer ensuite.
+     */
+    cadrerSur(bornes, zoom = 16) {
+      const latitude = (bornes.lat_min + bornes.lat_max) / 2;
+      const longitude = (bornes.lon_min + bornes.lon_max) / 2;
+      carte.setView([latitude, longitude], zoom);
+    },
+
+    redimensionner() { carte.invalidateSize(); },
+  };
+}
+
+
+/**
  * Vue satellite d'un extrait cadastral, cadrée exactement comme le dessin
  * qui l'accompagne.
  *

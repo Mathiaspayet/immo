@@ -319,3 +319,101 @@
 @media (max-width: 640px) {
   .vente { grid-template-columns: 1fr; gap: calc(var(--pas)); }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Carte d'exploration                                                */
+/* ------------------------------------------------------------------ */
+
+.carte-barre {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: calc(var(--pas) * 4);
+  margin-bottom: calc(var(--pas) * 3);
+}
+
+.champ-adresse { position: relative; flex: 1 1 22rem; }
+.champ-adresse input { width: 100%; }
+.carte-barre .explication { margin: 0; flex: 1 1 18rem; }
+
+/* La carte occupe la hauteur utile : c'est l'objet de l'écran, pas un
+   complément. On réserve la place du bandeau et des légendes. */
+.carte-plein {
+  height: clamp(380px, calc(100vh - 320px), 760px);
+  border: 1px solid var(--encre);
+  background: var(--papier-creux);
+}
+
+.suggestions {
+  position: absolute;
+  z-index: 500;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  background: var(--papier-carte);
+  border: 1px solid var(--trait-fort);
+  border-radius: var(--rayon);
+  box-shadow: 0 6px 18px rgba(18, 38, 43, 0.12);
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.suggestions button {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: calc(var(--pas) * 3);
+  width: 100%;
+  padding: calc(var(--pas) * 2) calc(var(--pas) * 3);
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--encre);
+}
+
+.suggestions button:hover,
+.suggestions button:focus-visible { background: var(--papier-creux); }
+.suggestions .donnee { color: var(--encre-douce); font-size: 0.78rem; }
+.suggestion-vide {
+  padding: calc(var(--pas) * 2) calc(var(--pas) * 3);
+  color: var(--encre-douce);
+  font-size: 0.85rem;
+}
+
+.legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pas) * 4);
+  list-style: none;
+  margin: calc(var(--pas) * 3) 0 calc(var(--pas) * 2);
+  padding: 0;
+  font-size: 0.82rem;
+  color: var(--encre-douce);
+}
+
+.legende li { display: flex; align-items: center; gap: calc(var(--pas) * 2); }
+
+.pastille-legende {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--encre);
+  border-radius: 2px;
+  flex: none;
+}
+
+/* Les mêmes teintes que sur la carte, à la même opacité : la légende ne
+   vaut que si l'œil reconnaît la couleur qu'il vient de voir. */
+.legende-deux  { background: rgba(217, 164, 65, 0.55); }
+.legende-dpe   { background: rgba(46, 91, 76, 0.45); }
+.legende-vente { background: rgba(20, 112, 140, 0.45); }
+.legende-rien  { background: rgba(241, 243, 241, 0.35); }
+
+@media (max-width: 640px) {
+  .carte-plein { height: clamp(320px, 60vh, 520px); }
+  .legende { gap: calc(var(--pas) * 3); font-size: 0.78rem; }
+}

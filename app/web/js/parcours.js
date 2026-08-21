@@ -23,6 +23,11 @@ const abonnes = new Set();
 export function communeCourante() { return parcours.commune; }
 export function intentionCourante() { return parcours.intention; }
 
+/** Le nom lisible de l'intention en cours, pour le bandeau. */
+export function libelleIntention() {
+  return LIBELLES[parcours.intention] || "Veille immobilière";
+}
+
 /** Prévenu quand une commune est choisie et prête à être consultée. */
 export function surCommunePrete(rappel) { abonnes.add(rappel); }
 
@@ -30,16 +35,20 @@ const LIBELLES = {
   veille: "Les DPE récents",
   identifier: "Identifier un bien",
   parcelles: "Chercher par le terrain",
+  carte: "Explorer la carte",
 };
 
 // La recherche cadastrale a besoin des parcelles en plus des DPE : c'est un
 // second téléchargement, qu'on ne déclenche que pour cette intention.
-const BESOIN = { parcelles: "cadastre" };
+// La carte d'exploration a besoin du parcellaire ET des ventes, qui
+// arrivent ensemble : c'est le meme telechargement que « par le terrain ».
+const BESOIN = { parcelles: "cadastre", carte: "cadastre" };
 
 const QUESTIONS = {
   veille: "Les DPE récents de quelle commune&nbsp;?",
   identifier: "Identifier un bien de quelle commune&nbsp;?",
   parcelles: "Chercher un terrain sur quelle commune&nbsp;?",
+  carte: "Explorer la carte de quelle commune&nbsp;?",
 };
 
 // --------------------------------------------------------------------

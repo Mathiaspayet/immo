@@ -21,17 +21,27 @@ from app.base import migrations                  # noqa: E402
 from app.base.connexion import connexion, transaction  # noqa: E402
 
 
+# Toutes les tables que l'application remplit. Une table oubliee ici fuit
+# d'un test a l'autre : les mutations d'un test se retrouvaient dans le
+# suivant, qui echouait sur une contrainte d'unicite.
+TABLES = ("dpe", "parcelle", "batiment", "mutation", "mutation_parcelle",
+          "commune", "reglage", "journal_import")
+
+
+def _vider(conn):
+    for table in TABLES:
+        conn.execute(f"DELETE FROM {table}")
+
+
 @pytest.fixture()
 def base():
     """Une base vide, migree, pour chaque test."""
     migrations.appliquer()
     with transaction() as conn:
-        for table in ("dpe", "parcelle", "batiment", "commune", "reglage", "journal_import"):
-            conn.execute(f"DELETE FROM {table}")
+        _vider(conn)
     yield
     with transaction() as conn:
-        for table in ("dpe", "parcelle", "batiment", "commune", "reglage", "journal_import"):
-            conn.execute(f"DELETE FROM {table}")
+        _vider(conn)
 
 
 def inserer_dpe(**champs):

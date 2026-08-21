@@ -51,6 +51,19 @@ def communes_en_cache():
             "SELECT code_insee, commune, code_postal, count(*) AS dpe "
             "FROM dpe WHERE code_insee IS NOT NULL "
             "GROUP BY code_insee, commune ORDER BY dpe DESC").fetchall()
+        # Ou se trouve la commune, pour cadrer une carte sans avoir a
+        # interroger un referentiel. Les positions des DPE suffisent, et
+        # elles sont la meme quand le cadastre ne l'est pas encore.
+        cadres = {
+            ligne["code_insee"]: {
+                "lat_min": ligne["lat_min"], "lat_max": ligne["lat_max"],
+                "lon_min": ligne["lon_min"], "lon_max": ligne["lon_max"],
+            }
+            for ligne in conn.execute(
+                "SELECT code_insee, min(latitude) AS lat_min, max(latitude) AS lat_max,"
+                "       min(longitude) AS lon_min, max(longitude) AS lon_max"
+                "  FROM dpe WHERE code_insee IS NOT NULL AND latitude IS NOT NULL"
+                " GROUP BY code_insee")}
 
     par_insee = {}
     for ligne in lignes:
@@ -60,6 +73,7 @@ def communes_en_cache():
             "code_postal": ligne["code_postal"],
             "dpe": 0,
             "variantes": [],
+            "cadre": cadres.get(ligne["code_insee"]),
         })
         entree["dpe"] += ligne["dpe"]
         if ligne["commune"] and ligne["commune"] not in entree["variantes"]:
