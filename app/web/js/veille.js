@@ -262,8 +262,10 @@ async function chargerReglages() {
     $("#r-zones-insee").value = reglages.zones_code_insee ?? "";
     $("#r-alerte-active").value = reglages.alerte_active ? "1" : "0";
     $("#r-alerte-destinataire").value = reglages.alerte_destinataire ?? "";
-    $("#r-alerte-zone").value = reglages.alerte_zone ?? "";
-    await chargerEtatAlerte();
+    // Les listes se peuplent AVANT qu'on y pose la valeur enregistrée :
+    // affecter une option qui n'existe pas encore la perdrait.
+    await chargerEtatAlerte(reglages.alerte_code_insee ?? "",
+                            reglages.alerte_zone ?? "");
   } catch (erreur) {
     afficherErreur("Impossible de lire les réglages.", erreur.message);
   }
@@ -276,11 +278,15 @@ async function chargerReglages() {
  * base — le mot de passe n'a rien à faire dans une réponse d'API. L'écran
  * ne peut donc pas deviner si l'envoi est possible : le serveur le lui dit.
  */
-async function chargerEtatAlerte() {
+async function chargerEtatAlerte(communeChoisie = null, zoneChoisie = null) {
   const boite = $("#alerte-etat");
   if (!boite) return;
   try {
     const etat = await api.etatAlerte();
+    zonesParCommune = etat.zones_par_commune || {};
+    peuplerCommunes(etat.communes || [],
+                    communeChoisie ?? etat.code_insee ?? "");
+    peuplerZones(zoneChoisie ?? etat.zone ?? "");
     if (!etat.smtp_configure) {
       boite.innerHTML = `Aucun serveur SMTP configuré&nbsp;: renseignez
         <span class="donnee">VEILLE_SMTP_HOTE</span> et
@@ -298,6 +304,34 @@ async function chargerEtatAlerte() {
   } catch (erreur) {
     boite.textContent = "État de l'alerte indisponible.";
   }
+}
+
+/** Secteurs disponibles par commune, tenus à jour par `chargerEtatAlerte`. */
+let zonesParCommune = {};
+
+function peuplerCommunes(communes, choisie) {
+  const liste = $("#r-alerte-commune");
+  liste.innerHTML = '<option value="">toutes les communes</option>'
+    + communes.map((c) => `<option value="${echapper(c.code_insee)}">`
+        + `${echapper(c.nom)} (${entierFr.format(c.dpe)} DPE)</option>`).join("");
+  liste.value = choisie || "";
+}
+
+/**
+ * Les secteurs de la commune retenue, et d'elle seule.
+ *
+ * Proposer « plage » à qui surveille Launaguet ne remonterait jamais rien :
+ * les secteurs sont propres à une commune. Sans commune choisie, aucun
+ * secteur n'a de sens non plus — la liste se vide et se désactive.
+ */
+function peuplerZones(choisie) {
+  const liste = $("#r-alerte-zone");
+  const commune = $("#r-alerte-commune").value;
+  const zones = commune ? (zonesParCommune[commune] || []) : [];
+  liste.innerHTML = '<option value="">tous les secteurs</option>'
+    + zones.map((z) => `<option value="${echapper(z)}">${echapper(z)}</option>`).join("");
+  liste.disabled = zones.length === 0;
+  liste.value = zones.includes(choisie) ? choisie : "";
 }
 
 /** Un message de contrôle, pour ne pas découvrir un mot de passe faux au
@@ -333,6 +367,7 @@ async function enregistrerReglages() {
       zones_code_insee: $("#r-zones-insee").value.trim(),
       alerte_active: $("#r-alerte-active").value === "1",
       alerte_destinataire: $("#r-alerte-destinataire").value.trim(),
+      alerte_code_insee: $("#r-alerte-commune").value.trim(),
       alerte_zone: $("#r-alerte-zone").value.trim(),
     };
   } catch (erreur) {
@@ -499,6 +534,7 @@ async function demarrer() {
   // s'affichaient, se modifiaient à l'écran, et rien n'était enregistré.
   $("#enregistrer-reglages").addEventListener("click", enregistrerReglages);
   $("#essai-alerte").addEventListener("click", envoyerEssaiAlerte);
+  $("#r-alerte-commune").addEventListener("change", () => peuplerZones(""));
 
   // Ce qu'il faut rafraîchir quand un écran redevient visible.
   // Quand une moisson aboutit, l'écran se remet à jour tout seul.

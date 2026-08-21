@@ -98,8 +98,10 @@ DEFAUTS = {
     # lisible depuis le navigateur.
     "alerte_active": False,
     "alerte_destinataire": "",
-    # Vide = tous les secteurs surveilles. Sinon, le nom d'un secteur
-    # (« bourg », « plage ») pour n'etre prevenu que de celui-la.
+    # Sur quoi porte l'alerte. Vides, elle porte sur TOUT le registre —
+    # chaque commune exploree s'y ajouterait. On choisit donc une commune,
+    # et au besoin un de ses secteurs.
+    "alerte_code_insee": "",
     "alerte_zone": "",
 }
 
@@ -224,6 +226,13 @@ def valider(valeurs):
     if surface_min is not None and surface_max is not None:
         if float(surface_min) > float(surface_max):
             raise ValueError("La surface minimale depasse la surface maximale.")
+
+    if "alerte_code_insee" in valeurs:
+        code = str(valeurs["alerte_code_insee"] or "").strip()
+        if code and not (code.isalnum() and len(code) == 5):
+            raise ValueError(
+                f"Code INSEE invalide pour l'alerte : {code!r} (cinq "
+                "caracteres attendus, ou vide pour toutes les communes).")
 
     if "zones_code_insee" in valeurs:
         code = str(valeurs["zones_code_insee"] or "").strip()

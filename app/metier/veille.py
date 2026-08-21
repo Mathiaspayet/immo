@@ -68,18 +68,24 @@ def communes_en_cache():
     return sorted(par_insee.values(), key=lambda c: -c["dpe"])
 
 
-def zones_en_cache():
+def zones_en_cache(code_insee=None):
     """
     Secteurs reellement portes par des logements en cache.
 
     Les secteurs sont propres a une commune : en surveillant un autre
     territoire, plus aucun logement n'en porte, et le filtre correspondant
-    n'a plus lieu d'etre affiche.
+    n'a plus lieu d'etre affiche. `code_insee` restreint donc aux secteurs
+    d'une commune — proposer « plage » a qui surveille Launaguet n'aurait
+    aucun sens, et ne remonterait jamais rien.
     """
+    ou, parametres = "", []
+    if code_insee:
+        ou = "AND code_insee = ?"
+        parametres.append(str(code_insee))
     with connexion() as conn:
         return [ligne["zone"] for ligne in conn.execute(
-            "SELECT zone, count(*) AS n FROM dpe WHERE zone IS NOT NULL "
-            "GROUP BY zone ORDER BY n DESC")]
+            f"SELECT zone, count(*) AS n FROM dpe WHERE zone IS NOT NULL {ou} "
+            "GROUP BY zone ORDER BY n DESC", parametres)]
 
 
 def filtres_par_defaut():

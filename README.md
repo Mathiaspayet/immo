@@ -445,9 +445,19 @@ Assistant. Le courriel a été demandé explicitement : c'est un écart assumé,
 au même titre que la purge.
 
 Elle suit l'import quotidien (CDC §8) et reprend **les critères enregistrés
-dans les Réglages** — secteur, fenêtre, type de bien, surfaces — pour que ce
-qu'on reçoit soit ce que l'écran Veille montre, sans second jeu de règles à
-tenir à jour. Un secteur particulier peut la restreindre davantage.
+dans les Réglages** — fenêtre, type de bien, surfaces — pour que ce qu'on
+reçoit soit ce que l'écran Veille montre, sans second jeu de règles à tenir
+à jour.
+
+S'y ajoute un **périmètre propre à l'alerte** : une commune, et au besoin un
+de ses secteurs. Sans commune retenue, l'alerte porterait sur tout le
+registre, et chaque commune explorée viendrait s'y ajouter — on finirait par
+recevoir des biens de territoires qu'on ne cherche plus. Les deux listes se
+peuplent depuis la base : les communes réellement consultées, avec leur
+nombre de DPE, et les secteurs **de la commune retenue** seulement. Un
+secteur appartient à une commune : proposer « plage » à qui surveille
+Launaguet ne remonterait jamais rien, aussi la liste se vide-t-elle et se
+désactive.
 
 Trois garde-fous, parce qu'un courriel de trop est déjà parti :
 

@@ -32,9 +32,21 @@ MAX_DETAILLES = 25
 
 
 def _filtres():
-    """Les criteres enregistres, restreints au secteur surveille."""
+    """
+    Les criteres enregistres, restreints a la commune et au secteur
+    surveilles.
+
+    Sans restriction de commune, l'alerte porterait sur TOUT le registre :
+    chaque commune exploree viendrait s'y ajouter, et le courriel finirait
+    par parler de territoires qu'on ne cherche plus.
+    """
     parametres = reglages.tous()
     filtres = veille.filtres_par_defaut()
+
+    code_insee = (parametres.get("alerte_code_insee") or "").strip()
+    if code_insee:
+        filtres["code_insee"] = code_insee
+
     zone = (parametres.get("alerte_zone") or "").strip()
     if zone:
         filtres["zone"] = zone

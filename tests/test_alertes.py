@@ -235,3 +235,66 @@ def test_decouvrir_une_commune_n_alerte_pas(base, poste, ademe_en_carton,
     assert resultat["envoye"] is True
     assert resultat["biens"] == 1
     assert "L-NEUF" in poste[0]["texte"]
+
+
+# ---------------------------------------------------------------------
+#  Le perimetre : une commune, un secteur
+# ---------------------------------------------------------------------
+
+def test_la_commune_restreint_l_alerte(alerte_prete, poste):
+    """
+    Sans commune choisie, l'alerte porte sur tout le registre — et chaque
+    commune exploree viendrait s'y ajouter. C'est precisement ce qu'on ne
+    veut pas.
+    """
+    reglages.ecrire({"alerte_code_insee": "40184"})
+    _nouveau("MIMIZAN", code_insee="40184", commune="Mimizan")
+    _nouveau("LAUNAGUET", code_insee="31282", commune="Launaguet")
+
+    resultat = alertes.envoyer_si_besoin()
+    assert resultat["biens"] == 1
+    assert "MIMIZAN" in poste[0]["texte"]
+    assert "LAUNAGUET" not in poste[0]["texte"]
+
+
+def test_commune_et_secteur_se_cumulent(alerte_prete, poste):
+    reglages.ecrire({"alerte_code_insee": "40184", "alerte_zone": "plage"})
+    _nouveau("BON", code_insee="40184", commune="Mimizan", zone="plage")
+    _nouveau("MAUVAIS-SECTEUR", code_insee="40184", commune="Mimizan", zone="bourg")
+    _nouveau("MAUVAISE-COMMUNE", code_insee="31282", commune="Launaguet", zone="plage")
+
+    resultat = alertes.envoyer_si_besoin()
+    assert resultat["biens"] == 1
+    assert "BON" in poste[0]["texte"]
+    assert "MAUVAIS-SECTEUR" not in poste[0]["texte"]
+    assert "MAUVAISE-COMMUNE" not in poste[0]["texte"]
+
+
+def test_sans_commune_choisie_tout_remonte(alerte_prete, poste):
+    """Le defaut reste explicite : vide = toutes les communes."""
+    _nouveau("A", code_insee="40184", commune="Mimizan")
+    _nouveau("B", code_insee="31282", commune="Launaguet")
+    assert alertes.envoyer_si_besoin()["biens"] == 2
+
+
+def test_le_code_insee_de_l_alerte_est_controle(base):
+    with pytest.raises(ValueError):
+        reglages.ecrire({"alerte_code_insee": "40"})
+    reglages.ecrire({"alerte_code_insee": "40184"})
+    reglages.ecrire({"alerte_code_insee": ""})
+
+
+def test_les_secteurs_proposes_sont_ceux_de_la_commune(base):
+    """
+    Proposer « plage » a qui surveille Launaguet ne remonterait jamais
+    rien : les secteurs sont propres a une commune.
+    """
+    from app.metier import veille
+
+    _nouveau("M1", code_insee="40184", commune="Mimizan", zone="plage")
+    _nouveau("M2", code_insee="40184", commune="Mimizan", zone="bourg")
+    _nouveau("L1", code_insee="31282", commune="Launaguet", zone="centre")
+
+    assert sorted(veille.zones_en_cache("40184")) == ["bourg", "plage"]
+    assert veille.zones_en_cache("31282") == ["centre"]
+    assert sorted(veille.zones_en_cache()) == ["bourg", "centre", "plage"]
