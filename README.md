@@ -22,6 +22,7 @@ Spécification complète : [`CAHIER_DES_CHARGES.md`](CAHIER_DES_CHARGES.md).
 | **F1** Veille des DPE récents | livrée |
 | **F2** Identifier un bien depuis une annonce | livrée |
 | **F4** Fiche bien, chronologie, remplacements | livrée |
+| Historique des ventes (DVF) | livré |
 | Import ADEME des trois bases, avec cache et journal | livré |
 | Import quotidien automatique | livré |
 | Alerte courriel des nouveaux DPE (F6) | livré |
@@ -105,6 +106,43 @@ partageant une même date. Sur Mimizan, des 552 adresses portant plusieurs
 DPE, la règle en requalifie 328 en maison revisitée et maintient 224
 adresses réellement multiples — 4 diagnostics le même jour rue des
 Pinsons, 2 avenue de Woolsack.
+
+### L'historique des ventes (DVF)
+
+La fiche montre les ventes connues du bien, tirées des **demandes de
+valeurs foncières** publiées par la DGFiP dans la version géocodée
+d'Etalab. Le rattachement passe par la **parcelle**, jamais par l'adresse :
+DVF et le cadastre partagent `id_parcelle`, là où l'orthographe d'une
+adresse varie d'une base à l'autre. Les DPE y étant déjà rattachés, la
+jointure est directe.
+
+Mesures sur Mimizan, cinq millésimes (2021-2025) :
+
+| | |
+|---|---|
+| Lignes DVF téléchargées | 4 116 |
+| Ventes distinctes | 2 054 |
+| Parcelles citées, retrouvées au cadastre | 1 730 sur 1 821 — **95 %** |
+| DPE rattachés à une parcelle | 2 555 |
+| …dont une vente connue | 788 — **30 %** |
+
+**Le piège du fichier source, et la raison des deux tables.** Une mutation
+porte souvent sur plusieurs parcelles et plusieurs locaux — maison, jardin,
+garage. `valeur_fonciere` vaut alors pour l'ensemble et **se répète à
+l'identique sur chaque ligne**. Additionner les lignes d'une vente à
+400 000 € en annonce 1 600 000. Ce n'est pas un cas marginal : 1 118 des
+2 054 mutations de Mimizan tiennent sur plusieurs lignes. Le montant est
+donc lu une seule fois par mutation, et les parcelles vivent dans une table
+de liaison.
+
+Même prudence sur le **prix au m²**, qui n'est affiché que si la vente
+porte sur un seul local et une seule parcelle. Sinon on rapporterait le
+prix d'une maison, d'un garage et d'un terrain à la seule surface bâtie —
+un chiffre faux, et flatteur. La fiche écrit alors pourquoi elle se tait.
+
+Deux limites de la source, annoncées sur la fiche : elle ne couvre que les
+cinq derniers millésimes publiés, et **jamais l'Alsace-Moselle (57, 67, 68)
+ni Mayotte**, qui tiennent leur propre livre foncier.
 
 ---
 
@@ -206,6 +244,7 @@ app/
 │   ├── veille.py            F1 — les DPE récents, dédoublonnés
 │   ├── identification.py    F2 — l'entonnoir et le classement
 │   ├── fiche.py             F4 — chronologie, remplacements, comparaison
+│   ├── mutations.py         Ventes DVF, rattachées par la parcelle
 │   ├── geometrie.py         surfaces, appartenance, index spatial en grille
 │   └── parcelles.py         F3 — cadastre et croisement avec les DPE
 ├── api/             routes HTTP — ne font que traduire en JSON

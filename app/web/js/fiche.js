@@ -12,7 +12,7 @@ import { api } from "./api.js";
 import { creerVueSatellite } from "./carte.js";
 import {
   $, afficherErreur, afficherTravail, dateFr, echapper, entierFr, etiquetteHtml,
-  liensExternes, masquerErreur, masquerTravail, nombreFr,
+  euroFr, liensExternes, masquerErreur, masquerTravail, nombreFr,
 } from "./format.js";
 import { auProchainTerme, suivreImport } from "./import.js";
 import { changerVue } from "./navigation.js";
@@ -262,6 +262,62 @@ function panneauSatellite(extrait) {
   </figure>`;
 }
 
+/**
+ * L'historique des ventes du bien, tire de DVF.
+ *
+ * Le prix au mètre carré n'est affiché que lorsqu'il veut dire quelque
+ * chose : une vente d'un seul local sur une seule parcelle. Rapporter le
+ * prix d'un immeuble entier à la surface d'un appartement donnerait un
+ * chiffre faux, et flatteur — c'est le cas de plus d'une mutation sur
+ * deux, qui portent sur plusieurs lots.
+ */
+function blocVentes(ventes) {
+  if (!ventes || ventes.length === 0) return "";
+
+  const lignes = ventes.map((v) => {
+    const prix = v.valeur_fonciere != null
+      ? euroFr.format(v.valeur_fonciere) : "prix non publié";
+    const detail = [];
+    if (v.nb_parcelles > 1) detail.push(`${entierFr.format(v.nb_parcelles)} parcelles`);
+    if (v.types_locaux && v.types_locaux.length) {
+      detail.push(v.types_locaux.join(", ").toLowerCase());
+    }
+    if (v.surface_bati_m2) detail.push(`${entierFr.format(v.surface_bati_m2)} m² bâtis`);
+    if (v.surface_terrain_m2) {
+      detail.push(`${entierFr.format(v.surface_terrain_m2)} m² de terrain`);
+    }
+    return `
+      <li class="vente">
+        <div class="vente-date donnee">${dateFr(v.date_mutation)}</div>
+        <div class="vente-corps">
+          <div class="vente-tete">
+            <span class="vente-prix donnee">${echapper(prix)}</span>
+            ${v.prix_m2 != null
+              ? `<span class="pastille">${entierFr.format(v.prix_m2)} €/m²</span>`
+              : ""}
+            <span class="pastille">${echapper(v.nature || "vente")}</span>
+          </div>
+          ${detail.length
+            ? `<p class="explication">${echapper(detail.join(" · "))}</p>` : ""}
+          ${v.prix_m2 == null && v.surface_bati_m2 ? `
+            <p class="explication">
+              Prix au m² non calculé&nbsp;: la vente porte sur plusieurs biens,
+              le montant les couvre tous.
+            </p>` : ""}
+        </div>
+      </li>`;
+  }).join("");
+
+  return `
+    <h2>Ventes connues — ${entierFr.format(ventes.length)}</h2>
+    <p class="explication">
+      Source DVF (DGFiP), rattachée par la parcelle et non par l'adresse.
+      Ne couvre que les cinq derniers millésimes publiés, et jamais
+      l'Alsace-Moselle ni Mayotte.
+    </p>
+    <ol class="ventes">${lignes}</ol>`;
+}
+
 function ligneChronologie(diagnostic) {
   const retire = !diagnostic.encore_publie;
   return `
@@ -345,9 +401,15 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null, retour = null 
   // que le cadastre n'est pas chargé, ce que le dessin dit alors
   // franchement, en proposant de le charger.
   let extrait = null;
-  try {
-    extrait = (await api.extraitCadastral(principal.n_dpe)).extrait;
-  } catch (_) { /* on retombe sur le repère de position */ }
+  let ventes = [];
+  // Les deux appels partent ensemble : ils ne dépendent pas l'un de
+  // l'autre, et les enchaîner doublerait l'attente avant l'affichage.
+  const [reponseExtrait, reponseVentes] = await Promise.allSettled([
+    api.extraitCadastral(principal.n_dpe),
+    api.ventes(principal.n_dpe),
+  ]);
+  if (reponseExtrait.status === "fulfilled") extrait = reponseExtrait.value.extrait;
+  if (reponseVentes.status === "fulfilled") ventes = reponseVentes.value.ventes || [];
   const parcelle = extrait?.parcelle ?? null;
 
   $("#fiche-contenu").innerHTML = `
@@ -382,6 +444,8 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null, retour = null 
         la même date à cette adresse : elle couvre donc plusieurs logements —
         immeuble, ou voie sans numéro. La chronologie ci-dessous les mélange.
       </p>` : ""}
+
+    ${blocVentes(ventes)}
 
     <h2>Chronologie — ${entierFr.format(diagnostics.length)} diagnostic(s)</h2>
     <ol class="chronologie">

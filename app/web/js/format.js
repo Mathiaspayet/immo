@@ -7,6 +7,11 @@ export const $ = (selecteur) => document.querySelector(selecteur);
 export const nombreFr = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
 export const entierFr = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
+/** Les prix se lisent sans centimes : à ce niveau, ils sont du bruit. */
+export const euroFr = new Intl.NumberFormat("fr-FR", {
+  style: "currency", currency: "EUR", maximumFractionDigits: 0,
+});
+
 export function dateFr(iso) {
   if (!iso) return "—";
   const [a, m, j] = String(iso).slice(0, 10).split("-");

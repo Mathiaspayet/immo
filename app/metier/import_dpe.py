@@ -29,6 +29,7 @@ from app.base import reglages
 from app.base.connexion import connexion, transaction
 from app.metier import coordonnees, zones
 from app.metier.valeurs import entier, nombre, texte
+from app.metier import mutations as metier_mutations
 from app.metier import parcelles as metier_parcelles
 from app.sources import ademe, geo
 from app.sources.client_http import ErreurSource
@@ -264,6 +265,21 @@ def importer_commune(code_insee, declencheur="commune", jeux=None,
             resume["message"] = " · ".join(filter(None, [
                 resume["message"], f"cadastre indisponible ({erreur})"]))
 
+        # Les ventes suivent le cadastre : elles partagent sa clef —
+        # `id_parcelle` — et n'ont de sens qu'une fois les parcelles la.
+        # Leur absence n'est pas une anomalie : l'Alsace-Moselle et Mayotte
+        # ne sont pas couvertes par DVF.
+        try:
+            _publier(etape=f"{nom} — ventes")
+            ventes = metier_mutations.importer(
+                code_insee, progression=lambda message: _publier(etape=message))
+            resume["message"] = " · ".join(
+                filter(None, [resume["message"], ventes["message"]]))
+        except Exception as erreur:                  # noqa: BLE001
+            logger.warning("ventes de %s indisponibles : %s", nom, erreur)
+            resume["message"] = " · ".join(filter(None, [
+                resume["message"], f"ventes indisponibles ({erreur})"]))
+
     if not resume["message"]:
         resume["message"] = f"{nom} — rien a faire"
     _terminer(journal_id, resume=resume)
@@ -319,6 +335,10 @@ def _rafraichir_cadastres():
             faits.append(f"{commune['nom']} ({resume['parcelles']})")
         except Exception as erreur:                  # noqa: BLE001
             logger.warning("cadastre de %s non rafraichi : %s", commune["nom"], erreur)
+        try:
+            metier_mutations.importer(commune["code_insee"])
+        except Exception as erreur:                  # noqa: BLE001
+            logger.warning("ventes de %s non rafraichies : %s", commune["nom"], erreur)
     return ", ".join(faits)
 
 
@@ -517,6 +537,8 @@ def cadastre_a_refaire(code_insee):
     # Les cadastres importes avant que les contours de batiments ne soient
     # conserves n'ont que des parcelles : la fiche ne peut rien dessiner
     # dessus tant qu'on ne les a pas repris.
+    if metier_mutations.manquantes(code_insee):
+        return True
     if metier_parcelles.batiments_manquants(code_insee):
         return True
     seuil_jours = reglages.lire("cadastre_apres_jours")

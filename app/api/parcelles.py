@@ -7,7 +7,7 @@ import logging
 
 from fastapi import APIRouter, Query
 
-from app.metier import parcelles
+from app.metier import mutations, parcelles
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,18 @@ def lister(code_insee: str = Query(..., description="Commune, par son code INSEE
         "resultats": resultats,
         "total": len(resultats),
     }
+
+
+@routeur.get("/ventes")
+def ventes(n_dpe: str = Query(...)):
+    """
+    L'historique des ventes du bien, via sa parcelle (DVF).
+
+    Le rattachement passe par le foncier et jamais par l'adresse : DVF et
+    le cadastre partagent `id_parcelle`, la ou l'orthographe d'une adresse
+    varie d'une base a l'autre.
+    """
+    return {"ventes": mutations.pour_dpe(n_dpe)}
 
 
 @routeur.get("/extrait")

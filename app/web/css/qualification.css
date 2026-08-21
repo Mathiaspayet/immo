@@ -290,3 +290,32 @@
   border: 1px solid var(--encre);
 }
 .extrait-satellite .leaflet-container { background: var(--papier-creux); }
+
+/* Les ventes connues (DVF) — même grammaire visuelle que la chronologie :
+   une date en marge, le fait à droite. C'est la comparaison des deux
+   colonnes qui informe, un DPE précédant souvent une vente de peu. */
+.ventes { list-style: none; margin: calc(var(--pas) * 3) 0 0; padding: 0; }
+
+.vente {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: calc(var(--pas) * 3);
+  padding: calc(var(--pas) * 3) 0;
+  border-top: 1px solid var(--trait);
+}
+
+.vente-date { color: var(--encre-douce); font-size: 0.82rem; padding-top: 2px; }
+
+.vente-tete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--pas) * 2);
+}
+
+.vente-prix { font-size: 1.05rem; font-weight: 600; color: var(--encre); }
+.vente-corps .explication { margin: calc(var(--pas)) 0 0; font-size: 0.8rem; }
+
+@media (max-width: 640px) {
+  .vente { grid-template-columns: 1fr; gap: calc(var(--pas)); }
+}

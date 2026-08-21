@@ -111,6 +111,9 @@ export const api = {
       body: JSON.stringify(valeurs),
     }),
 
+  ventes: (n_dpe) =>
+    demander(`/api/parcelles/ventes?n_dpe=${encodeURIComponent(n_dpe)}`),
+
   etatAlerte: () => demander("/api/alertes"),
 
   essaiAlerte: (destinataire) =>
