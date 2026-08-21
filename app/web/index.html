@@ -434,6 +434,47 @@
           </select>
         </div>
       </div>
+
+      <h3>Serveur d'envoi</h3>
+      <p class="explication">
+        Tout se règle ici&nbsp;: rien à poser dans le conteneur. Le mot de
+        passe est le seul secret de l'application&nbsp;; il est conservé en
+        base et n'est jamais renvoyé à cet écran, qui n'en affiche que des
+        puces. Le laisser tel quel le conserve&nbsp;; le vider l'efface.
+      </p>
+      <div class="grille-champs">
+        <div class="champ">
+          <label for="r-smtp-hote">Serveur SMTP</label>
+          <input type="text" id="r-smtp-hote" class="donnee"
+                 placeholder="smtp.exemple.fr" autocomplete="off">
+        </div>
+        <div class="champ">
+          <label for="r-smtp-port">Port</label>
+          <input type="number" id="r-smtp-port" min="1" max="65535" class="donnee">
+        </div>
+        <div class="champ">
+          <label for="r-smtp-ssl">Chiffrement</label>
+          <select id="r-smtp-ssl" class="donnee">
+            <option value="0">STARTTLS (port 587)</option>
+            <option value="1">SSL direct (port 465)</option>
+          </select>
+        </div>
+        <div class="champ">
+          <label for="r-smtp-expediteur">Adresse d'expédition</label>
+          <input type="email" id="r-smtp-expediteur" class="donnee"
+                 placeholder="veille@exemple.fr" autocomplete="off">
+        </div>
+        <div class="champ">
+          <label for="r-smtp-utilisateur">Identifiant (facultatif)</label>
+          <input type="text" id="r-smtp-utilisateur" class="donnee"
+                 autocomplete="off">
+        </div>
+        <div class="champ">
+          <label for="r-smtp-motdepasse">Mot de passe</label>
+          <input type="password" id="r-smtp-motdepasse" class="donnee"
+                 autocomplete="new-password">
+        </div>
+      </div>
       <p>
         <button type="button" class="bouton" id="essai-alerte">
           Envoyer un message de contrôle

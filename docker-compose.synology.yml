@@ -58,10 +58,10 @@ services:
       # DEBUG, INFO, WARNING, ERROR.
       VEILLE_LOG: ${VEILLE_LOG:-INFO}
 
-      # --- Alerte courriel (F6) ------------------------------------
-      # Les SEULS secrets de l'application. Les laisser vides desactive
-      # l'envoi ; l'application reste utilisable et le dit dans Reglages.
-      # A renseigner dans un .env pose a cote en SSH, jamais ici.
+      # --- Alerte courriel (F6) — FACULTATIF ------------------------
+      # Le serveur d'envoi se regle dans l'ecran Reglages : ces variables
+      # ne sont qu'un repli, et peuvent rester vides. Une fois le serveur
+      # renseigne dans l'ecran, il prime.
       VEILLE_SMTP_HOTE: ${VEILLE_SMTP_HOTE:-}
       VEILLE_SMTP_PORT: ${VEILLE_SMTP_PORT:-587}
       VEILLE_SMTP_SSL: ${VEILLE_SMTP_SSL:-0}

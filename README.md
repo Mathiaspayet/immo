@@ -471,12 +471,25 @@ Trois garde-fous, parce qu'un courriel de trop est déjà parti :
   le lendemain : une alerte en retard vaut mieux qu'une alerte perdue. Et un
   serveur injoignable n'annule jamais une moisson réussie.
 
-Les identifiants SMTP sont les seuls secrets de l'application. Ils vivent
-dans l'environnement du conteneur (`.env`, ignoré par git), jamais en base :
-l'API des Réglages sert sa table telle quelle, un mot de passe y serait
-lisible depuis le navigateur. Avec un mot de passe renseigné, l'envoi est
-**refusé** si le serveur n'annonce pas STARTTLS — il partirait en clair ;
-utiliser alors le port 465 avec `VEILLE_SMTP_SSL=1`.
+**Le serveur d'envoi se règle dans l'écran**, pas dans le conteneur :
+changer d'adresse ne doit pas demander une session SSH sur le NAS et un
+redémarrage. Les variables `VEILLE_SMTP_*` subsistent en repli, pour une
+installation qui les avait déjà posées ; dès que le serveur est renseigné
+dans l'écran, il prime, et l'écran dit laquelle des deux sources est en
+vigueur.
+
+Le mot de passe devient donc le seul secret que porte la table des
+réglages — que l'API sert telle quelle. Il est pour cette raison inscrit
+dans `SECRETS`, et `tous()` le **masque par défaut** : il faut demander
+`avec_secrets=True` pour l'obtenir, ce que seul l'envoi fait. L'écran reçoit
+huit puces et un drapeau disant qu'un mot de passe existe, jamais sa valeur.
+Reposter le masque le conserve — sans quoi enregistrer un autre champ de la
+même page l'aurait remplacé par des puces, et l'alerte aurait cessé de
+partir sans que rien ne l'explique. Vider le champ l'efface.
+
+Avec un mot de passe renseigné, l'envoi est **refusé** si le serveur
+n'annonce pas STARTTLS — il partirait en clair ; choisir alors « SSL direct »
+et le port 465.
 
 Le bouton **Envoyer un message de contrôle** des Réglages éprouve la
 configuration sans attendre qu'un DPE paraisse : sans lui, on ne saurait

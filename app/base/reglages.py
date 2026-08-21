@@ -92,10 +92,6 @@ DEFAUTS = {
     # explicitement. Il reste desactive par defaut — rien ne part tant
     # qu'on ne l'a pas voulu, ni sans destinataire.
     #
-    # Les identifiants SMTP ne sont PAS ici : ils vivent dans
-    # l'environnement du conteneur (voir app/config.py). Cette table est
-    # servie telle quelle par l'API des Reglages, un mot de passe y serait
-    # lisible depuis le navigateur.
     "alerte_active": False,
     "alerte_destinataire": "",
     # Sur quoi porte l'alerte. Vides, elle porte sur TOUT le registre —
@@ -103,7 +99,69 @@ DEFAUTS = {
     # et au besoin un de ses secteurs.
     "alerte_code_insee": "",
     "alerte_zone": "",
+
+    # --- Serveur d'envoi ---------------------------------------------
+    # Ici plutot que dans l'environnement, pour que changer d'adresse ne
+    # demande pas une session SSH sur le NAS et un redemarrage.
+    #
+    # Le mot de passe est donc le SEUL secret que porte cette table, et
+    # elle est servie par l'API des Reglages. Il est pour cette raison
+    # inscrit dans SECRETS, et `tous()` le masque par defaut : seul
+    # `lire()` en rend la valeur, et seul l'envoi s'en sert.
+    #
+    # Vides, ces reglages retombent sur les variables d'environnement
+    # (VEILLE_SMTP_*) : une installation qui les avait deja continue de
+    # fonctionner sans rien changer.
+    "smtp_hote": "",
+    "smtp_port": 587,
+    "smtp_ssl": False,
+    "smtp_expediteur": "",
+    "smtp_utilisateur": "",
+    "smtp_motdepasse": "",
 }
+
+# Cles dont la valeur ne doit jamais sortir par l'API. `tous()` les masque,
+# et il faut la demander explicitement pour l'obtenir. Le defaut est donc
+# le silence : ajouter un secret plus tard le protege sans y penser.
+SECRETS = {"smtp_motdepasse"}
+
+MASQUE = "\u2022" * 8
+
+
+def smtp():
+    """
+    La configuration d'envoi effectivement en vigueur.
+
+    Les Reglages priment, l'environnement sert de repli : une installation
+    qui avait deja pose ses VEILLE_SMTP_* continue de fonctionner sans rien
+    changer, et remplir l'ecran suffit a reprendre la main.
+
+    Le repli se decide champ par champ sur l'hote : c'est lui qui designe
+    le serveur, et melanger l'hote d'une source aux identifiants de l'autre
+    ne pourrait produire qu'une authentification refusee.
+    """
+    from app import config           # tardif : config n'a pas besoin de nous
+
+    valeurs = tous(avec_secrets=True)
+    if str(valeurs.get("smtp_hote") or "").strip():
+        return {
+            "hote": valeurs["smtp_hote"].strip(),
+            "port": int(valeurs["smtp_port"] or 587),
+            "ssl": bool(valeurs["smtp_ssl"]),
+            "expediteur": str(valeurs["smtp_expediteur"] or "").strip(),
+            "utilisateur": str(valeurs["smtp_utilisateur"] or "").strip(),
+            "motdepasse": str(valeurs["smtp_motdepasse"] or ""),
+            "source": "reglages",
+        }
+    return {
+        "hote": config.SMTP_HOTE,
+        "port": config.SMTP_PORT,
+        "ssl": config.SMTP_SSL,
+        "expediteur": config.SMTP_EXPEDITEUR,
+        "utilisateur": config.SMTP_UTILISATEUR,
+        "motdepasse": config.SMTP_MOTDEPASSE,
+        "source": "environnement" if config.SMTP_HOTE else "aucune",
+    }
 
 
 def _decoder(texte, defaut):
@@ -114,14 +172,33 @@ def _decoder(texte, defaut):
         return defaut
 
 
-def tous():
-    """Renvoie tous les reglages : les valeurs enregistrees, completees par
-    les valeurs par defaut pour les cles jamais modifiees."""
+def tous(avec_secrets=False):
+    """
+    Renvoie tous les reglages : les valeurs enregistrees, completees par
+    les valeurs par defaut pour les cles jamais modifiees.
+
+    Les cles de SECRETS sont MASQUEES par defaut. C'est ce qui rend
+    acceptable de garder un mot de passe SMTP dans cette table : l'API des
+    Reglages sert le resultat de cette fonction tel quel, et ne peut donc
+    pas le divulguer par inadvertance. Il faut demander `avec_secrets` pour
+    l'obtenir — seul l'envoi le fait.
+
+    Le masque n'est pas la chaine vide : un champ vide voudrait dire
+    « aucun mot de passe », et l'ecran proposerait d'en saisir un alors
+    qu'il en existe deja.
+    """
     valeurs = dict(DEFAUTS)
     with connexion() as conn:
         for ligne in conn.execute("SELECT cle, valeur_json FROM reglage"):
             if ligne["cle"] in DEFAUTS:
                 valeurs[ligne["cle"]] = _decoder(ligne["valeur_json"], DEFAUTS[ligne["cle"]])
+
+    if not avec_secrets:
+        for cle in SECRETS:
+            # Le drapeau dit qu'un secret existe sans rien en reveler :
+            # l'ecran a besoin de la distinction, pas de la valeur.
+            valeurs[f"{cle}_defini"] = bool(valeurs.get(cle))
+            valeurs[cle] = MASQUE if valeurs.get(cle) else ""
     return valeurs
 
 
@@ -139,7 +216,25 @@ def lire(cle):
 
 
 def ecrire(valeurs):
-    """Enregistre un lot de reglages, apres validation."""
+    """
+    Enregistre un lot de reglages, apres validation.
+
+    Un secret renvoye MASQUE est ignore. L'ecran ne peut pas afficher le
+    mot de passe enregistre : il affiche le masque, et le renvoie tel quel
+    quand on enregistre autre chose sur la meme page. Le prendre au pied de
+    la lettre remplacerait le mot de passe par huit puces, et l'alerte
+    cesserait de partir sans que rien ne l'explique.
+
+    La chaine vide, elle, EFFACE : c'est le seul moyen de retirer un mot de
+    passe une fois pose.
+    """
+    valeurs = dict(valeurs)
+    for cle in SECRETS:
+        if cle in valeurs and str(valeurs[cle]) == MASQUE:
+            del valeurs[cle]
+    if not valeurs:
+        return tous()
+
     valider(valeurs)
     maintenant = datetime.datetime.now().isoformat(timespec="seconds")
     with transaction() as conn:
@@ -226,6 +321,31 @@ def valider(valeurs):
     if surface_min is not None and surface_max is not None:
         if float(surface_min) > float(surface_max):
             raise ValueError("La surface minimale depasse la surface maximale.")
+
+    if "smtp_port" in valeurs:
+        try:
+            port = int(valeurs["smtp_port"])
+        except (TypeError, ValueError):
+            raise ValueError("Port SMTP : un nombre entier est attendu.")
+        if not (1 <= port <= 65535):
+            raise ValueError("Port SMTP : attendu entre 1 et 65535.")
+
+    for cle, etiquette in [("smtp_expediteur", "Adresse d'expedition")]:
+        if cle in valeurs:
+            adresse = str(valeurs[cle] or "").strip()
+            if adresse and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", adresse):
+                raise ValueError(f"{etiquette} invalide : {adresse!r}.")
+
+    # Un hote sans expediteur ne peut rien envoyer : le serveur refuserait
+    # a la premiere alerte, et on ne le saurait qu'a ce moment-la.
+    if "smtp_hote" in valeurs or "smtp_expediteur" in valeurs:
+        courant = tous(avec_secrets=True)
+        hote = str(valeurs.get("smtp_hote", courant["smtp_hote"]) or "").strip()
+        expediteur = str(valeurs.get("smtp_expediteur",
+                                     courant["smtp_expediteur"]) or "").strip()
+        if hote and not expediteur:
+            raise ValueError(
+                "Un serveur d'envoi demande une adresse d'expedition.")
 
     if "alerte_code_insee" in valeurs:
         code = str(valeurs["alerte_code_insee"] or "").strip()

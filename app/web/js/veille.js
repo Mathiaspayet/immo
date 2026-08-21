@@ -262,6 +262,14 @@ async function chargerReglages() {
     $("#r-zones-insee").value = reglages.zones_code_insee ?? "";
     $("#r-alerte-active").value = reglages.alerte_active ? "1" : "0";
     $("#r-alerte-destinataire").value = reglages.alerte_destinataire ?? "";
+    $("#r-smtp-hote").value = reglages.smtp_hote ?? "";
+    $("#r-smtp-port").value = reglages.smtp_port ?? 587;
+    $("#r-smtp-ssl").value = reglages.smtp_ssl ? "1" : "0";
+    $("#r-smtp-expediteur").value = reglages.smtp_expediteur ?? "";
+    $("#r-smtp-utilisateur").value = reglages.smtp_utilisateur ?? "";
+    // Le serveur ne renvoie jamais le mot de passe, seulement des puces
+    // quand il en existe un. Les reposter tel quel le conserve.
+    $("#r-smtp-motdepasse").value = reglages.smtp_motdepasse ?? "";
     // Les listes se peuplent AVANT qu'on y pose la valeur enregistrée :
     // affecter une option qui n'existe pas encore la perdrait.
     await chargerEtatAlerte(reglages.alerte_code_insee ?? "",
@@ -288,19 +296,24 @@ async function chargerEtatAlerte(communeChoisie = null, zoneChoisie = null) {
                     communeChoisie ?? etat.code_insee ?? "");
     peuplerZones(zoneChoisie ?? etat.zone ?? "");
     if (!etat.smtp_configure) {
-      boite.innerHTML = `Aucun serveur SMTP configuré&nbsp;: renseignez
-        <span class="donnee">VEILLE_SMTP_HOTE</span> et
-        <span class="donnee">VEILLE_SMTP_EXPEDITEUR</span> dans le
-        <span class="donnee">.env</span> du conteneur, puis redémarrez-le.
-        Rien ne peut partir d'ici tant que ce n'est pas fait.`;
+      boite.innerHTML = `Aucun serveur d'envoi configuré&nbsp;: renseignez
+        le serveur SMTP et l'adresse d'expédition ci-dessous. Rien ne peut
+        partir tant que ce n'est pas fait.`;
       return;
     }
     const attente = etat.en_attente === 0
       ? "aucun bien en attente"
       : `${etat.en_attente} bien(s) seraient signalés au prochain import`;
+    // Dire d'où vient la configuration évite de chercher pourquoi une
+    // modification de cet écran ne prend pas effet : les variables
+    // d'environnement, si elles existent, ne servent que de repli.
+    const origine = etat.smtp_source === "environnement"
+      ? " (réglé par les variables d'environnement du conteneur ; "
+        + "remplir le serveur ci-dessous reprend la main)"
+      : "";
     boite.innerHTML = `Envoi par <span class="donnee">${echapper(etat.smtp_hote)}</span>
       ${etat.smtp_authentifie ? "avec authentification" : "sans authentification"}
-      · ${echapper(attente)}.`;
+      · ${echapper(attente)}${origine}.`;
   } catch (erreur) {
     boite.textContent = "État de l'alerte indisponible.";
   }
@@ -369,6 +382,14 @@ async function enregistrerReglages() {
       alerte_destinataire: $("#r-alerte-destinataire").value.trim(),
       alerte_code_insee: $("#r-alerte-commune").value.trim(),
       alerte_zone: $("#r-alerte-zone").value.trim(),
+      smtp_hote: $("#r-smtp-hote").value.trim(),
+      smtp_port: Number($("#r-smtp-port").value),
+      smtp_ssl: $("#r-smtp-ssl").value === "1",
+      smtp_expediteur: $("#r-smtp-expediteur").value.trim(),
+      smtp_utilisateur: $("#r-smtp-utilisateur").value.trim(),
+      // Renvoyé tel quel : le serveur reconnaît son propre masque et
+      // conserve le mot de passe. Vidé volontairement, il l'efface.
+      smtp_motdepasse: $("#r-smtp-motdepasse").value,
     };
   } catch (erreur) {
     afficherErreur(erreur.message);

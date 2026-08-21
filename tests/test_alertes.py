@@ -8,6 +8,7 @@ commune, bien deja signale, echec d'envoi — avant ceux de l'envoi.
 """
 
 import datetime
+import json
 
 import pytest
 
@@ -30,6 +31,16 @@ def poste(monkeypatch):
 
     monkeypatch.setattr("app.sources.courriel.envoyer", faux_envoi)
     return partis
+
+
+@pytest.fixture()
+def client(base):
+    """L'application entiere, pour verifier ce qui sort vraiment par HTTP."""
+    from fastapi.testclient import TestClient
+
+    from app.main import application
+    with TestClient(application) as c:
+        yield c
 
 
 @pytest.fixture()
@@ -298,3 +309,105 @@ def test_les_secteurs_proposes_sont_ceux_de_la_commune(base):
     assert sorted(veille.zones_en_cache("40184")) == ["bourg", "plage"]
     assert veille.zones_en_cache("31282") == ["centre"]
     assert sorted(veille.zones_en_cache()) == ["bourg", "centre", "plage"]
+
+
+# ---------------------------------------------------------------------
+#  Le serveur d'envoi, regle depuis l'ecran
+# ---------------------------------------------------------------------
+
+def test_le_mot_de_passe_ne_sort_jamais(base):
+    """
+    L'invariant qui rend acceptable de garder ce secret en base : l'API des
+    Reglages sert `tous()` tel quel. S'il n'etait pas masque la, il
+    partirait vers le navigateur a chaque ouverture de l'ecran.
+    """
+    reglages.ecrire({"smtp_hote": "smtp.exemple.fr",
+                     "smtp_expediteur": "veille@exemple.fr",
+                     "smtp_motdepasse": "mot-de-passe-reel"})
+
+    public = reglages.tous()
+    assert public["smtp_motdepasse"] == reglages.MASQUE
+    assert "mot-de-passe-reel" not in json.dumps(public)
+    # L'ecran a besoin de savoir qu'il en existe un, pas de sa valeur.
+    assert public["smtp_motdepasse_defini"] is True
+
+    # Il reste accessible a qui le demande explicitement — l'envoi.
+    assert reglages.tous(avec_secrets=True)["smtp_motdepasse"] == "mot-de-passe-reel"
+    assert reglages.lire("smtp_motdepasse") == "mot-de-passe-reel"
+
+
+def test_l_api_des_reglages_ne_divulgue_pas_le_secret(client):
+    """Le meme invariant, verifie de bout en bout sur la reponse HTTP."""
+    reglages.ecrire({"smtp_hote": "smtp.exemple.fr",
+                     "smtp_expediteur": "veille@exemple.fr",
+                     "smtp_motdepasse": "mot-de-passe-reel"})
+
+    corps = client.get("/api/reglages").text
+    assert "mot-de-passe-reel" not in corps
+
+    etat = client.get("/api/alertes").text
+    assert "mot-de-passe-reel" not in etat
+
+
+def test_reposter_le_masque_conserve_le_mot_de_passe(base):
+    """
+    L'ecran affiche des puces et les renvoie en enregistrant autre chose.
+    Les prendre au pied de la lettre remplacerait le mot de passe par huit
+    puces, et l'alerte cesserait de partir sans que rien ne l'explique.
+    """
+    reglages.ecrire({"smtp_hote": "smtp.exemple.fr",
+                     "smtp_expediteur": "veille@exemple.fr",
+                     "smtp_motdepasse": "mot-de-passe-reel"})
+
+    reglages.ecrire({"smtp_utilisateur": "moi",
+                     "smtp_motdepasse": reglages.MASQUE})
+    assert reglages.lire("smtp_motdepasse") == "mot-de-passe-reel"
+    assert reglages.lire("smtp_utilisateur") == "moi"
+
+
+def test_vider_le_champ_efface_le_mot_de_passe(base):
+    """Le seul moyen de retirer un mot de passe une fois pose."""
+    reglages.ecrire({"smtp_hote": "smtp.exemple.fr",
+                     "smtp_expediteur": "veille@exemple.fr",
+                     "smtp_motdepasse": "mot-de-passe-reel"})
+    reglages.ecrire({"smtp_motdepasse": ""})
+    assert reglages.lire("smtp_motdepasse") == ""
+    assert reglages.tous()["smtp_motdepasse_defini"] is False
+
+
+def test_les_reglages_priment_sur_l_environnement(base, monkeypatch):
+    monkeypatch.setattr("app.config.SMTP_HOTE", "ancien.exemple.fr")
+    monkeypatch.setattr("app.config.SMTP_EXPEDITEUR", "ancien@exemple.fr")
+
+    assert reglages.smtp()["source"] == "environnement"
+    assert reglages.smtp()["hote"] == "ancien.exemple.fr"
+
+    reglages.ecrire({"smtp_hote": "nouveau.exemple.fr",
+                     "smtp_expediteur": "nouveau@exemple.fr"})
+    effectif = reglages.smtp()
+    assert effectif["source"] == "reglages"
+    assert effectif["hote"] == "nouveau.exemple.fr"
+
+
+def test_sans_rien_nulle_part_l_envoi_est_refuse(base, monkeypatch):
+    monkeypatch.setattr("app.config.SMTP_HOTE", "")
+    monkeypatch.setattr("app.config.SMTP_EXPEDITEUR", "")
+    assert reglages.smtp()["source"] == "aucune"
+
+    from app.sources import courriel
+    with pytest.raises(ErreurCourriel, match="Reglages"):
+        courriel.envoyer("moi@exemple.fr", "sujet", "corps")
+
+
+def test_un_serveur_sans_expediteur_est_refuse(base):
+    """Le serveur refuserait a la premiere alerte ; autant le dire ici."""
+    with pytest.raises(ValueError):
+        reglages.ecrire({"smtp_hote": "smtp.exemple.fr"})
+
+
+def test_le_port_est_controle(base):
+    with pytest.raises(ValueError):
+        reglages.ecrire({"smtp_port": 0})
+    with pytest.raises(ValueError):
+        reglages.ecrire({"smtp_port": 99999})
+    reglages.ecrire({"smtp_port": 465})

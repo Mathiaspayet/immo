@@ -12,7 +12,6 @@ import logging
 
 from fastapi import APIRouter, Body, HTTPException
 
-from app import config
 from app.base import reglages
 from app.metier import alertes, veille
 from app.sources.courriel import ErreurCourriel
@@ -31,15 +30,20 @@ def etat():
     Le mot de passe SMTP ne doit pas voyager jusqu'au navigateur.
     """
     parametres = reglages.tous()
+    serveur = reglages.smtp()
     communes = veille.communes_en_cache()
     return {
         "active": bool(parametres.get("alerte_active")),
         "destinataire": parametres.get("alerte_destinataire") or "",
         "code_insee": parametres.get("alerte_code_insee") or "",
         "zone": parametres.get("alerte_zone") or "",
-        "smtp_configure": config.smtp_configure(),
-        "smtp_hote": config.SMTP_HOTE or "",
-        "smtp_authentifie": bool(config.SMTP_UTILISATEUR),
+        "smtp_configure": bool(serveur["hote"] and serveur["expediteur"]),
+        "smtp_hote": serveur["hote"],
+        "smtp_authentifie": bool(serveur["utilisateur"]),
+        # D'ou vient la configuration en vigueur : les Reglages, ou les
+        # variables d'environnement laissees en repli. Le dire evite de
+        # chercher pourquoi un changement d'ecran ne prend pas effet.
+        "smtp_source": serveur["source"],
         "en_attente": len(alertes.candidats(limite=500)),
         # De quoi peupler les deux listes de choix. Les secteurs etant
         # propres a une commune, ils sont donnes par commune : l'ecran

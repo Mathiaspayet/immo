@@ -7,7 +7,8 @@ l'application doit pouvoir etre teste sans serveur de mail. Tout ce qui
 parle a un serveur passe par `envoyer`, que les tests remplacent.
 
 L'application n'a ni compte ni cle d'API ailleurs : les identifiants SMTP
-sont ses seuls secrets, et ils viennent de l'environnement (voir config).
+sont ses seuls secrets. Ils viennent de l'ecran Reglages, ou a defaut de
+l'environnement (voir base/reglages.py, fonction `smtp`).
 """
 
 import logging
@@ -16,7 +17,7 @@ import ssl
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate
 
-from app import config
+from app.base import reglages
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +34,17 @@ def envoyer(destinataire, sujet, texte, html=None):
     client qui n'affiche pas le second, et c'est aussi ce qui evite qu'un
     message tout-HTML soit classe en indesirable.
     """
-    if not config.smtp_configure():
+    serveur_config = reglages.smtp()
+    if not (serveur_config["hote"] and serveur_config["expediteur"]):
         raise ErreurCourriel(
-            "SMTP non configure : renseigner VEILLE_SMTP_HOTE et "
-            "VEILLE_SMTP_EXPEDITEUR dans le .env du conteneur.")
+            "Envoi non configure : renseigner le serveur et l'adresse "
+            "d'expedition dans l'ecran Reglages.")
     if not destinataire:
         raise ErreurCourriel("Aucun destinataire enregistre dans les Reglages.")
 
     message = EmailMessage()
     message["Subject"] = sujet
-    message["From"] = formataddr(("Veille immobilière", config.SMTP_EXPEDITEUR))
+    message["From"] = formataddr(("Veille immobilière", serveur_config["expediteur"]))
     message["To"] = destinataire
     message["Date"] = formatdate(localtime=True)
     message.set_content(texte)
@@ -50,30 +52,31 @@ def envoyer(destinataire, sujet, texte, html=None):
         message.add_alternative(html, subtype="html")
 
     try:
-        if config.SMTP_SSL:
+        if serveur_config["ssl"]:
             contexte = ssl.create_default_context()
-            with smtplib.SMTP_SSL(config.SMTP_HOTE, config.SMTP_PORT,
+            with smtplib.SMTP_SSL(serveur_config["hote"], serveur_config["port"],
                                   context=contexte, timeout=30) as serveur:
-                _authentifier(serveur)
+                _authentifier(serveur, serveur_config)
                 serveur.send_message(message)
         else:
-            with smtplib.SMTP(config.SMTP_HOTE, config.SMTP_PORT, timeout=30) as serveur:
+            with smtplib.SMTP(serveur_config["hote"], serveur_config["port"],
+                              timeout=30) as serveur:
                 serveur.ehlo()
                 # STARTTLS quand le serveur l'annonce : on ne fait pas
                 # transiter un mot de passe en clair sans le dire.
                 if serveur.has_extn("starttls"):
                     serveur.starttls(context=ssl.create_default_context())
                     serveur.ehlo()
-                elif config.SMTP_MOTDEPASSE:
+                elif serveur_config["motdepasse"]:
                     logger.warning(
                         "le serveur SMTP %s n'annonce pas STARTTLS : "
                         "le mot de passe partirait en clair, envoi refuse",
-                        config.SMTP_HOTE)
+                        serveur_config["hote"])
                     raise ErreurCourriel(
-                        f"{config.SMTP_HOTE} n'offre pas STARTTLS ; refus "
-                        "d'envoyer le mot de passe en clair. Utiliser le "
-                        "port 465 avec VEILLE_SMTP_SSL=1.")
-                _authentifier(serveur)
+                        f"{serveur_config['hote']} n'offre pas STARTTLS ; "
+                        "refus d'envoyer le mot de passe en clair. Cocher "
+                        "« SSL direct » et utiliser le port 465.")
+                _authentifier(serveur, serveur_config)
                 serveur.send_message(message)
     except ErreurCourriel:
         raise
@@ -84,8 +87,8 @@ def envoyer(destinataire, sujet, texte, html=None):
     return True
 
 
-def _authentifier(serveur):
+def _authentifier(serveur, serveur_config):
     """S'authentifie si des identifiants sont fournis. Certains relais
     internes n'en demandent pas."""
-    if config.SMTP_UTILISATEUR:
-        serveur.login(config.SMTP_UTILISATEUR, config.SMTP_MOTDEPASSE)
+    if serveur_config["utilisateur"]:
+        serveur.login(serveur_config["utilisateur"], serveur_config["motdepasse"])
