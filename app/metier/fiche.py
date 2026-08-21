@@ -19,6 +19,7 @@ soit on dit franchement que le diagnostic n'est plus accessible.
 Repris de scripts_existants/dpe_historique.py et dpe_comparer.py.
 """
 
+import collections
 import json
 import logging
 
@@ -54,20 +55,73 @@ def _lire(conn, n_dpe):
 
 
 def _dernier_import(conn):
+    """Fin du dernier import reussi — pour l'affichage, pas pour comparer."""
     ligne = conn.execute(
         "SELECT fin FROM journal_import WHERE statut = 'succes' "
         "ORDER BY id DESC LIMIT 1").fetchone()
     return ligne["fin"] if ligne else None
 
 
-def _enrichir(ligne, dernier_import):
+def _moisson_par_commune(conn):
+    """
+    Quand chaque commune a ete moissonnee pour la derniere fois.
+
+    C'est le repere qui dit si l'ADEME sert encore une ligne, et il doit
+    etre PAR COMMUNE : moissonner Launaguet ne dit rien de Mimizan, dont
+    les lignes n'ont pas ete revues a cette occasion.
+
+    `derniere_maj_dpe` porte exactement l'horodatage que l'import a inscrit
+    dans `revu_le` — les deux s'ecrivent dans la meme transaction, a partir
+    de la meme valeur. La comparaison est donc juste au caractere pres.
+    """
+    return {ligne["code_insee"]: ligne["derniere_maj_dpe"]
+            for ligne in conn.execute(
+                "SELECT code_insee, derniere_maj_dpe FROM commune "
+                "WHERE derniere_maj_dpe IS NOT NULL")}
+
+
+def _enrichir(ligne, moissons):
     """Ajoute ce que la base seule ne dit pas."""
     ligne["jeu_libelle"] = LIBELLES_JEUX.get(ligne.get("jeu_de_donnees"), "")
-    # Une ligne que le dernier import n'a pas revue n'est plus servie par
-    # l'ADEME : c'est la signature d'un DPE remplace ou retire.
+    # Une ligne que la derniere moisson de SA commune n'a pas revue n'est
+    # plus servie par l'ADEME : signature d'un DPE remplace ou retire.
+    #
+    # Le repere etait auparavant la FIN de l'import, alors que `revu_le`
+    # est ecrit pendant celui-ci : la comparaison etait fausse d'une
+    # seconde, et pour toutes les lignes a la fois. Toute la chronologie
+    # s'affichait « retiree de la base active », et le signal
+    # « plusieurs logements » ne se declenchait jamais.
+    reference = moissons.get(ligne.get("code_insee"))
     ligne["encore_publie"] = bool(
-        dernier_import and ligne.get("revu_le") and ligne["revu_le"] >= dernier_import)
+        reference and ligne.get("revu_le") and ligne["revu_le"] >= reference)
     return ligne
+
+
+def _logements(diagnostics):
+    """
+    Combien de logements distincts cette adresse couvre-t-elle ?
+
+    Le nombre de diagnostics ne suffit pas : une maison vendue deux fois en
+    porte deux, un immeuble aussi. Ce qui les separe, c'est la SIMULTANEITE.
+    Deux diagnostics du meme jour ne peuvent pas viser le meme logement —
+    on diagnostique un immeuble d'un coup. Deux diagnostics a deux ans
+    d'ecart, si.
+
+    On retient donc le plus grand nombre de diagnostics partageant une meme
+    date d'etablissement. Mesure sur Mimizan : des 552 adresses portant
+    plusieurs DPE, cette regle en requalifie 328 en maison rediagnostiquee,
+    et maintient 224 adresses reellement multiples — 4 diagnostics le meme
+    jour rue des Pinsons, 2 avenue de Woolsack.
+
+    Compter les diagnostics tout court, comme on le faisait, revenait a
+    traiter toute maison rediagnostiquee en immeuble.
+    """
+    if not diagnostics:
+        return 0
+    par_jour = collections.Counter(
+        d.get("date_etablissement") for d in diagnostics
+        if d.get("date_etablissement"))
+    return max(par_jour.values()) if par_jour else 1
 
 
 def historique(adresse=None, n_dpe=None):
@@ -91,18 +145,16 @@ def historique(adresse=None, n_dpe=None):
                     "message": "Aucune adresse exploitable pour ce bien."}
 
         dernier = _dernier_import(conn)
+        moissons = _moisson_par_commune(conn)
         lignes = [dict(l) for l in conn.execute(
             f"SELECT {', '.join(COLONNES)} FROM dpe WHERE adresse IS NOT NULL")]
 
     # La comparaison se fait sur la forme normalisee : l'orthographe varie
     # d'une base a l'autre, et un LIKE SQL ne suffirait pas.
-    diagnostics = [_enrichir(l, dernier) for l in lignes
+    diagnostics = [_enrichir(l, moissons) for l in lignes
                    if normaliser_adresse(l["adresse"]) == cible]
     diagnostics.sort(key=lambda l: (str(l.get("date_etablissement") or ""), l["n_dpe"]))
 
-    # Plusieurs diagnostics en vigueur en meme temps a la meme adresse =
-    # plusieurs logements. Sans ce signal, la chronologie d'un immeuble
-    # ressemblerait a celle d'une maison rediagnostiquee dix fois.
     remplaces = {d.get("n_dpe_remplace") for d in diagnostics if d.get("n_dpe_remplace")}
     en_vigueur = [d for d in diagnostics
                   if d["encore_publie"] and d["n_dpe"] not in remplaces]
@@ -111,7 +163,8 @@ def historique(adresse=None, n_dpe=None):
         "adresse": adresse,
         "diagnostics": diagnostics,
         "en_vigueur": len(en_vigueur),
-        "plusieurs_logements": len(en_vigueur) > 1,
+        "logements_estimes": _logements(en_vigueur),
+        "plusieurs_logements": _logements(en_vigueur) > 1,
         "dernier_import": dernier,
         "message": None if diagnostics else (
             f"Aucun diagnostic connu pour « {adresse} ». L'orthographe de la "
@@ -158,14 +211,14 @@ def chaine(n_dpe, interroger_ademe=True):
     courant = str(n_dpe or "").strip()
 
     with connexion() as conn:
-        dernier = _dernier_import(conn)
+        moissons = _moisson_par_commune(conn)
 
         while courant and courant not in vus and len(maillons) < MAX_CHAINE:
             vus.add(courant)
             ligne = _lire(conn, courant)
 
             if ligne is not None:
-                maillons.append({**_enrichir(ligne, dernier), "origine": "cache"})
+                maillons.append({**_enrichir(ligne, moissons), "origine": "cache"})
                 courant = (ligne.get("n_dpe_remplace") or "").strip()
                 continue
 

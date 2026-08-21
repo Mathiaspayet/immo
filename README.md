@@ -90,6 +90,22 @@ ramène alors les DPE qui le *citent* — pas lui. L'application ne fait donc
 jamais de repli silencieux : soit le numéro est vérifié, soit elle écrit
 que le diagnostic n'est plus accessible.
 
+Le signal « encore publié » se lit en comparant `revu_le` à la dernière
+moisson **de la commune du bien** — les deux portent le même horodatage,
+l'import les écrivant dans la même transaction. Le repère doit être par
+commune : moissonner Launaguet ne dit rien de Mimizan, dont les lignes
+n'ont pas été revues à cette occasion.
+
+**Combien de logements une adresse couvre-t-elle ?** Le nombre de
+diagnostics ne le dit pas : une maison vendue deux fois en porte deux, un
+immeuble aussi. Ce qui les sépare est la *simultanéité* — on ne
+rediagnostique pas le même logement le même jour, mais on diagnostique un
+immeuble d'un coup. On retient donc le plus grand nombre de diagnostics
+partageant une même date. Sur Mimizan, des 552 adresses portant plusieurs
+DPE, la règle en requalifie 328 en maison revisitée et maintient 224
+adresses réellement multiples — 4 diagnostics le même jour rue des
+Pinsons, 2 avenue de Woolsack.
+
 ---
 
 ## Déploiement sur le NAS

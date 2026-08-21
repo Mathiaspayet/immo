@@ -262,7 +262,7 @@ function panneauSatellite(extrait) {
   </figure>`;
 }
 
-function ligneChronologie(diagnostic, dernierImport) {
+function ligneChronologie(diagnostic) {
   const retire = !diagnostic.encore_publie;
   return `
   <li class="jalon ${retire ? "jalon-retire" : ""}">
@@ -378,14 +378,14 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null, retour = null 
 
     ${reponse.plusieurs_logements ? `
       <p class="message message-travail">
-        ${entierFr.format(reponse.en_vigueur)} diagnostics sont en vigueur en même
-        temps à cette adresse : elle couvre donc plusieurs logements — immeuble,
-        ou voie sans numéro. La chronologie ci-dessous les mélange.
+        Jusqu'à ${entierFr.format(reponse.logements_estimes)} diagnostics portent
+        la même date à cette adresse : elle couvre donc plusieurs logements —
+        immeuble, ou voie sans numéro. La chronologie ci-dessous les mélange.
       </p>` : ""}
 
     <h2>Chronologie — ${entierFr.format(diagnostics.length)} diagnostic(s)</h2>
     <ol class="chronologie">
-      ${diagnostics.map((d) => ligneChronologie(d, reponse.dernier_import)).join("")}
+      ${diagnostics.map((d) => ligneChronologie(d)).join("")}
     </ol>
 
     <div id="chaine-remplacements"></div>
