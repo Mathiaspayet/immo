@@ -109,9 +109,6 @@ DEFAUTS = {
     # inscrit dans SECRETS, et `tous()` le masque par defaut : seul
     # `lire()` en rend la valeur, et seul l'envoi s'en sert.
     #
-    # Vides, ces reglages retombent sur les variables d'environnement
-    # (VEILLE_SMTP_*) : une installation qui les avait deja continue de
-    # fonctionner sans rien changer.
     "smtp_hote": "",
     "smtp_port": 587,
     "smtp_ssl": False,
@@ -130,37 +127,22 @@ MASQUE = "\u2022" * 8
 
 def smtp():
     """
-    La configuration d'envoi effectivement en vigueur.
+    La configuration d'envoi, telle qu'elle est reglee dans l'ecran.
 
-    Les Reglages priment, l'environnement sert de repli : une installation
-    qui avait deja pose ses VEILLE_SMTP_* continue de fonctionner sans rien
-    changer, et remplir l'ecran suffit a reprendre la main.
-
-    Le repli se decide champ par champ sur l'hote : c'est lui qui designe
-    le serveur, et melanger l'hote d'une source aux identifiants de l'autre
-    ne pourrait produire qu'une authentification refusee.
+    Une seule source : cette table. Rien a poser dans le conteneur, rien a
+    redemarrer pour changer d'adresse — et aucune ambiguite sur l'origine
+    d'un reglage qui ne prend pas effet.
     """
-    from app import config           # tardif : config n'a pas besoin de nous
-
     valeurs = tous(avec_secrets=True)
-    if str(valeurs.get("smtp_hote") or "").strip():
-        return {
-            "hote": valeurs["smtp_hote"].strip(),
-            "port": int(valeurs["smtp_port"] or 587),
-            "ssl": bool(valeurs["smtp_ssl"]),
-            "expediteur": str(valeurs["smtp_expediteur"] or "").strip(),
-            "utilisateur": str(valeurs["smtp_utilisateur"] or "").strip(),
-            "motdepasse": str(valeurs["smtp_motdepasse"] or ""),
-            "source": "reglages",
-        }
+    hote = str(valeurs.get("smtp_hote") or "").strip()
     return {
-        "hote": config.SMTP_HOTE,
-        "port": config.SMTP_PORT,
-        "ssl": config.SMTP_SSL,
-        "expediteur": config.SMTP_EXPEDITEUR,
-        "utilisateur": config.SMTP_UTILISATEUR,
-        "motdepasse": config.SMTP_MOTDEPASSE,
-        "source": "environnement" if config.SMTP_HOTE else "aucune",
+        "hote": hote,
+        "port": int(valeurs["smtp_port"] or 587),
+        "ssl": bool(valeurs["smtp_ssl"]),
+        "expediteur": str(valeurs["smtp_expediteur"] or "").strip(),
+        "utilisateur": str(valeurs["smtp_utilisateur"] or "").strip(),
+        "motdepasse": str(valeurs["smtp_motdepasse"] or ""),
+        "source": "reglages" if hote else "aucune",
     }
 
 

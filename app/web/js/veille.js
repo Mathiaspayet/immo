@@ -304,16 +304,9 @@ async function chargerEtatAlerte(communeChoisie = null, zoneChoisie = null) {
     const attente = etat.en_attente === 0
       ? "aucun bien en attente"
       : `${etat.en_attente} bien(s) seraient signalés au prochain import`;
-    // Dire d'où vient la configuration évite de chercher pourquoi une
-    // modification de cet écran ne prend pas effet : les variables
-    // d'environnement, si elles existent, ne servent que de repli.
-    const origine = etat.smtp_source === "environnement"
-      ? " (réglé par les variables d'environnement du conteneur ; "
-        + "remplir le serveur ci-dessous reprend la main)"
-      : "";
     boite.innerHTML = `Envoi par <span class="donnee">${echapper(etat.smtp_hote)}</span>
       ${etat.smtp_authentifie ? "avec authentification" : "sans authentification"}
-      · ${echapper(attente)}${origine}.`;
+      · ${echapper(attente)}.`;
   } catch (erreur) {
     boite.textContent = "État de l'alerte indisponible.";
   }

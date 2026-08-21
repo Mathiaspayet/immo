@@ -375,28 +375,34 @@ def test_vider_le_champ_efface_le_mot_de_passe(base):
     assert reglages.tous()["smtp_motdepasse_defini"] is False
 
 
-def test_les_reglages_priment_sur_l_environnement(base, monkeypatch):
-    monkeypatch.setattr("app.config.SMTP_HOTE", "ancien.exemple.fr")
-    monkeypatch.setattr("app.config.SMTP_EXPEDITEUR", "ancien@exemple.fr")
-
-    assert reglages.smtp()["source"] == "environnement"
-    assert reglages.smtp()["hote"] == "ancien.exemple.fr"
-
-    reglages.ecrire({"smtp_hote": "nouveau.exemple.fr",
-                     "smtp_expediteur": "nouveau@exemple.fr"})
-    effectif = reglages.smtp()
-    assert effectif["source"] == "reglages"
-    assert effectif["hote"] == "nouveau.exemple.fr"
-
-
-def test_sans_rien_nulle_part_l_envoi_est_refuse(base, monkeypatch):
-    monkeypatch.setattr("app.config.SMTP_HOTE", "")
-    monkeypatch.setattr("app.config.SMTP_EXPEDITEUR", "")
+def test_l_ecran_est_la_seule_source(base):
+    """
+    Une seule origine possible pour le serveur d'envoi : cette table.
+    L'environnement ne joue plus aucun role — plus rien a poser dans le
+    conteneur, et aucune ambiguite sur un reglage qui ne prend pas effet.
+    """
     assert reglages.smtp()["source"] == "aucune"
 
+    reglages.ecrire({"smtp_hote": "smtp.exemple.fr",
+                     "smtp_expediteur": "veille@exemple.fr"})
+    effectif = reglages.smtp()
+    assert effectif["source"] == "reglages"
+    assert effectif["hote"] == "smtp.exemple.fr"
+    assert effectif["port"] == 587
+
+
+def test_sans_serveur_l_envoi_est_refuse(base):
     from app.sources import courriel
     with pytest.raises(ErreurCourriel, match="Reglages"):
         courriel.envoyer("moi@exemple.fr", "sujet", "corps")
+
+
+def test_plus_aucune_variable_smtp_dans_la_configuration():
+    """Le nettoyage doit etre complet : un reliquat reintroduirait la
+    double source qu'on vient de retirer."""
+    from app import config
+
+    assert not [n for n in dir(config) if "SMTP" in n]
 
 
 def test_un_serveur_sans_expediteur_est_refuse(base):

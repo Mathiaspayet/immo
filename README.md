@@ -471,12 +471,11 @@ Trois garde-fous, parce qu'un courriel de trop est déjà parti :
   le lendemain : une alerte en retard vaut mieux qu'une alerte perdue. Et un
   serveur injoignable n'annule jamais une moisson réussie.
 
-**Le serveur d'envoi se règle dans l'écran**, pas dans le conteneur :
+**Le serveur d'envoi se règle dans l'écran**, et nulle part ailleurs :
 changer d'adresse ne doit pas demander une session SSH sur le NAS et un
-redémarrage. Les variables `VEILLE_SMTP_*` subsistent en repli, pour une
-installation qui les avait déjà posées ; dès que le serveur est renseigné
-dans l'écran, il prime, et l'écran dit laquelle des deux sources est en
-vigueur.
+redémarrage. Il n'y a qu'une source, la table des réglages — pas de
+variables d'environnement en parallèle, donc pas d'ambiguïté sur l'origine
+d'un réglage qui ne prendrait pas effet.
 
 Le mot de passe devient donc le seul secret que porte la table des
 réglages — que l'API sert telle quelle. Il est pour cette raison inscrit

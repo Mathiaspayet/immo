@@ -36,27 +36,6 @@ IMPORT_JOUR = os.environ.get("VEILLE_IMPORT_JOUR", "*")     # tous les jours
 IMPORT_HEURE = int(os.environ.get("VEILLE_IMPORT_HEURE", "7"))
 PLANIFICATEUR_ACTIF = os.environ.get("VEILLE_PLANIFICATEUR", "1") != "0"
 
-# --- Courriel d'alerte (F6) ------------------------------------------
-# Les identifiants SMTP sont les SEULS secrets de l'application. Ils vivent
-# donc ici, en variables d'environnement — jamais en base, que l'ecran
-# Reglages expose, ni dans le depot, qui est public. Le fichier .env qui les
-# porte sur le NAS est ignore par git.
-#
-# Sans hote configure, l'alerte se desactive d'elle-meme : l'application
-# reste utilisable sans courriel, et le dira plutot que d'echouer.
-SMTP_HOTE = os.environ.get("VEILLE_SMTP_HOTE", "").strip()
-SMTP_PORT = int(os.environ.get("VEILLE_SMTP_PORT", "587"))
-SMTP_UTILISATEUR = os.environ.get("VEILLE_SMTP_UTILISATEUR", "").strip()
-SMTP_MOTDEPASSE = os.environ.get("VEILLE_SMTP_MOTDEPASSE", "")
-SMTP_EXPEDITEUR = os.environ.get("VEILLE_SMTP_EXPEDITEUR", "").strip()
-# STARTTLS sur 587, SSL direct sur 465 : les deux se rencontrent.
-SMTP_SSL = os.environ.get("VEILLE_SMTP_SSL", "0") == "1"
-
-def smtp_configure():
-    """Le minimum vital est-il present pour tenter un envoi ?"""
-    return bool(SMTP_HOTE and SMTP_EXPEDITEUR)
-
-
 # --- Identite du build (injectee par GitHub Actions) -----------------
 VERSION = os.environ.get("BUILD_VERSION", "dev")
 DATE_BUILD = os.environ.get("BUILD_DATE", "inconnue")
