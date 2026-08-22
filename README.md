@@ -43,6 +43,23 @@ trois choses : l'**entonnoir** (combien de logements passent chaque critère
 seul, puis en cumulé), le **diagnostic** quand l'entonnoir se ferme, et le
 **classement complet** dont rien n'a été éliminé.
 
+**Chaque critère est facultatif, séparément.** Une annonce ne donne souvent
+que l'énergie primaire et le GES ; ils suffisent. Le formulaire les demande
+donc en premier, sous leur propre titre, et range le reste sous « si
+l'annonce les donne » — un champ vide est ignoré, il n'écarte rien. Mesure
+sur Mimizan, pour une maison à 89 kWh/m² ép. et 3 kg de GES :
+
+```
+4 343 logements en cache
+   65   passent l'énergie primaire  (± 5)
+   45     passent aussi le GES      (± 1,5)
+```
+
+Le premier du classement est alors la bonne maison, écart moyen nul. Seul
+le formulaire entièrement vide est refusé : sans un chiffre à comparer, le
+classement rendrait la base dans son ordre, ce qui ressemble à un résultat
+sans en être un.
+
 Un essai réel le montre bien. Pour une annonce à 144 m², 216 kWh/m² ép.,
 158 kWh/m² éf., 7 kg de GES, classe D/B, l'entonnoir se ferme : aucun
 logement ne satisfait tout. Mais le mieux classé — 19 Avenue des Oiseaux —

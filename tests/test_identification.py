@@ -115,3 +115,40 @@ def test_message_quand_le_cache_est_vide(base):
 def test_message_quand_aucun_critere_n_est_saisi(quartier):
     resultat = identification.identifier({}, tolerances=TOLERANCES)
     assert "Saisissez au moins un chiffre" in resultat["diagnostic"]
+
+
+def test_les_deux_chiffres_du_dpe_suffisent(quartier):
+    """
+    Le cas courant : une annonce ne donne que l'energie primaire et le GES.
+
+    Rien d'autre n'est exige, et le bon candidat sort quand meme en tete.
+    Mesure sur Mimizan : l'energie primaire seule ramene 4 343 logements a
+    65, le GES avec elle a 45.
+    """
+    resultat = identification.identifier({"conso_ep": 216.0, "ges": 7.0},
+                                         tolerances=TOLERANCES)
+    assert resultat["resultats"][0]["n_dpe"] == "CIBLE"
+    # L'entonnoir ne compte que ce qui a ete renseigne.
+    assert [e["critere"] for e in resultat["entonnoir"]] == ["conso_ep", "ges"]
+
+
+def test_un_seul_chiffre_suffit_aussi(quartier):
+    """Chaque critere est facultatif SEPAREMENT, pas seulement en bloc."""
+    for critere, valeur in [("conso_ep", 216.0), ("ges", 7.0),
+                            ("surface", 144.0), ("conso_ef", 158.0)]:
+        resultat = identification.identifier({critere: valeur},
+                                             tolerances=TOLERANCES)
+        assert resultat["resultats"], f"{critere} seul ne renvoie rien"
+        assert [e["critere"] for e in resultat["entonnoir"]] == [critere]
+
+
+def test_chaque_chiffre_ajoute_resserre_l_entonnoir(quartier):
+    """Ce que le formulaire promet : ajouter un chiffre restreint, jamais
+    l'inverse."""
+    cumuls = []
+    criteres = {}
+    for cle, valeur in [("conso_ep", 216.0), ("ges", 7.0), ("surface", 144.0)]:
+        criteres[cle] = valeur
+        resultat = identification.identifier(dict(criteres), tolerances=TOLERANCES)
+        cumuls.append(resultat["entonnoir"][-1]["cumules"])
+    assert cumuls == sorted(cumuls, reverse=True), cumuls

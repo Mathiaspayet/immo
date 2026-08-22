@@ -174,29 +174,45 @@
     <section>
       <h2>Identifier un bien depuis une annonce</h2>
       <p class="explication">
-        Recopiez les chiffres lus sur l'annonce. Aucun logement ne sera éliminé :
-        ils sont tous classés par ressemblance, et l'entonnoir montre quel critère
-        resserre la recherche. C'est ainsi qu'on repère le chiffre faux ou arrondi
-        d'une annonce.
+        Recopiez les chiffres lus sur l'annonce&nbsp;: <strong>ceux que vous
+        avez suffisent</strong>. Un champ laissé vide est simplement ignoré, il
+        n'écarte rien. Aucun logement n'est éliminé de toute façon — ils sont
+        tous classés par ressemblance, et l'entonnoir montre quel critère
+        resserre la recherche. C'est ainsi qu'on repère le chiffre faux ou
+        arrondi d'une annonce.
       </p>
 
       <form id="formulaire-identification">
+        <h3>Les deux chiffres du DPE</h3>
+        <p class="explication">
+          Une annonce ne donne souvent que ceux-là. Ils suffisent&nbsp;: sur
+          Mimizan, l'énergie primaire seule ramène 4 343 logements à 65, et le
+          GES avec elle à 45.
+        </p>
+        <div class="grille-champs">
+          <div class="champ">
+            <label for="i-conso-ep">Énergie primaire (kWh/m²)</label>
+            <input type="text" inputmode="decimal" id="i-conso-ep" class="donnee" placeholder="216">
+          </div>
+          <div class="champ">
+            <label for="i-ges">Émissions GES (kg/m²)</label>
+            <input type="text" inputmode="decimal" id="i-ges" class="donnee" placeholder="7">
+          </div>
+        </div>
+
+        <h3>Si l'annonce les donne</h3>
+        <p class="explication">
+          Facultatifs, chacun séparément. Chaque chiffre ajouté resserre
+          l'entonnoir&nbsp;; aucun n'est nécessaire.
+        </p>
         <div class="grille-champs">
           <div class="champ">
             <label for="i-surface">Surface habitable (m²)</label>
             <input type="text" inputmode="decimal" id="i-surface" class="donnee" placeholder="144">
           </div>
           <div class="champ">
-            <label for="i-conso-ep">Énergie primaire (kWh/m²)</label>
-            <input type="text" inputmode="decimal" id="i-conso-ep" class="donnee" placeholder="216">
-          </div>
-          <div class="champ">
             <label for="i-conso-ef">Énergie finale (kWh/m²)</label>
             <input type="text" inputmode="decimal" id="i-conso-ef" class="donnee" placeholder="158">
-          </div>
-          <div class="champ">
-            <label for="i-ges">Émissions GES (kg/m²)</label>
-            <input type="text" inputmode="decimal" id="i-ges" class="donnee" placeholder="7">
           </div>
           <div class="champ">
             <label for="i-etiquette-dpe">Classe énergie</label>

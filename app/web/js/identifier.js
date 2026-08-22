@@ -177,6 +177,19 @@ let derniereRecherche = null;
 async function chercher() {
   masquerErreur();
   const corps = lireFormulaire();
+
+  // Sans le moindre chiffre, le classement n'a rien pour classer : il
+  // rendrait les logements dans l'ordre de la base, ce qui ressemble à un
+  // résultat sans en être un. On le dit plutôt que de le laisser croire.
+  const renseignes = Object.values(corps.criteres)
+    .filter((v) => v !== null && v !== "").length;
+  if (renseignes === 0) {
+    afficherErreur("Aucun chiffre à comparer.",
+      "Renseignez au moins l'énergie primaire ou les émissions GES — " +
+      "les deux que toute annonce donne.");
+    return;
+  }
+
   derniereRecherche = corps;
   const bouton = $("#i-chercher");
   bouton.disabled = true;
