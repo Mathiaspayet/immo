@@ -85,8 +85,8 @@
   }
   .panneau-carte {
     position: sticky;
-    top: calc(var(--bandeau-hauteur) + 1px);
-    height: calc(100vh - var(--bandeau-hauteur) - 1px);
+    top: calc(var(--bandeau-reel) + 1px);
+    height: calc(100vh - var(--bandeau-reel) - 1px);
     border-left: 1px solid var(--trait);
   }
 }

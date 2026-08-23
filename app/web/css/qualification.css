@@ -420,3 +420,22 @@
   .carte-plein { height: clamp(320px, 60vh, 520px); }
   .legende { gap: calc(var(--pas) * 3); font-size: 0.78rem; }
 }
+
+/* Le retour, en tête de fiche et non en pied : sur téléphone, une fiche
+   fait plusieurs écrans de haut, et chercher le bouton en bas oblige à
+   parcourir tout ce qu'on vient de lire. */
+.fiche-barre {
+  position: sticky;
+  top: 0;
+  z-index: 400;
+  margin: calc(var(--pas) * -2) 0 calc(var(--pas) * 3);
+  padding: calc(var(--pas) * 2) 0;
+  background: var(--papier);
+}
+
+.bouton-retour { font-weight: 600; }
+
+@media (max-width: 640px) {
+  /* Collé sous le bandeau de l'application, qui est lui-même fixe. */
+  .fiche-barre { top: var(--bandeau-reel); }
+}

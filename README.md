@@ -635,6 +635,24 @@ le cas. Sur un réseau local, le coût est nul. Un cache long serait légitime
 pour des fichiers portant une empreinte dans leur nom ; aucun n'en porte
 ici, l'interface n'ayant pas d'étape de construction (CDC §3).
 
+**Le retour arrière du téléphone remonte le parcours.** L'application tient
+en une seule page&nbsp;: sans rien faire, le geste habituel — glisser depuis
+le bord, ou le bouton matériel — quittait le site depuis une fiche. Chaque
+écran laisse donc une entrée dans l'historique, et celle d'une fiche porte
+*quel* bien elle montrait, faute de quoi y revenir afficherait une fiche
+vide. Le bouton « Retour » de la fiche fait le même geste plutôt que
+d'empiler une étape de plus.
+
+Le bouton est en tête, et collé sous le bandeau : sur téléphone une fiche
+fait plusieurs écrans de haut, et le chercher en bas obligeait à parcourir
+tout ce qu'on venait de lire.
+
+**La hauteur du bandeau est mesurée, pas supposée.** `--bandeau-hauteur`
+est une hauteur *minimale* de 60 px ; sur téléphone le bandeau se replie et
+atteint 105 px. Les éléments qui se collent dessous s'y cachaient à moitié.
+Un `ResizeObserver` publie la hauteur réelle dans `--bandeau-reel`, que
+suivent les règles collantes — aucune constante ne peut prévoir un repli.
+
 **Le conteneur tourne en root**, comme `gestion-locative`. C'est ce qui
 évite les refus d'écriture sur le volume monté. L'application n'étant pas
 exposée publiquement, le compromis est assumé.

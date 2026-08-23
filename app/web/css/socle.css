@@ -34,7 +34,11 @@
   /* --- Rythme ---------------------------------------------------- */
   --pas: 4px;
   --rayon: 3px;          /* presque droit : c'est un document, pas une carte */
-  --bandeau-hauteur: 60px;
+  --bandeau-hauteur: 60px;      /* hauteur MINIMALE du bandeau */
+  /* Sa hauteur reelle, mesuree au chargement : sur telephone le bandeau
+     se replie et depasse largement le minimum. C'est elle que doivent
+     suivre les elements qui se collent dessous. */
+  --bandeau-reel: 60px;
 }
 
 *, *::before, *::after { box-sizing: border-box; }

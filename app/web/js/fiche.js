@@ -15,7 +15,7 @@ import {
   euroFr, liensExternes, masquerErreur, masquerTravail, nombreFr,
 } from "./format.js";
 import { auProchainTerme, suivreImport } from "./import.js";
-import { changerVue } from "./navigation.js";
+import { auRetourArriere, changerVue } from "./navigation.js";
 
 let dernierRetour = "veille";
 
@@ -362,11 +362,36 @@ const LECTURE = `
         toutefois été invalidés par la réforme.</li>
   </ul>`;
 
+// Le retour arrière ramène sur une fiche : il faut savoir laquelle.
+// `sansHistorique` évite d'empiler une entrée en la rouvrant.
+auRetourArriere("fiche", (etat) => {
+  ouvrirFiche({ ...etat, sansHistorique: true });
+});
+
+
+/**
+ * Revenir — le même geste que le bouton du téléphone.
+ *
+ * On remonte l'historique plutôt que d'y ajouter une étape : sans cela,
+ * quitter une fiche empilerait une entrée de plus, et le retour arrière
+ * ramènerait sur la fiche qu'on vient de fermer.
+ */
+function revenir() {
+  if (history.state && history.state.vue === "fiche") history.back();
+  else changerVue(dernierRetour);
+}
+
+
 export async function ouvrirFiche({ n_dpe = null, adresse = null,
-                                    parcelle_id = null, retour = null } = {}) {
+                                    parcelle_id = null, retour = null,
+                                    sansHistorique = false } = {}) {
   masquerErreur();
   dernierRetour = retour || "veille";
-  changerVue("fiche");
+  // L'historique retient DE QUEL bien il s'agit : sans cela, un retour
+  // arrière ramènerait sur une fiche vide.
+  if (!sansHistorique) {
+    changerVue("fiche", { n_dpe, adresse, parcelle_id, retour: dernierRetour });
+  }
   $("#fiche-contenu").innerHTML = '<p class="message message-travail">Chargement de la fiche…</p>';
 
   // Une parcelle sans aucun DPE n'a pas de chronologie à montrer, mais
@@ -392,11 +417,17 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
       `<li><button type="button" class="bouton-lien" data-adresse="${echapper(voie)}">${echapper(voie)}</button></li>`
     ).join("");
     $("#fiche-contenu").innerHTML = `
+      <div class="fiche-barre">
+        <button type="button" class="bouton bouton-retour" id="fiche-retour">
+          ← Retour
+        </button>
+      </div>
       <div class="vide">
         <h3>Aucun diagnostic pour cette adresse</h3>
         <p>${echapper(reponse.message || "")}</p>
         ${suggestions ? `<p>Adresses proches dans le cache :</p><ul class="suggestions">${suggestions}</ul>` : ""}
       </div>`;
+    $("#fiche-retour").addEventListener("click", revenir);
     $("#fiche-contenu").querySelectorAll("[data-adresse]").forEach((bouton) => {
       bouton.addEventListener("click", () => ouvrirFiche({ adresse: bouton.dataset.adresse }));
     });
@@ -423,6 +454,11 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
   const parcelle = extrait?.parcelle ?? null;
 
   $("#fiche-contenu").innerHTML = `
+  <div class="fiche-barre">
+    <button type="button" class="bouton bouton-retour" id="fiche-retour">
+      ← Retour
+    </button>
+  </div>
     <div class="fiche-entete">
       ${extraitCadastral(principal, extrait)}
       ${panneauSatellite(extrait)}
@@ -463,8 +499,7 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
     </ol>
 
     <div id="chaine-remplacements"></div>
-    ${LECTURE}
-    <p><button type="button" class="bouton" id="fiche-retour">Retour</button></p>`;
+    ${LECTURE}`;
 
   // La photo aérienne attend que la mise en page soit posée : Leaflet
   // mesure son conteneur à la création, et `aspect-ratio` ne lui donne sa
@@ -478,7 +513,7 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
     });
   }
 
-  $("#fiche-retour").addEventListener("click", () => changerVue(dernierRetour));
+  $("#fiche-retour").addEventListener("click", revenir);
 
   const chargeur = $("#fiche-contenu").querySelector("[data-charger-cadastre]");
   if (chargeur) {
@@ -511,6 +546,11 @@ async function ouvrirFicheParcelle(identifiant) {
   const reference = `${parcelle.section ?? ""}${parcelle.numero ?? ""}`;
 
   $("#fiche-contenu").innerHTML = `
+  <div class="fiche-barre">
+    <button type="button" class="bouton bouton-retour" id="fiche-retour">
+      ← Retour
+    </button>
+  </div>
     <div class="fiche-entete">
       ${extraitCadastral({ latitude: parcelle.latitude,
                            longitude: parcelle.longitude }, extrait)}
@@ -542,8 +582,7 @@ async function ouvrirFicheParcelle(identifiant) {
           : "Aucune vente n'est connue non plus sur les cinq derniers millésimes."}
       </p>
     </div>
-
-    <p><button type="button" class="bouton" id="fiche-retour">Retour</button></p>`;
+`;
 
   if (extrait) {
     requestAnimationFrame(() => {
@@ -554,7 +593,7 @@ async function ouvrirFicheParcelle(identifiant) {
                        { couleur: "#FFFFFF", epaisseur: 2.5 });
     });
   }
-  $("#fiche-retour").addEventListener("click", () => changerVue(dernierRetour));
+  $("#fiche-retour").addEventListener("click", revenir);
 }
 
 

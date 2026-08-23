@@ -8,7 +8,7 @@ import {
 } from "./parcours.js";
 import { ouvrirFiche } from "./fiche.js";
 import { initialiserIdentification } from "./identifier.js";
-import { auChangement, changerVue } from "./navigation.js";
+import { auChangement, changerVue, brancherHistorique } from "./navigation.js";
 import {
   $, afficherErreur, afficherSucces, anciennete, dateFr, echapper, entierFr,
   etiquetteHtml, liensExternes, masquerErreur, mesure, nombreFr,
@@ -578,6 +578,7 @@ async function demarrer() {
   // Le parcours prend la main : accueil, puis commune, puis résultats.
   initialiserExploration();
   initialiserParcours();
+  brancherHistorique();
   await reprendreSuiviEventuel();
 }
 
