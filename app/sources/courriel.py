@@ -81,13 +81,13 @@ def envoyer(destinataire, sujet, texte, html=None, trace=None,
     serveur_config = reglages.smtp(brouillon)
     if not (serveur_config["hote"] and serveur_config["expediteur"]):
         trace.noter("configuration", "echec",
-                    "serveur ou adresse d'expedition absents")
+                    "serveur ou adresse d'expédition absents")
         raise ErreurCourriel(
-            "Envoi non configure : renseigner le serveur et l'adresse "
-            "d'expedition dans l'ecran Reglages.")
+            "Envoi non configuré : renseigner le serveur et l'adresse "
+            "d'expédition dans l'écran Réglages.")
     if not destinataire:
         trace.noter("configuration", "echec", "aucun destinataire")
-        raise ErreurCourriel("Aucun destinataire enregistre dans les Reglages.")
+        raise ErreurCourriel("Aucun destinataire enregistré dans les Réglages.")
 
     trace.noter(
         "configuration", "ok",
@@ -112,21 +112,21 @@ def envoyer(destinataire, sujet, texte, html=None, trace=None,
             contexte = ssl.create_default_context()
             with smtplib.SMTP_SSL(serveur_config["hote"], serveur_config["port"],
                                   context=contexte, timeout=DELAI) as serveur:
-                trace.noter("connexion", "ok", "TLS etabli d'emblee (port SSL)")
+                trace.noter("connexion", "ok", "TLS établi d'emblée (port SSL)")
                 _authentifier(serveur, serveur_config, trace)
                 serveur.send_message(message)
-                trace.noter("envoi", "ok", "le serveur a accepte le message")
+                trace.noter("envoi", "ok", "le serveur a accepté le message")
         else:
             with smtplib.SMTP(serveur_config["hote"], serveur_config["port"],
                               timeout=DELAI) as serveur:
-                trace.noter("connexion", "ok", "connexion en clair etablie")
+                trace.noter("connexion", "ok", "connexion en clair établie")
                 serveur.ehlo()
                 # STARTTLS quand le serveur l'annonce : on ne fait pas
                 # transiter un mot de passe en clair sans le dire.
                 if serveur.has_extn("starttls"):
                     serveur.starttls(context=ssl.create_default_context())
                     serveur.ehlo()
-                    trace.noter("chiffrement", "ok", "STARTTLS accepte")
+                    trace.noter("chiffrement", "ok", "STARTTLS accepté")
                 elif serveur_config["motdepasse"]:
                     trace.noter(
                         "chiffrement", "echec",
@@ -139,21 +139,21 @@ def envoyer(destinataire, sujet, texte, html=None, trace=None,
                         f"{serveur_config['hote']} n'offre pas STARTTLS sur le "
                         f"port {serveur_config['port']} ; refus d'envoyer le "
                         "mot de passe en clair. Choisir « SSL direct » avec le "
-                        "port 465, ou verifier le port STARTTLS (souvent 587).")
+                        "port 465, ou vérifier le port STARTTLS (souvent 587).")
                 else:
                     trace.noter("chiffrement", "attention",
-                                "sans STARTTLS, mais aucun mot de passe a proteger")
+                                "sans STARTTLS, mais aucun mot de passe à protéger")
                 _authentifier(serveur, serveur_config, trace)
                 serveur.send_message(message)
-                trace.noter("envoi", "ok", "le serveur a accepte le message")
+                trace.noter("envoi", "ok", "le serveur a accepté le message")
     except ErreurCourriel:
         raise
     except smtplib.SMTPAuthenticationError as erreur:
         trace.noter("authentification", "echec", f"{erreur.smtp_code} {erreur.smtp_error}")
         raise ErreurCourriel(
-            f"Identifiants refuses ({erreur.smtp_code}). Verifier que "
-            "l'identifiant est l'adresse complete, et que l'acces "
-            "POP3/IMAP est autorise dans le compte du fournisseur.") from erreur
+            f"Identifiants refusés ({erreur.smtp_code}). Vérifier que "
+            "l'identifiant est l'adresse complète, et que l'accès "
+            "POP3/IMAP est autorisé dans le compte du fournisseur.") from erreur
     except (smtplib.SMTPException, OSError, ssl.SSLError) as erreur:
         # L'etape en cours est celle qui suit la derniere reussie.
         derniere = trace.etapes[-1]["nom"] if trace.etapes else "connexion"
@@ -177,4 +177,4 @@ def _authentifier(serveur, serveur_config, trace=None):
     serveur.login(serveur_config["utilisateur"], serveur_config["motdepasse"])
     if trace:
         trace.noter("authentification", "ok",
-                    f"« {serveur_config['utilisateur']} » accepte")
+                    f"« {serveur_config['utilisateur']} » accepté")

@@ -223,28 +223,28 @@ def _conseil(echec, message):
     bavard = f"{etape} {message}".lower()
 
     if "timed out" in bavard or "timeout" in bavard:
-        return ("Le serveur n'a pas repondu. Le port est peut-etre ferme en "
-                "sortie du reseau, ou le nom du serveur est errone. Beaucoup "
+        return ("Le serveur n'a pas répondu. Le port est peut-être fermé en "
+                "sortie du réseau, ou le nom du serveur est erroné. Beaucoup "
                 "de fournisseurs offrent 587 (STARTTLS) et 465 (SSL direct) : "
                 "essayer l'autre.")
     if "refused" in bavard or "connexion" in etape:
-        return ("Rien n'ecoute a cette adresse. Verifier le nom du serveur et "
-                "le port ; si le port est 465, « SSL direct » doit etre "
-                "choisi, et s'il est 587, ce doit etre STARTTLS.")
+        return ("Rien n'écoute à cette adresse. Vérifier le nom du serveur et "
+                "le port ; si le port est 465, « SSL direct » doit être "
+                "choisi, et s'il est 587, ce doit être STARTTLS.")
     if "starttls" in bavard or "chiffrement" in etape:
-        return ("Ce port ne propose pas STARTTLS. C'est le symptome d'un port "
-                "SSL direct (465) laisse en STARTTLS, ou l'inverse : accorder "
+        return ("Ce port ne propose pas STARTTLS. C'est le symptôme d'un port "
+                "SSL direct (465) laissé en STARTTLS, ou l'inverse : accorder "
                 "le port et le mode de chiffrement.")
     if "authentification" in etape or "auth" in bavard or "535" in bavard:
-        return ("Les identifiants ont ete refuses. L'identifiant est en "
-                "general l'adresse complete. Chez plusieurs fournisseurs, "
-                "l'envoi par un logiciel tiers demande d'activer l'acces "
-                "POP3/IMAP dans les reglages du compte, voire un mot de passe "
-                "dedie a l'application.")
+        return ("Les identifiants ont été refusés. L'identifiant est en "
+                "général l'adresse complète. Chez plusieurs fournisseurs, "
+                "l'envoi par un logiciel tiers demande d'activer l'accès "
+                "POP3/IMAP dans les réglages du compte, voire un mot de passe "
+                "dédié à l'application.")
     if "certificate" in bavard or "ssl" in bavard:
-        return ("Le certificat du serveur n'a pas ete valide. Verifier que le "
+        return ("Le certificat du serveur n'a pas été validé. Vérifier que le "
                 "nom du serveur est exactement celui du fournisseur.")
     if "sender" in bavard or "from" in bavard or "553" in bavard or "550" in bavard:
-        return ("Le serveur a refuse l'adresse d'expedition. Elle doit "
-                "correspondre au compte utilise pour s'authentifier.")
+        return ("Le serveur a refusé l'adresse d'expédition. Elle doit "
+                "correspondre au compte utilisé pour s'authentifier.")
     return None

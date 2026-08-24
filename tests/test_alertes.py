@@ -392,9 +392,38 @@ def test_l_ecran_est_la_seule_source(base):
 
 
 def test_sans_serveur_l_envoi_est_refuse(base):
+    """Le refus doit dire ou aller le corriger, pas seulement qu'il refuse."""
     from app.sources import courriel
-    with pytest.raises(ErreurCourriel, match="Reglages"):
+    with pytest.raises(ErreurCourriel, match="Réglages"):
         courriel.envoyer("moi@exemple.fr", "sujet", "corps")
+
+
+def test_le_diagnostic_est_ecrit_en_francais_accentue(base):
+    """C'est ce que l'utilisateur lit pour deboguer son fournisseur : du
+    texte sans accents au milieu d'une interface accentuee se lit comme
+    une negligence, et ces phrases-la sont justement celles qu'on lit
+    quand plus rien ne marche."""
+    from app.metier import alertes
+
+    fautes = []
+    for etape, message in [
+            ({"nom": "connexion"}, "ConnectionRefusedError : refused"),
+            ({"nom": "connexion"}, "timed out"),
+            ({"nom": "chiffrement"}, "starttls absent"),
+            ({"nom": "authentification"}, "535 refuse"),
+            ({"nom": "envoi"}, "certificate verify failed"),
+            ({"nom": "envoi"}, "553 sender rejected")]:
+        conseil = alertes._conseil(etape, message)
+        assert conseil, f"aucune piste pour {etape['nom']} / {message}"
+        # Un mot francais courant prive de son accent : le signe qu'on a
+        # tape la phrase au clavier sans y revenir.
+        for mot in ("verifier", "repondu", "refuses", "accepte", "symptome",
+                    "general", "complete", "acces", "reglages", "dedie",
+                    "valide", "expedition", "utilise", "ecoute", "ferme",
+                    "errone", "laisse", "etre"):
+            if mot in conseil.lower():
+                fautes.append((mot, conseil[:60]))
+    assert not fautes, fautes
 
 
 def test_plus_aucune_variable_smtp_dans_la_configuration():

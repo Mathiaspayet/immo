@@ -554,19 +554,6 @@
         </div>
       </div>
 
-      <!-- Le résultat du contrôle, étape par étape. Une boîte de dialogue
-           plutôt qu'un bandeau : le diagnostic tient en plusieurs lignes,
-           et on veut le lire sans le perdre au premier défilement. -->
-      <dialog id="dialogue-essai" class="dialogue">
-        <div class="dialogue-tete">
-          <h3 id="essai-titre">Message de contrôle</h3>
-          <button type="button" class="bouton-lien" id="essai-fermer"
-                  aria-label="Fermer">✕</button>
-        </div>
-        <div id="essai-corps"></div>
-        <div class="dialogue-pied">
-          <button type="button" class="bouton" id="essai-relancer">Réessayer</button>
-        </div>
         <div class="reglage-actions">
           <button type="button" class="bouton bouton-principal" data-enregistrer>
             Enregistrer
@@ -576,7 +563,25 @@
       </div>
     </section>
 
-      </dialog>
+    <!-- Le résultat du contrôle, étape par étape. Une boîte de dialogue
+         plutôt qu'un bandeau : le diagnostic tient en plusieurs lignes, et
+         on veut le lire sans le perdre au premier défilement.
+
+         Elle est posée HORS de toute zone de réglage : enfermée dans un
+         bloc d'édition — masqué tant qu'on n'édite pas — elle s'ouvrait
+         sans jamais devenir visible, un ancêtre `hidden` masquant la boîte
+         malgré `showModal()`. -->
+    <dialog id="dialogue-essai" class="dialogue">
+      <div class="dialogue-tete">
+        <h3 id="essai-titre">Message de contrôle</h3>
+        <button type="button" class="bouton-lien" id="essai-fermer"
+                aria-label="Fermer">✕</button>
+      </div>
+      <div id="essai-corps"></div>
+      <div class="dialogue-pied">
+        <button type="button" class="bouton" id="essai-relancer">Réessayer</button>
+      </div>
+    </dialog>
 
     <section>
       <h2>Journal des imports</h2>

@@ -261,8 +261,22 @@ function peuplerZones(choisie) {
   liste.value = zones.includes(choisie) ? choisie : "";
 }
 
-/** Le serveur d'envoi tel qu'il est saisi, enregistré ou non. */
+/**
+ * Le serveur d'envoi tel qu'il est saisi — ou rien, si on ne le saisit pas.
+ *
+ * Les champs ne sont remplis que lorsqu'on ouvre « Modifier ». Les lire
+ * alors qu'ils dorment vides enverrait un brouillon vide, qui écraserait
+ * la configuration enregistrée le temps du contrôle : celui-ci
+ * annoncerait « serveur absent » pour une configuration parfaitement
+ * valide en base.
+ *
+ * On ne renvoie donc un brouillon QUE si la zone est ouverte. Fermée,
+ * c'est ce qui est enregistré qu'on éprouve — et c'est bien ce qu'on veut
+ * savoir.
+ */
 function lireServeurAffiche() {
+  const zone = document.querySelector("[data-reglage='envoi'] .reglage-edition");
+  if (!zone || zone.hidden) return null;
   return {
     hote: $("#r-smtp-hote").value.trim(),
     port: Number($("#r-smtp-port").value) || 587,
@@ -313,12 +327,12 @@ function dessinerEssai(resultat) {
            l'a accepté.`
         : echapper(resultat.message || "Échec sans message.")}
     </p>
-    ${resultat.envoye ? `
+    ${resultat.envoye && resultat.brouillon ? `
       <p class="explication piste">
-        <strong>À faire&nbsp;:</strong> ce contrôle a éprouvé ce que l'écran
-        affiche. Cliquez sur <strong>Enregistrer</strong> pour que l'alerte
-        s'en serve — sans quoi elle continuera d'utiliser l'ancienne
-        configuration.
+        <strong>À faire&nbsp;:</strong> ce contrôle a éprouvé la
+        configuration <em>affichée</em>, qui n'est pas encore enregistrée.
+        Cliquez sur <strong>Enregistrer</strong> pour que l'alerte s'en
+        serve.
       </p>` : ""}
     <ol class="etapes">${etapes}</ol>
     ${resultat.conseil
@@ -343,11 +357,13 @@ async function envoyerEssaiAlerte() {
   if (!dialogue.open) dialogue.showModal();
 
   try {
-    // On éprouve ce que l'écran affiche, pas ce que la base a retenu :
-    // remplir les champs puis cliquer sans enregistrer est le geste
-    // naturel, et il testait auparavant une table vide.
-    dessinerEssai(await api.essaiAlerte(
-      $("#r-alerte-destinataire").value.trim(), lireServeurAffiche()));
+    // Zone d'envoi ouverte : on éprouve ce qui est affiché, car remplir
+    // les champs puis contrôler sans enregistrer est le geste naturel.
+    // Zone fermée : rien à lire, on éprouve ce qui est enregistré.
+    const brouillon = lireServeurAffiche();
+    const destinataire = $("#r-alerte-destinataire").value.trim() || null;
+    const resultat = await api.essaiAlerte(destinataire, brouillon);
+    dessinerEssai({ ...resultat, brouillon: Boolean(brouillon) });
   } catch (erreur) {
     // Un échec d'envoi revient en 200 avec sa trace ; arriver ici veut
     // dire que l'application elle-même n'a pas répondu.

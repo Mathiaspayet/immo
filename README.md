@@ -659,12 +659,20 @@ Le bouton **Envoyer un message de contrôle** des Réglages éprouve la
 configuration sans attendre qu'un DPE paraisse : sans lui, on ne saurait
 qu'un mot de passe est faux qu'au premier bien manqué.
 
-**Il éprouve ce que l'écran affiche, pas ce que la table a retenu.** Le
-geste naturel est de remplir les champs puis de cliquer sur « contrôle » ;
-il testait auparavant la configuration *enregistrée* — vide tant qu'on n'a
-pas cliqué sur Enregistrer — et le diagnostic accusait une absence que
-l'utilisateur voyait pourtant remplie à l'écran. Un contrôle réussi
-rappelle donc d'enregistrer, et n'écrit lui-même rien en base.
+**Il éprouve ce qu'on est en train de regarder.** Zone d'envoi ouverte, il
+éprouve les champs affichés : le geste naturel est de les remplir puis de
+cliquer sur « contrôle », et tester la table *enregistrée* — vide tant
+qu'on n'a pas cliqué sur Enregistrer — faisait accuser une absence que
+l'utilisateur voyait pourtant remplie à l'écran. Zone fermée, il éprouve la
+configuration enregistrée, la seule qui existe alors.
+
+Cette distinction n'est pas un détail : depuis que les champs dorment
+masqués tant qu'on n'a pas cliqué sur « Modifier », les lire sans condition
+envoyait un brouillon **vide** qui masquait la configuration enregistrée le
+temps du contrôle — celui-ci annonçait « serveur absent » pour une
+configuration parfaitement valide. Le brouillon n'est donc lu que si la
+zone est ouverte, et le rappel d'enregistrer n'apparaît que dans ce cas :
+sinon il n'y a rien à enregistrer. Le contrôle n'écrit jamais en base.
 
 Il ne répond pas par oui ou non. « Ça ne marche pas » ne se débogue pas :
 il faut savoir **où** cela s'arrête. Une boîte de dialogue montre donc la
@@ -676,6 +684,13 @@ possibles.
 L'échec revient en 200, pas en erreur : c'est le *résultat* de l'appel, pas
 une erreur de l'appel, et un code d'erreur priverait l'écran de la trace.
 Le mot de passe n'y figure jamais — elle est faite pour être affichée.
+
+La boîte est posée **hors** de toute zone de réglage. Enfermée dans un bloc
+d'édition — masqué tant qu'on n'édite pas — `showModal()` réussissait sans
+que rien ne paraisse : `hidden` sur un ancêtre l'emporte. Le symptôme n'est
+pas une erreur mais une absence, et l'écran semblait figé, le bouton restant
+sur « Envoi… » derrière une boîte modale invisible qui bloquait le reste de
+la page.
 Quand la cause est reconnaissable, une piste concrète accompagne le
 diagnostic : un port qui ne répond pas, un STARTTLS demandé sur un port
 SSL, des identifiants refusés faute d'accès POP3/IMAP activé chez le
