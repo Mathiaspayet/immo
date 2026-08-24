@@ -52,12 +52,15 @@ const ZONES = {
 
   alerte: {
     cles: ["alerte_active", "alerte_destinataire", "alerte_code_insee",
-           "alerte_zone"],
+           "alerte_zone", "alerte_ventes_active"],
     resume: (r, extra) => [
       ["État", r.alerte_active ? "activée" : "désactivée"],
       ["Destinataire", r.alerte_destinataire || "aucun"],
       ["Commune surveillée", extra.nomCommune(r.alerte_code_insee)],
       ["Secteur", r.alerte_zone || "tous"],
+      ["Ventes publiées (DVF)", r.alerte_ventes_active
+        ? "signalées — deux parutions par an"
+        : "non signalées"],
     ],
   },
 
@@ -98,6 +101,7 @@ const CHAMPS = {
   alerte_destinataire: { champ: "#r-alerte-destinataire" },
   alerte_code_insee: { champ: "#r-alerte-commune" },
   alerte_zone: { champ: "#r-alerte-zone" },
+  alerte_ventes_active: { champ: "#r-alerte-ventes", booleen: true },
   smtp_hote: { champ: "#r-smtp-hote" },
   smtp_port: { champ: "#r-smtp-port", nombre: true },
   smtp_ssl: { champ: "#r-smtp-ssl", booleen: true },

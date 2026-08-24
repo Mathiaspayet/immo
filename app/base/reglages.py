@@ -100,6 +100,17 @@ DEFAUTS = {
     "alerte_code_insee": "",
     "alerte_zone": "",
 
+    # Les ventes DVF, sur le MEME perimetre que les DPE. Actif par defaut,
+    # mais sans effet tant que `alerte_active` est faux et qu'aucun
+    # destinataire n'est enregistre : les deux verrous du dessus valent
+    # aussi pour lui, et rien ne part de soi-meme.
+    #
+    # DVF ne paraissant que deux fois l'an, ce courriel est rare — c'est
+    # ce qui justifie qu'il soit arme d'emblee plutot qu'a cocher : une
+    # case oubliee ferait manquer la parution, et la suivante est dans
+    # six mois.
+    "alerte_ventes_active": True,
+
     # --- Serveur d'envoi ---------------------------------------------
     # Ici plutot que dans l'environnement, pour que changer d'adresse ne
     # demande pas une session SSH sur le NAS et un redemarrage.

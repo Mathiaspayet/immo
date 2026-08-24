@@ -253,6 +253,74 @@ Deux limites de la source, annoncées sur la fiche : elle ne couvre que les
 cinq derniers millésimes publiés, et **jamais l'Alsace-Moselle (57, 67, 68)
 ni Mayotte**, qui tiennent leur propre livre foncier.
 
+#### DVF est une fenêtre glissante, pas un fichier qui grandit
+
+C'est le fait dont tout le reste découle, et il est facile à manquer.
+Etalab ne publie que **cinq millésimes**, et les fait glisser. Vérifié le
+24 août 2026 :
+
+| Millésime | Mimizan | Toulouse |
+|---|---|---|
+| 2019, 2020 | 404 | 404 |
+| 2021 → 2025 | servis | servis |
+| 2026 | 404 | 404 |
+
+La publication en ligne datait du **18 mai 2026** et s'arrêtait au
+**30 décembre 2025** : huit mois d'angle mort. C'est structurel — une vente
+signée chez le notaire met plusieurs mois à devenir publique — et il faut
+le savoir avant de conclure qu'un bien n'a jamais changé de mains.
+
+**La liste des millésimes se calcule, elle ne s'écrit pas.** Elle était
+figée à `(2021, …, 2025)`. À la parution d'automne 2026, l'application
+aurait ignoré le millésime neuf — et sans rien dire : un millésime absent
+est traité comme une commune sans vente cette année-là, ce qui est le cas
+légitime le plus fréquent. L'historique se serait arrêté à fin 2025 en
+paraissant complet. `millesimes()` part donc de l'année courante et demande
+un millésime de plus que la fenêtre n'en contient : c'est ce millésime en
+trop qui capte la nouveauté le jour où elle paraît.
+
+**L'import ne remplace plus la commune en bloc.** Le défaut était plus
+grave que le précédent, et de même nature : quand 2026 entrera, 2021
+sortira, et un `DELETE` par commune l'aurait **effacé de la base** au
+passage suivant. Or la base est alors le seul endroit où ce millésime
+subsiste encore. L'écriture se fait donc ligne à ligne, en `ON CONFLICT DO
+UPDATE`. Une vente déjà connue est corrigée dans ses données mais garde son
+`alerte_le` — sans quoi chaque republication semestrielle re-signalerait
+tout le millésime corrigé comme neuf.
+
+### L'alerte sur les ventes
+
+Le pendant de l'alerte DPE, sur le **même périmètre** — commune et secteur.
+Un second jeu de critères aurait fini par diverger sans qu'on s'en
+aperçoive ; on croirait surveiller la même chose des deux côtés.
+
+Deux différences tiennent à la nature de la source.
+
+**On guette la publication, pas la donnée.** Un DPE paraît en continu ; DVF
+paraît deux fois l'an, par blocs. Une requête `HEAD` quotidienne compare
+l'`ETag` de chaque millésime à celui du dernier passage, et l'import
+complet ne part que lorsqu'il a bougé. Télécharger le CSV chaque jour pour
+découvrir deux fois l'an qu'il a changé donnerait le même résultat au prix
+de trois cent soixante-trois téléchargements inutiles. Le premier relevé ne
+déclenche rien : sans point de comparaison, tout paraîtrait neuf.
+
+**Le secteur se calcule à l'envoi, pas à l'import.** Le DPE porte sa zone
+en colonne. Une vente la déduit de la position que DVF pose sur chaque
+ligne, au moment de l'alerte. C'est volontaire : les repères de secteur
+sont modifiables dans les Réglages, et une colonne figée dirait « plage »
+pour une vente que les repères actuels rangent au bourg. Une vente sans
+position n'est jamais rangée dans un secteur — la taire vaut mieux que l'y
+mettre au hasard.
+
+**Le passage de version ne transforme pas l'archive en nouveautés.** Les
+2 054 ventes déjà en base ont été importées avant que l'alerte n'existe :
+`alerte_le` y naîtrait à `NULL`, et le premier courriel les aurait toutes
+listées. La migration les marque comme déjà signalées — même raisonnement
+que la suppression du premier import, appliqué au changement de version.
+Un test rejoue ce chemin pour de bon, sur une base montée jusqu'au 006
+puis migrée : il ne s'emprunte qu'une fois par base, et ne casserait pas un
+test au passage — il enverrait un courriel absurde le jour de la parution.
+
 ---
 
 ## Déploiement sur le NAS
@@ -354,6 +422,8 @@ app/
 │   ├── identification.py    F2 — l'entonnoir et le classement
 │   ├── fiche.py             F4 — chronologie, remplacements, comparaison
 │   ├── mutations.py         Ventes DVF, rattachées par la parcelle
+│   ├── alertes.py           F6 — l'alerte sur les DPE nouvellement parus
+│   ├── alerte_ventes.py     l'alerte sur les ventes nouvellement publiées
 │   └── (carte : parcelles.pour_carte + chercher_sur_carte)
 │   ├── geometrie.py         surfaces, appartenance, index spatial en grille
 │   ├── parcelles.py         F3 — cadastre, extrait, carte

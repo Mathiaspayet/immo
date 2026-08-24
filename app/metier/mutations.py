@@ -37,6 +37,24 @@ def _nombre(valeur):
         return None
 
 
+def _adresse(ligne):
+    """L'adresse telle que DVF la donne, en une chaine lisible."""
+    morceaux = [(ligne.get("adresse_numero") or "").strip(),
+                (ligne.get("adresse_suffixe") or "").strip(),
+                (ligne.get("adresse_nom_voie") or "").strip()]
+    return " ".join(m for m in morceaux if m) or None
+
+
+def _position(groupe):
+    """La premiere position exploitable du groupe, ou deux None."""
+    for ligne in groupe:
+        lat = _nombre(ligne.get("latitude"))
+        lon = _nombre(ligne.get("longitude"))
+        if lat is not None and lon is not None:
+            return {"latitude": lat, "longitude": lon}
+    return {"latitude": None, "longitude": None}
+
+
 def _regrouper(lignes):
     """
     Une entree par mutation, avec ses parcelles et ses locaux.
@@ -72,6 +90,13 @@ def _regrouper(lignes):
 
         mutations.append({
             "id": identifiant,
+            "adresse": _adresse(tete),
+            # La position vient du fichier lui-meme : elle situe la vente
+            # dans un secteur sans attendre que le cadastre soit charge.
+            # On prend la premiere ligne qui en porte une — une mutation
+            # multi-parcelles n'a pas de centre, et le point d'une de ses
+            # parcelles suffit a la ranger cote bourg ou cote plage.
+            **_position(groupe),
             "code_insee": (tete.get("code_commune") or "").strip(),
             "date_mutation": (tete.get("date_mutation") or "").strip(),
             "nature": (tete.get("nature_mutation") or "").strip(),
@@ -86,51 +111,109 @@ def _regrouper(lignes):
     return mutations
 
 
+# SQLite limite le nombre de parametres d'une requete. On decoupe donc
+# les listes d'identifiants : Mimizan en compte 2 054, et une commune plus
+# grande en compterait bien davantage.
+PAQUET = 400
+
+
+def _par_paquets(elements, taille=PAQUET):
+    for debut in range(0, len(elements), taille):
+        yield elements[debut:debut + taille]
+
+
 def importer(code_insee, progression=None):
-    """Telecharge et enregistre les ventes d'une commune."""
+    """
+    Telecharge et enregistre les ventes d'une commune.
+
+    La mise a jour se fait ligne a ligne, jamais par remplacement de la
+    commune entiere. C'est ce qui garde l'historique : DVF est une fenetre
+    glissante de cinq millesimes, et le millesime qui en sort n'existe
+    plus nulle part ailleurs que dans cette base. Un remplacement en bloc
+    l'effacerait a la premiere parution d'automne — silencieusement, la
+    commune paraissant simplement n'avoir aucune vente en 2021.
+
+    Une mutation deja connue est mise a jour dans ses donnees, mais garde
+    `alerte_le` : DVF corrige parfois une vente passee, et une correction
+    ne doit pas la faire re-signaler comme neuve.
+    """
     code_insee = str(code_insee).strip()
     lignes = dvf.telecharger(code_insee, progression=progression)
     mutations = _regrouper(lignes)
     maintenant = datetime.datetime.now().isoformat(timespec="seconds")
 
     with transaction() as conn:
-        # Remplacement en bloc : DVF republie la commune entiere a chaque
-        # millesime, et corrige parfois des mutations passees.
-        anciennes = [l[0] for l in conn.execute(
-            "SELECT id FROM mutation WHERE code_insee = ?", (code_insee,))]
-        if anciennes:
-            marques = ", ".join("?" * len(anciennes))
+        # Premier import de cette commune ? On ne signalera rien. Sans
+        # cela, decouvrir Mimizan enverrait un courriel de 2 054 ventes
+        # dont aucune n'est une nouveaute — c'est l'historique, pas une
+        # actualite. Le raisonnement est par commune, comme pour les DPE :
+        # une base deja remplie par une autre commune ne doit pas rendre
+        # celle-ci muette.
+        deja_connue = conn.execute(
+            "SELECT 1 FROM mutation WHERE code_insee = ? LIMIT 1",
+            (code_insee,)).fetchone() is not None
+
+        identifiants = [m["id"] for m in mutations]
+        # Les rattachements sont refaits a neuf pour les mutations
+        # revues : une correction peut retirer une parcelle d'une vente,
+        # et un INSERT OR IGNORE seul laisserait l'ancienne en place.
+        for paquet in _par_paquets(identifiants):
+            marques = ", ".join("?" * len(paquet))
             conn.execute(
                 f"DELETE FROM mutation_parcelle WHERE mutation_id IN ({marques})",
-                anciennes)
-            conn.execute("DELETE FROM mutation WHERE code_insee = ?", (code_insee,))
+                paquet)
 
         conn.executemany(
             "INSERT INTO mutation (id, code_insee, date_mutation, nature,"
             " valeur_fonciere, nb_parcelles, nb_locaux, surface_bati_m2,"
-            " surface_terrain_m2, types_locaux_json, importe_le)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " surface_terrain_m2, types_locaux_json, adresse, latitude,"
+            " longitude, importe_le, vu_le, alerte_le)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(id) DO UPDATE SET"
+            "   code_insee = excluded.code_insee,"
+            "   date_mutation = excluded.date_mutation,"
+            "   nature = excluded.nature,"
+            "   valeur_fonciere = excluded.valeur_fonciere,"
+            "   nb_parcelles = excluded.nb_parcelles,"
+            "   nb_locaux = excluded.nb_locaux,"
+            "   surface_bati_m2 = excluded.surface_bati_m2,"
+            "   surface_terrain_m2 = excluded.surface_terrain_m2,"
+            "   types_locaux_json = excluded.types_locaux_json,"
+            "   adresse = excluded.adresse,"
+            "   latitude = excluded.latitude,"
+            "   longitude = excluded.longitude,"
+            "   importe_le = excluded.importe_le",
+            # `vu_le` et `alerte_le` ne figurent pas dans le DO UPDATE :
+            # ils appartiennent a la ligne deja en base, pas au fichier.
             [(m["id"], m["code_insee"] or code_insee, m["date_mutation"],
               m["nature"], m["valeur_fonciere"], len(m["parcelles"]),
               m["nb_locaux"], m["surface_bati_m2"], m["surface_terrain_m2"],
-              json.dumps(m["types_locaux"], ensure_ascii=False), maintenant)
+              json.dumps(m["types_locaux"], ensure_ascii=False),
+              m["adresse"], m["latitude"], m["longitude"],
+              maintenant, maintenant,
+              None if deja_connue else maintenant)
              for m in mutations])
         conn.executemany(
             "INSERT OR IGNORE INTO mutation_parcelle (mutation_id, parcelle_id)"
             " VALUES (?,?)",
             [(m["id"], p) for m in mutations for p in m["parcelles"]])
 
+        nouvelles = conn.execute(
+            "SELECT count(*) FROM mutation WHERE code_insee = ? AND alerte_le IS NULL",
+            (code_insee,)).fetchone()[0]
         rattachees = conn.execute(
             "SELECT count(DISTINCT mp.parcelle_id) FROM mutation_parcelle mp"
             " JOIN parcelle p ON p.id = mp.parcelle_id"
             " WHERE p.code_insee = ?", (code_insee,)).fetchone()[0]
 
-    logger.info("dvf %s : %d mutations, %d parcelles rattachees au cadastre",
-                code_insee, len(mutations), rattachees)
+    logger.info("dvf %s : %d mutations, %d parcelles rattachees au cadastre,"
+                " %d a signaler", code_insee, len(mutations), rattachees, nouvelles)
     return {
         "mutations": len(mutations),
         "lignes": len(lignes),
         "parcelles_rattachees": rattachees,
+        "nouvelles": nouvelles,
+        "premier_import": not deja_connue,
         "message": f"{len(mutations)} vente(s) sur {len(lignes)} lignes",
     }
 
@@ -193,3 +276,53 @@ def manquantes(code_insee):
             "SELECT count(*) FROM mutation WHERE code_insee = ?",
             (code_insee,)).fetchone()[0]
     return bool(parcelles) and not ventes
+
+
+def signatures_connues(code_insee):
+    """Les signatures relevees au dernier passage, {annee: signature}."""
+    with connexion() as conn:
+        return {ligne["annee"]: ligne["signature"] for ligne in conn.execute(
+            "SELECT annee, signature FROM dvf_millesime WHERE code_insee = ?",
+            (str(code_insee).strip(),))}
+
+
+def _noter_signatures(code_insee, signatures):
+    maintenant = datetime.datetime.now().isoformat(timespec="seconds")
+    with transaction() as conn:
+        conn.executemany(
+            "INSERT INTO dvf_millesime (code_insee, annee, signature, releve_le)"
+            " VALUES (?,?,?,?)"
+            " ON CONFLICT(code_insee, annee) DO UPDATE SET"
+            "   signature = excluded.signature, releve_le = excluded.releve_le",
+            [(code_insee, annee, signature, maintenant)
+             for annee, signature in signatures.items()])
+
+
+def publication(code_insee):
+    """
+    Interroge Etalab et dit si la publication a bouge depuis le dernier
+    passage, sans rien telecharger.
+
+    Le premier appel ne signale RIEN comme change : tout serait « nouveau »
+    faute de point de comparaison, et l'import complet partirait pour
+    apprendre ce qu'il sait deja. On enregistre les signatures et on attend
+    la suivante.
+    """
+    code_insee = str(code_insee).strip()
+    connues = signatures_connues(code_insee)
+    releve = dvf.signatures(code_insee)
+
+    # Un millesime absent ne compte pas : l'annee en cours rend 404 jusqu'a
+    # la parution d'automne, et la comparer chaque jour ferait clignoter un
+    # changement qui n'existe pas.
+    changees = sorted(
+        annee for annee, signature in releve.items()
+        if signature is not None and connues.get(annee) != signature)
+
+    premier = not connues
+    _noter_signatures(code_insee, releve)
+    return {
+        "premier_releve": premier,
+        "changees": [] if premier else changees,
+        "millesimes": sorted(a for a, s in releve.items() if s is not None),
+    }

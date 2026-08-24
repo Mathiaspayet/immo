@@ -20,6 +20,7 @@ Deux limites de la source, a connaitre avant de s'y fier :
 """
 
 import csv
+import datetime
 import io
 import logging
 import urllib.error
@@ -32,9 +33,31 @@ logger = logging.getLogger(__name__)
 RACINE = "https://files.data.gouv.fr/geo-dvf/latest/csv"
 DELAI = 180
 
-# Millesimes publies. DVF parait deux fois l'an et le plus recent est
-# partiel : l'annee en cours ne porte que les ventes deja enregistrees.
-ANNEES = (2021, 2022, 2023, 2024, 2025)
+# DVF parait deux fois l'an, et Etalab n'en garde qu'une FENETRE
+# GLISSANTE de cinq millesimes. Verifie le 24/08/2026 : 2019 et 2020
+# rendent 404 pour toutes les communes, Toulouse comprise, tandis que 2021
+# a 2025 repondent.
+#
+# La liste etait ecrite en dur. Elle se serait donc tue deux fois : en
+# manquant le millesime neuf des sa parution, et sans jamais le signaler —
+# un millesime absent est traite comme une commune sans vente cette
+# annee-la (voir _telecharger_annee), ce qui est le cas legitime le plus
+# frequent. L'historique se serait fige a fin 2025 en paraissant complet.
+PROFONDEUR = 5
+
+
+def millesimes(aujourdhui=None):
+    """
+    Les millesimes a tenter, du plus ancien au plus recent.
+
+    On en demande un de plus que la fenetre ne peut en contenir : l'annee
+    en cours n'apparait qu'a la parution d'automne, et la reclamer d'ici la
+    ne coute qu'un 404 deja prevu. C'est ce millesime en trop qui fait que
+    la nouveaute est prise le jour ou elle parait, sans rien a modifier.
+    """
+    an = (aujourdhui or datetime.date.today()).year
+    return tuple(range(an - PROFONDEUR, an + 1))
+
 
 # Departements sans DVF, faute d'un cadastre de meme nature.
 SANS_DVF = {"57", "67", "68", "976"}
@@ -54,7 +77,7 @@ def url_annee(code_insee, annee):
     return f"{RACINE}/{annee}/communes/{departement}/{code_insee}.csv"
 
 
-def telecharger(code_insee, annees=ANNEES, progression=None):
+def telecharger(code_insee, annees=None, progression=None):
     """
     Recupere les mutations d'une commune, tous millesimes confondus.
 
@@ -66,6 +89,7 @@ def telecharger(code_insee, annees=ANNEES, progression=None):
     if raison:
         raise ErreurSource(raison)
 
+    annees = millesimes() if annees is None else annees
     lignes, annees_vues = [], []
     for annee in annees:
         if progression:
@@ -102,3 +126,35 @@ def _telecharger_annee(code_insee, annee):
         raise ErreurSource(f"DVF : HTTP {erreur.code} sur {annee}") from erreur
     except Exception as erreur:                      # noqa: BLE001
         raise ErreurSource(f"DVF injoignable ({type(erreur).__name__})") from erreur
+
+
+def signature_annee(code_insee, annee):
+    """
+    De quoi reconnaitre une republication, sans telecharger le fichier.
+
+    Il n'existe pas d'API de version chez Etalab. Mais le serveur pose un
+    ETag et une date de derniere modification, et une requete HEAD les rend
+    pour quelques centaines d'octets. C'est ce qui permet de guetter la
+    parution tous les jours sans retirer un megaoctet de CSV a chaque fois.
+
+    Renvoie None si le millesime n'existe pas — c'est le cas courant de
+    l'annee en cours avant la parution d'automne.
+    """
+    url = url_annee(code_insee, annee)
+    try:
+        requete = urllib.request.Request(url, headers=ENTETES, method="HEAD")
+        with urllib.request.urlopen(requete, timeout=DELAI, context=CONTEXTE) as reponse:
+            return (reponse.headers.get("ETag")
+                    or reponse.headers.get("Last-Modified"))
+    except urllib.error.HTTPError as erreur:
+        if erreur.code in (403, 404):
+            return None
+        raise ErreurSource(f"DVF : HTTP {erreur.code} sur {annee}") from erreur
+    except Exception as erreur:                      # noqa: BLE001
+        raise ErreurSource(f"DVF injoignable ({type(erreur).__name__})") from erreur
+
+
+def signatures(code_insee, annees=None):
+    """Les signatures de tous les millesimes, {annee: signature ou None}."""
+    annees = millesimes() if annees is None else annees
+    return {annee: signature_annee(code_insee, annee) for annee in annees}

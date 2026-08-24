@@ -31,6 +31,20 @@ logger = logging.getLogger(__name__)
 MAX_DETAILLES = 25
 
 
+def perimetre(parametres=None):
+    """
+    Ou porte l'alerte : (code_insee, zone), chacun pouvant etre vide.
+
+    Extrait a part parce que les DPE et les ventes s'en servent tous deux.
+    Un second jeu de reglages pour les ventes obligerait a les tenir
+    accordes a la main, et la premiere divergence passerait inapercue :
+    on croirait surveiller le meme perimetre des deux cotes.
+    """
+    parametres = reglages.tous() if parametres is None else parametres
+    return ((parametres.get("alerte_code_insee") or "").strip(),
+            (parametres.get("alerte_zone") or "").strip())
+
+
 def _filtres():
     """
     Les criteres enregistres, restreints a la commune et au secteur
@@ -43,11 +57,9 @@ def _filtres():
     parametres = reglages.tous()
     filtres = veille.filtres_par_defaut()
 
-    code_insee = (parametres.get("alerte_code_insee") or "").strip()
+    code_insee, zone = perimetre(parametres)
     if code_insee:
         filtres["code_insee"] = code_insee
-
-    zone = (parametres.get("alerte_zone") or "").strip()
     if zone:
         filtres["zone"] = zone
     return filtres

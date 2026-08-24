@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-planificateur.py — L'import quotidien automatique et l'alerte (CDC 8).
+planificateur.py — L'import quotidien automatique et les alertes (CDC 8).
 
 APScheduler tourne dans un thread du meme processus : pas de second
 conteneur, pas de cron systeme a configurer sur le NAS.
@@ -15,7 +15,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app import config
-from app.metier import alertes, import_dpe
+from app.base import reglages
+from app.metier import alerte_ventes, alertes, import_dpe, mutations
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,64 @@ def _tache():
     except Exception as erreur:                     # noqa: BLE001
         logger.error("alerte en echec : %s", erreur)
 
+    _ventes()
+
+
+def _commune_surveillee():
+    """La commune dont on guette les ventes : celle des alertes, a defaut
+    celle des secteurs. Sans l'une ni l'autre, il n'y a rien a guetter."""
+    parametres = reglages.tous()
+    code_insee, _ = alertes.perimetre(parametres)
+    return code_insee or (parametres.get("zones_code_insee") or "").strip()
+
+
+def _ventes():
+    """
+    Guette la publication DVF, et n'importe que si elle a bouge.
+
+    DVF parait deux fois l'an. Le controle quotidien est une requete HEAD
+    par millesime — quelques centaines d'octets — et l'import complet, lui,
+    ne part qu'aux deux ou trois jours de l'annee ou il a quelque chose a
+    apprendre. Guetter la donnee plutot que sa publication couterait un
+    megaoctet par jour pour le meme resultat.
+    """
+    code_insee = _commune_surveillee()
+    if not code_insee:
+        logger.info("pas de commune surveillee : ventes non guettees")
+        return
+    try:
+        etat = mutations.publication(code_insee)
+    except Exception as erreur:                     # noqa: BLE001
+        logger.error("publication DVF injoignable : %s", erreur)
+        return
+
+    if etat["premier_releve"]:
+        # Rien a comparer : on vient d'apprendre les signatures. Un import
+        # ici ne ferait que relire ce que la base contient deja.
+        logger.info("dvf %s : signatures relevees pour la premiere fois",
+                    code_insee)
+        return
+    if not etat["changees"]:
+        logger.debug("dvf %s : rien de neuf", code_insee)
+        return
+
+    logger.info("dvf %s : millesime(s) republie(s) %s",
+                code_insee, etat["changees"])
+    try:
+        mutations.importer(code_insee)
+    except Exception as erreur:                     # noqa: BLE001
+        logger.error("import DVF en echec : %s", erreur)
+        return
+
+    try:
+        resultat = alerte_ventes.envoyer_si_besoin()
+        if resultat["envoye"]:
+            logger.info("alerte ventes envoyee : %d vente(s)", resultat["ventes"])
+        else:
+            logger.info("pas d'alerte ventes (%s)", resultat["raison"])
+    except Exception as erreur:                     # noqa: BLE001
+        logger.error("alerte ventes en echec : %s", erreur)
+
 
 def demarrer():
     """Demarre le planificateur. Sans effet si VEILLE_PLANIFICATEUR=0."""
@@ -64,7 +123,7 @@ def demarrer():
         CronTrigger(day_of_week=config.IMPORT_JOUR, hour=config.IMPORT_HEURE,
                     minute=0, timezone=config.FUSEAU),
         id=IDENTIFIANT,
-        name="Import quotidien des DPE, puis alerte",
+        name="Import quotidien des DPE, alerte, puis guet des ventes",
         # Si le NAS etait eteint a l'heure prevue, on rattrape au demarrage
         # dans l'heure qui suit, mais on ne cumule pas les executions ratees.
         coalesce=True,

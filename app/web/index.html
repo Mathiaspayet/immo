@@ -447,7 +447,23 @@
             <option value="">tous les secteurs</option>
           </select>
         </div>
+        <div class="champ">
+          <label for="r-alerte-ventes">Ventes publiées (DVF)</label>
+          <select id="r-alerte-ventes" class="donnee">
+            <option value="0">Non</option>
+            <option value="1">Oui</option>
+          </select>
+        </div>
       </div>
+      <p class="explication">
+        Les ventes suivent le <em>même</em> périmètre que les DPE. Elles
+        obéissent à un tout autre rythme&nbsp;: DVF ne paraît que
+        <strong>deux fois l'an</strong>, et avec plusieurs mois de
+        décalage&nbsp;— une vente signée en février peut n'être publiée
+        qu'en octobre. L'application guette la publication chaque jour et
+        n'écrit que lorsqu'elle bouge&nbsp;; attendez-vous donc à deux ou
+        trois messages par an, pas davantage.
+      </p>
 
         <div class="reglage-actions">
           <button type="button" class="bouton bouton-principal" data-enregistrer>
