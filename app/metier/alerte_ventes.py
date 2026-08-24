@@ -92,6 +92,18 @@ def marquer(identifiants):
     return curseur.rowcount or 0
 
 
+def _jour(iso):
+    """Une date lisible et insecable : « 30/12/2025 ».
+
+    L'ISO se coupait en fin de colonne — « 2025-12- » puis « 30 » — parce
+    que le tiret est un point de cesure legitime pour le navigateur.
+    """
+    texte = str(iso or "")
+    if len(texte) >= 10 and texte[4] == "-":
+        return f"{texte[8:10]}/{texte[5:7]}/{texte[0:4]}"
+    return texte or "?"
+
+
 def _euros(valeur):
     if not valeur:
         return "prix non publié"
@@ -108,11 +120,16 @@ def _surface(ligne):
     return "surface inconnue"
 
 
+# L'habitation en tete : « Maison + Dependance » se lit, « Dependance +
+# Maison » fait chercher. L'ordre alphabetique mettait le garage devant.
+ORDRE_LOCAUX = {"Maison": 0, "Appartement": 1}
+
+
 def _nature(ligne):
-    """Ce qui a change de mains, en clair."""
+    """Ce qui a change de mains, en clair, l'habitation en tete."""
     types = ligne.get("types_locaux") or []
     if types:
-        return " + ".join(types)
+        return " + ".join(sorted(types, key=lambda t: (ORDRE_LOCAUX.get(t, 9), t)))
     return ligne.get("nature") or "bien non bati"
 
 
@@ -128,7 +145,7 @@ def _corps(ventes):
                    if v.get("prix_m2") else "")
         texte.append(
             f"- {v.get('adresse') or 'adresse non publiée'}\n"
-            f"  vendu le {v.get('date_mutation') or '?'} · {_euros(v.get('valeur_fonciere'))}\n"
+            f"  vendu le {_jour(v.get('date_mutation'))} · {_euros(v.get('valeur_fonciere'))}\n"
             f"  {_nature(v)} · {_surface(v)}{prix_m2}")
     if total > MAX_DETAILLEES:
         texte.append(f"\n… et {total - MAX_DETAILLEES} autres. "
@@ -144,7 +161,7 @@ def _corps(ventes):
         rangs.append(
             "<tr>"
             f"<td>{html.escape(str(v.get('adresse') or 'adresse non publiée'))}</td>"
-            f"<td>{html.escape(str(v.get('date_mutation') or '?'))}</td>"
+            f"<td style='white-space:nowrap'>{html.escape(_jour(v.get('date_mutation')))}</td>"
             f"<td style='text-align:right'>{html.escape(_euros(v.get('valeur_fonciere')))}</td>"
             f"<td>{html.escape(_nature(v))}</td>"
             f"<td style='text-align:right'>{html.escape(_surface(v))}</td>"

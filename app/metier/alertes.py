@@ -116,14 +116,22 @@ def marquer_alertes(numeros):
     return curseur.rowcount or 0
 
 
+def _jour(iso):
+    """Une date lisible et insecable : « 07/08/2026 »."""
+    texte = str(iso or "")
+    if len(texte) >= 10 and texte[4] == "-":
+        return f"{texte[8:10]}/{texte[5:7]}/{texte[0:4]}"
+    return texte or "?"
+
+
 def _lignes_texte(biens):
     for bien in biens[:MAX_DETAILLES]:
         surface = (f"{bien['surface_habitable']:.0f} m²"
                    if bien.get("surface_habitable") else "surface inconnue")
         yield (f"- {bien.get('adresse') or 'adresse inconnue'}"
-               f" ({bien.get('commune') or ''})\n"
+               f" ({bien.get('zone') or 'hors secteur'})\n"
                f"  {surface} · classe {bien.get('etiquette_dpe') or '?'}"
-               f" · établi le {bien.get('date_etablissement') or '?'}")
+               f" · établi le {_jour(bien.get('date_etablissement'))}")
 
 
 def _corps(biens):
@@ -144,10 +152,11 @@ def _corps(biens):
         rangs.append(
             "<tr>"
             f"<td>{html.escape(str(bien.get('adresse') or 'adresse inconnue'))}</td>"
-            f"<td>{html.escape(str(bien.get('commune') or ''))}</td>"
+            f"<td>{html.escape(str(bien.get('zone') or '—'))}</td>"
             f"<td style='text-align:right'>{surface}</td>"
             f"<td style='text-align:center'>{html.escape(str(bien.get('etiquette_dpe') or '?'))}</td>"
-            f"<td>{html.escape(str(bien.get('date_etablissement') or '?'))}</td>"
+            f"<td style='white-space:nowrap'>"
+            f"{html.escape(_jour(bien.get('date_etablissement')))}</td>"
             "</tr>")
 
     reste = (f"<p>… et {total - MAX_DETAILLES} autres.</p>"
@@ -156,7 +165,7 @@ def _corps(biens):
   <p>{html.escape(titre)} correspondant à vos critères.</p>
   <table cellpadding="6" style="border-collapse:collapse;font-size:14px">
     <tr style="text-align:left;border-bottom:1px solid #999">
-      <th>Adresse</th><th>Commune</th><th>Surface</th><th>DPE</th><th>Établi le</th>
+      <th>Adresse</th><th>Secteur</th><th>Surface</th><th>DPE</th><th>Établi le</th>
     </tr>
     {"".join(rangs)}
   </table>

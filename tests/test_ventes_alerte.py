@@ -640,3 +640,56 @@ def test_la_profondeur_dit_ce_que_la_base_garde_en_plus(base, monkeypatch):
     assert p["depuis"] == "2018-03-02"
     assert min(p["millesimes_source"]) > 2018, (
         "2018 doit etre hors de ce que la source sert encore")
+
+
+# =====================================================================
+#  La lisibilite du courriel
+# =====================================================================
+
+def test_les_dates_du_courriel_sont_francaises_et_insecables(base, monkeypatch, poste):
+    """
+    « 2025-12-30 » se coupait en « 2025-12- » puis « 30 » au milieu de la
+    colonne : le tiret est un point de cesure legitime pour le rendu.
+    """
+    reglages.ecrire({"alerte_active": True,
+                     "alerte_destinataire": "moi@exemple.fr"})
+    _deux_imports(monkeypatch, [_ligne("M1", "40184000AA0265", 300000,
+                                       date="2025-12-30")])
+    alerte_ventes.envoyer_si_besoin()
+
+    assert "30/12/2025" in poste.envois[0]["texte"]
+    assert "2025-12-30" not in poste.envois[0]["texte"]
+    assert "white-space:nowrap" in poste.envois[0]["html"]
+
+
+def test_l_habitation_passe_devant_la_dependance(base, monkeypatch, poste):
+    """« Maison + Dépendance » se lit ; l'ordre alphabetique mettait le
+    garage devant et faisait chercher."""
+    reglages.ecrire({"alerte_active": True,
+                     "alerte_destinataire": "moi@exemple.fr"})
+    _importer(monkeypatch, [_ligne("M0", "40184000AA0100", 200000)])
+    _importer(monkeypatch, [
+        _ligne("M0", "40184000AA0100", 200000),
+        _ligne("M1", "40184000AA0265", 400000, type_local="Dépendance"),
+        _ligne("M1", "40184000AA0265", 400000, type_local="Maison"),
+    ])
+    alerte_ventes.envoyer_si_besoin()
+    assert "Maison + Dépendance" in poste.envois[0]["texte"]
+
+
+def test_le_courriel_dpe_montre_le_secteur_et_non_la_commune(base):
+    """
+    L'adresse ADEME contient deja « 40200 Mimizan », et l'alerte ne porte
+    que sur UNE commune : la colonne la repetait pour rien. Le secteur,
+    lui, est ce sur quoi on filtre.
+    """
+    from app.metier import alertes as metier_alertes
+
+    texte, html = metier_alertes._corps([{
+        "n_dpe": "X", "adresse": "250 Rue Victor Hugo 40200 Mimizan",
+        "commune": "Mimizan", "zone": "plage", "surface_habitable": 85,
+        "etiquette_dpe": "A", "date_etablissement": "2026-08-07"}])
+    assert "<th>Secteur</th>" in html
+    assert "<th>Commune</th>" not in html
+    assert "plage" in texte and "plage" in html
+    assert "07/08/2026" in texte and "07/08/2026" in html
