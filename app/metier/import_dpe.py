@@ -342,77 +342,130 @@ def _rafraichir_cadastres():
     return ", ".join(faits)
 
 
-def _reparer_orphelins(commune, correspondances, champs, jeu, progression=None):
+def _adresse_brute(ligne):
+    """L'adresse telle que le diagnostiqueur l'a tapee, ou une chaine vide."""
+    for cle in ademe.CHAMPS_BRUTS:
+        valeur = str(ligne.get(cle) or "").strip()
+        if valeur and cle.startswith("adresse"):
+            return valeur
+    return ""
+
+
+def _sans_position(ligne, correspondances):
+    """La ligne porte-t-elle une position exploitable ?
+
+    On reutilise le meme juge que l'import lui-meme : une position hors
+    de France est ecartee. L'ADEME en sert — 21 lignes de Mimizan portent
+    toutes le MEME `_geopoint`, « -5.98, -1.36 », en plein Atlantique.
+    C'est le Lambert-93 (0,0) converti, et leur `statut_geocodage`
+    annonce pourtant « adresse geocodee ban a l'adresse ».
     """
-    Recupere les DPE que l'ADEME n'a pas su geocoder, et les repare.
+    lire = lambda concept: (ligne.get(correspondances[concept])
+                            if correspondances.get(concept) else None)
+    return coordonnees.extraire(
+        geopoint=lire("geopoint"), x=lire("x_lambert"), y=lire("y_lambert"),
+        latitude=lire("latitude"), longitude=lire("longitude")) is None
 
-    Environ 5 % des DPE d'une commune n'ont aucun code INSEE : le
-    geocodage de l'ADEME a echoue, le plus souvent sur des adresses trop
-    bavardes — « 5 rue Bremontier - Residence Cap Ocean - Apt 317 ».
-    Comme l'import interroge par code INSEE, ces lignes lui sont
-    invisibles. Mesure sur Mimizan le 24/08/2026 : 102 manquantes pour
-    2 023 vues, dont 48 maisons, et 46 de ces maisons de 2025 ou 2026.
 
-    Leur adresse brute suffit a les retrouver. On la nettoie, la BAN la
-    geocode, et le code INSEE qu'elle rend dit lesquelles sont vraiment
-    de la commune — un code postal en couvre plusieurs, le 40200 en
-    couvre cinq. Reparee, la ligne redevient ordinaire : elle a sa
-    position, donc son secteur, sa parcelle et son historique de ventes.
+def reparer_par_la_ban(lignes, commune, correspondances):
+    """
+    Rend une position aux lignes qui n'en ont pas d'exploitable.
+
+    Deux cas, une seule mecanique. Les lignes SANS code INSEE, que
+    l'import ne voyait pas du tout (5 % du parc, voir `ademe.orphelins`).
+    Et celles qui en ont un mais dont la position est absente ou
+    aberrante : elles etaient en base, mais sans secteur, sans parcelle
+    et sans historique de ventes — donc absentes de la carte et des
+    alertes par secteur.
+
+    Dans les deux cas le remede est le meme : l'adresse brute existe, on
+    la nettoie et la BAN la geocode. Le code INSEE qu'elle rend dit si la
+    ligne est vraiment de la commune — un code postal en couvre
+    plusieurs, le 40200 en couvre cinq.
 
     Ne leve jamais : c'est un COMPLEMENT. Un import reussi ne doit pas
     echouer parce que ce supplement n'a pas abouti.
+
+    Renvoie le nombre de lignes reparees ; les lignes sont modifiees sur
+    place.
     """
     code_insee = commune["code_insee"]
     code_postal = commune.get("code_postal")
     if not code_postal:
-        return []
+        return 0
+
+    a_reparer = [l for l in lignes if _sans_position(l, correspondances)]
+    par_adresse = {}
+    for ligne in a_reparer:
+        adresse = _adresse_brute(ligne)
+        if adresse:
+            par_adresse.setdefault(adresse, []).append(ligne)
+    if not par_adresse:
+        return 0
 
     try:
-        lignes = ademe.orphelins(code_postal, correspondances, champs, jeu=jeu,
-                                 progression=progression)
-    except Exception as erreur:                      # noqa: BLE001
-        logger.warning("orphelins de %s non recuperes : %s", code_insee, erreur)
-        return []
-    if not lignes:
-        return []
-
-    champ_adresse_brute = next(
-        (c for c in ("adresse_brut", "adresse_complete_brut")
-         if any(c in ligne for ligne in lignes[:5])), None)
-    if not champ_adresse_brute:
-        return []
-
-    adresses = [str(ligne.get(champ_adresse_brute) or "").strip() for ligne in lignes]
-    try:
-        placees = ban.geocoder([a for a in adresses if a], code_postal, code_insee)
+        placees = ban.geocoder(list(par_adresse), code_postal, code_insee)
     except Exception as erreur:                      # noqa: BLE001
         logger.warning("geocodage BAN pour %s indisponible : %s", code_insee, erreur)
-        return []
+        return 0
 
     champ_insee = correspondances.get("code_insee")
     champ_geo = correspondances.get("geopoint")
     champ_adresse = correspondances.get("adresse")
+    if not champ_geo:
+        return 0
 
-    reparees = []
-    for ligne, brute in zip(lignes, adresses):
-        trouvee = placees.get(brute)
+    reparees = 0
+    for adresse, concernees in par_adresse.items():
+        trouvee = placees.get(adresse)
         if not trouvee:
             continue
-        ligne = dict(ligne)
-        ligne[champ_insee] = trouvee["code_insee"]
-        if champ_geo:
+        for ligne in concernees:
             ligne[champ_geo] = f"{trouvee['latitude']},{trouvee['longitude']}"
-        # L'adresse normalisee est vide chez ces lignes-la : c'est le
-        # symptome meme du geocodage manque. On y met celle de la BAN,
-        # sans quoi la fiche s'afficherait sans adresse.
-        if champ_adresse and not str(ligne.get(champ_adresse) or "").strip():
-            ligne[champ_adresse] = trouvee["label"] or brute
-        reparees.append(ligne)
+            if champ_insee and not str(ligne.get(champ_insee) or "").strip():
+                ligne[champ_insee] = trouvee["code_insee"]
+            # L'adresse normalisee est vide chez les orphelines : c'est le
+            # symptome meme du geocodage manque. Sans elle la fiche
+            # s'afficherait sans adresse. On ne remplace que ce qui manque.
+            if champ_adresse and not str(ligne.get(champ_adresse) or "").strip():
+                ligne[champ_adresse] = trouvee["label"] or adresse
+            reparees += 1
 
     if reparees:
-        logger.info("%s : %d DPE sans code INSEE repares par la BAN sur %d",
-                    code_insee, len(reparees), len(lignes))
+        logger.info("%s : %d ligne(s) repositionnee(s) par la BAN sur %d sans position",
+                    code_insee, reparees, len(a_reparer))
     return reparees
+
+
+def _reparer_orphelins(commune, correspondances, champs, jeu, progression=None):
+    """
+    Recupere les DPE que l'ADEME n'a associes a AUCUN code INSEE.
+
+    Environ 5 % du parc d'une commune. Comme l'import interroge par code
+    INSEE, ces lignes lui sont invisibles. Mesure sur Mimizan le
+    24/08/2026 : 102 manquantes pour 2 023 vues, dont 48 maisons, et 46
+    de ces maisons de 2025 ou 2026.
+
+    On les retrouve par leur code postal — le seul reperage geographique
+    qui leur reste — puis `reparer_par_la_ban` leur rend une position.
+    """
+    if not commune.get("code_postal"):
+        return []
+    try:
+        lignes = ademe.orphelins(commune["code_postal"], correspondances, champs,
+                                 jeu=jeu, progression=progression)
+    except Exception as erreur:                      # noqa: BLE001
+        logger.warning("orphelins de %s non recuperes : %s",
+                       commune["code_insee"], erreur)
+        return []
+    if not lignes:
+        return []
+
+    reparer_par_la_ban(lignes, commune, correspondances)
+    champ_insee = correspondances.get("code_insee")
+    # Sans code INSEE, la ligne n'a pas ete reconnue : on ne la garde pas,
+    # faute de savoir a quelle commune elle appartient.
+    return [l for l in lignes if str(l.get(champ_insee) or "").strip()]
 
 
 def _moissonner(communes, jeux=None):
@@ -451,19 +504,27 @@ def _moissonner(communes, jeux=None):
 
             try:
                 lignes = ademe.telecharger(code_insee, correspondances, jeu=jeu,
-                                           progression=progression)
+                                           progression=progression, champs=champs)
             except ErreurSource as erreur:
                 avertissements.append(f"{nom} / {ademe.JEUX[jeu]} : {erreur}")
                 logger.warning("%s / %s : %s", nom, jeu, erreur)
                 continue
 
-            # Les lignes que l'ADEME n'a pas su geocoder viennent ensuite,
-            # reparees : sans elles, un DPE sur vingt manque a l'appel.
-            reparees = _reparer_orphelins(commune, correspondances, champs,
-                                          jeu, progression)
-            if reparees:
-                lignes = list(lignes) + reparees
-                detail.append(f"{nom}/{jeu} : +{len(reparees)} sans code INSEE")
+            # Les positions absentes ou aberrantes sont rattrapees ici :
+            # sans position, une ligne n'a ni secteur, ni parcelle, ni
+            # historique de ventes, et manque aux alertes par secteur.
+            lignes = list(lignes)
+            repositionnees = reparer_par_la_ban(lignes, commune, correspondances)
+            if repositionnees:
+                detail.append(f"{nom}/{jeu} : {repositionnees} repositionnee(s)")
+
+            # Puis celles que l'ADEME n'a pas rattachees du tout : sans
+            # elles, un DPE sur vingt manque a l'appel.
+            orphelines = _reparer_orphelins(commune, correspondances, champs,
+                                            jeu, progression)
+            if orphelines:
+                lignes += orphelines
+                detail.append(f"{nom}/{jeu} : +{len(orphelines)} sans code INSEE")
 
             retenues = 0
             for ligne in lignes:

@@ -697,10 +697,40 @@ veille de sa moisson quotidienne.
 Import réel de Mimizan avant / après : **4 343 → 4 448 DPE**, les 105
 nouveaux tous positionnés et rangés dans un secteur.
 
-Reste un cas voisin, non traité : 105 DPE que l'ADEME rattache bien à la
-commune mais **sans coordonnées**. Ils sont en base, cherchables par
-critères, mais restent « hors secteur ». La même mécanique les
-réparerait.
+#### Les positions aberrantes, réparées par la même mécanique
+
+Cas voisin, traité par le même chemin : des DPE que l'ADEME rattache bien
+à la commune mais **sans position exploitable**. Ils étaient en base, donc
+cherchables par critères — mais sans secteur, sans parcelle et sans
+historique de ventes, donc absents de la carte et des alertes par secteur.
+
+Le diagnostic sur Mimizan a séparé deux populations que rien ne
+distinguait à l'écran :
+
+| Origine | Nombre | Adresse à la source | Réparable |
+|---|---|---|---|
+| base « existant » | 21 | oui — « 18 Avenue des Oiseaux » | **oui** |
+| base « ancien » (avant 07/2021) | 84 | aucune, `geo_score = 0` | non |
+
+Les 21 premières portent toutes le **même** `_geopoint` :
+`-5.98, -1.36` — en plein Atlantique. C'est le Lambert-93 (0,0) converti,
+et leur `statut_geocodage` annonce pourtant « adresse géocodée ban à
+l'adresse ». Le filtre des positions aberrantes les écartait à juste
+titre ; il ne restait qu'à leur rendre la bonne.
+
+Les 84 autres sont irréparables : la base d'avant juillet 2021 ne porte
+aucune adresse pour elles. Il n'y a rien à géocoder, et aucune requête ne
+part — un test le vérifie.
+
+Résultat mesuré : **105 → 85** lignes sans position, les 20 réparées
+reprenant leur secteur (13 plage, 7 bourg). Le vingt-et-unième cas échoue
+sur « 80 Chemin des parcs-Quartier Archus Nord » : le tiret y est collé,
+comme dans « Saint-Julien » ou « 5-7 », et le desserrer casserait ces
+cas-là. Compromis assumé, à un enregistrement près.
+
+L'adresse **brute** est désormais demandée à chaque import, pas seulement
+pour les orphelines : c'est le seul recours quand l'adresse normalisée est
+vide ou que la position est fausse.
 
 ### Ce qui vient des scripts d'origine
 

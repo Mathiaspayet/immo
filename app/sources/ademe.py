@@ -38,6 +38,12 @@ JEUX = {
     "ancien": "dpe-france",        # avant juillet 2021, schema different
 }
 
+# L'adresse telle que le diagnostiqueur l'a saisie. Elle sert de
+# recours quand l'adresse normalisee manque ou que la position est
+# aberrante — voir metier/import_dpe.py, reparation par la BAN.
+CHAMPS_BRUTS = ("adresse_brut", "code_postal_brut", "nom_commune_brut",
+                "adresse_complete_brut")
+
 TAILLE_PAGE = 1000
 MAX_PAGES = 60          # garde-fou : 60 000 lignes par code postal
 PAUSE_PAGE = 0.2        # on ne martele pas le serveur de l'ADEME
@@ -208,13 +214,26 @@ def preparer(jeu="existant"):
     return correspondances, champs
 
 
-def _selection(correspondances):
-    """Colonnes a demander a l'API, sans doublon et dans un ordre stable."""
+def _selection(correspondances, champs=None):
+    """
+    Colonnes a demander a l'API, sans doublon et dans un ordre stable.
+
+    L'adresse BRUTE — celle que le diagnostiqueur a tapee — s'y ajoute
+    quand la base la propose. Elle ne sert pas a l'affichage : c'est le
+    seul recours quand l'adresse normalisee est vide ou que la position
+    est aberrante, et il faut l'avoir sous la main pour la faire geocoder.
+    """
     vues, retenues = set(), []
     for cle in correspondances.values():
         if cle and cle not in vues:
             vues.add(cle)
             retenues.append(cle)
+    if champs:
+        disponibles = {cle for cle, _libelle, _forme in champs}
+        for cle in CHAMPS_BRUTS:
+            if cle in disponibles and cle not in vues:
+                vues.add(cle)
+                retenues.append(cle)
     return ",".join(retenues)
 
 
@@ -237,7 +256,8 @@ def cle_de_filtrage(jeu, correspondances):
     return correspondances.get("code_insee"), "code INSEE"
 
 
-def telecharger(valeur, correspondances, jeu="existant", progression=None):
+def telecharger(valeur, correspondances, jeu="existant", progression=None,
+                champs=None):
     """
     Recupere toutes les lignes d'une commune.
 
@@ -250,7 +270,7 @@ def telecharger(valeur, correspondances, jeu="existant", progression=None):
     """
     dataset = JEUX[jeu]
     base = f"{RACINE}/{dataset}/lines"
-    selection = _selection(correspondances)
+    selection = _selection(correspondances, champs)
     champ, nature = cle_de_filtrage(jeu, correspondances)
 
     # --- Cascade de syntaxes (correctif 3) ---------------------------
@@ -405,10 +425,6 @@ def chercher_par_numero(numero, jeux=("existant", "neuf", "ancien")):
 #  en couvre plusieurs, le 40200 en couvre cinq.
 # ---------------------------------------------------------------------
 
-CHAMPS_BRUTS = ("adresse_brut", "code_postal_brut", "nom_commune_brut",
-                "adresse_complete_brut")
-
-
 def orphelins(code_postal, correspondances, champs, jeu="existant",
               progression=None, max_pages=MAX_PAGES):
     """
@@ -425,9 +441,7 @@ def orphelins(code_postal, correspondances, champs, jeu="existant",
     if not (code_postal and champ_insee and champ_cp):
         return []
 
-    selection = _selection(correspondances)
-    supplement = [c for c in CHAMPS_BRUTS if c in disponibles]
-    selection = ",".join([selection] + supplement) if supplement else selection
+    selection = _selection(correspondances, champs)
 
     base = f"{RACINE}/{JEUX[jeu]}/lines"
     parametres = {f"{champ_cp}_eq": str(code_postal),

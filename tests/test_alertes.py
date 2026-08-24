@@ -195,7 +195,7 @@ def ademe_en_carton(monkeypatch):
                         lambda jeu="existant": (correspondances, []))
     monkeypatch.setattr(
         "app.sources.ademe.telecharger",
-        lambda code_insee, corr, jeu="existant", progression=None:
+        lambda code_insee, corr, jeu="existant", progression=None, champs=None:
             parc.get((code_insee, jeu), []))
     return parc
 
