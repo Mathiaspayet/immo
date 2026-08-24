@@ -424,17 +424,23 @@ def reprendre_archive(code_insee, progression=None):
     A lancer une fois. La suite continue de venir de geo-dvf.
     """
     code_insee = str(code_insee).strip()
-    lignes = dvf_archive.telecharger(code_insee, progression=progression)
-    if not lignes:
-        return {"mutations": 0, "lignes": 0, "ajoutees": 0,
-                "message": "Aucune vente archivee pour cette commune."}
+    archive = dvf_archive.telecharger(code_insee, progression=progression)
+    # D'ou vient ce qu'on vient de lire. Le departement se deduit du code
+    # INSEE et n'est jamais choisi : le nommer est le seul moyen de
+    # verifier, apres coup, que la reprise a porte la ou on le croyait.
+    provenance = {"commune": code_insee, "departement": archive.departement,
+                  "source": archive.titre, "lignes": len(archive.lignes)}
+    if not archive.lignes:
+        return {**provenance, "mutations": 0, "ajoutees": 0,
+                "message": (f"Aucune vente archivee pour {code_insee}"
+                            f" dans « {archive.titre} ».")}
 
     with connexion() as conn:
         avant = conn.execute(
             "SELECT count(*) FROM mutation WHERE code_insee = ?",
             (code_insee,)).fetchone()[0]
 
-    resultat = importer(code_insee, lignes=lignes, signaler=False)
+    resultat = importer(code_insee, lignes=archive.lignes, signaler=False)
 
     with connexion() as conn:
         apres = conn.execute(
@@ -446,14 +452,17 @@ def reprendre_archive(code_insee, progression=None):
 
     ajoutees = apres - avant
     resultat.update({
+        **provenance,
         "ajoutees": ajoutees,
         "depuis": plage["d"],
         "jusqu_a": plage["f"],
-        "message": (f"{ajoutees} vente(s) ancienne(s) reprise(s) —"
-                    f" historique du {plage['d']} au {plage['f']}"),
+        "message": (f"{ajoutees} vente(s) ancienne(s) reprise(s) depuis"
+                    f" « {archive.titre} » — historique du {plage['d']}"
+                    f" au {plage['f']}"),
     })
-    logger.info("archive dvf %s : %d ajoutees, historique %s -> %s",
-                code_insee, ajoutees, plage["d"], plage["f"])
+    logger.info("archive dvf %s : ressource « %s », %d ajoutees,"
+                " historique %s -> %s",
+                code_insee, archive.titre, ajoutees, plage["d"], plage["f"])
     return resultat
 
 
@@ -478,8 +487,21 @@ def profondeur(code_insee=None):
                 "SELECT substr(date_mutation, 1, 4) AS annee, count(*) AS ventes"
                 " FROM mutation" + ou +
                 " GROUP BY annee ORDER BY annee", valeurs)]
+    # Sur quoi porterait une reprise d'archive. Le departement se deduit
+    # du code INSEE et n'est jamais choisi : sans l'afficher, on lance un
+    # telechargement de 34 Mo sans savoir lequel.
+    commune, nom = None, None
+    if code_insee:
+        commune = str(code_insee).strip()
+        with connexion() as conn:
+            trouvee = conn.execute(
+                "SELECT nom FROM commune WHERE code_insee = ?", (commune,)).fetchone()
+        nom = trouvee["nom"] if trouvee else None
+
     return {"ventes": ligne["ventes"], "depuis": ligne["depuis"],
             "jusqu_a": ligne["jusqu_a"], "par_annee": par_annee,
+            "commune": commune, "commune_nom": nom,
+            "departement": dvf_archive.departement(commune) if commune else None,
             # Ce que la source sert aujourd'hui : au-dela, c'est la base
             # seule qui conserve, et plus personne ne pourrait le rendre.
             "millesimes_source": list(dvf.millesimes())}

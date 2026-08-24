@@ -405,14 +405,24 @@ async function chargerProfondeurVentes() {
       .filter((a) => Number(a.annee) < premierServi)
       .reduce((total, a) => total + a.ventes, 0);
 
+    // Sur quoi porte le bouton. Le département n'est jamais choisi : il
+    // vient des deux premiers chiffres du code INSEE de la commune
+    // surveillée. Sans l'écrire, on déclenche 34 Mo de téléchargement
+    // sans savoir lequel.
+    const porte = p.commune
+      ? `${p.commune_nom || "commune"} (${p.commune})`
+        + ` — archive du département ${p.departement}`
+      : "aucune commune surveillée";
+
     liste.innerHTML = [
+      ["Porte sur", porte],
       ["Ventes conservées", entierFr.format(p.ventes)],
       ["Historique", `du ${p.depuis} au ${p.jusqu_a}`],
       ["Millésimes servis par la source", p.millesimes_source.join(", ")],
       ["Conservées au-delà de la source", gagnees
         ? `${entierFr.format(gagnees)} vente(s), depuis ${plusAncien}`
         : "aucune pour l'instant"],
-    ].map(([cle, valeur]) => `<dt>${cle}</dt><dd>${valeur}</dd>`).join("");
+    ].map(([cle, valeur]) => `<dt>${cle}</dt><dd>${echapper(valeur)}</dd>`).join("");
   } catch (erreur) {
     liste.innerHTML = "<dt>Ventes conservées</dt><dd>indisponible</dd>";
   }
@@ -425,7 +435,7 @@ async function reprendreArchiveVentes() {
   const libelle = bouton.textContent;
   bouton.textContent = "Reprise…";
   etat.innerHTML = '<p class="message message-travail">Lecture de l\'archive '
-    + 'départementale — quelques dizaines de secondes.'
+    + 'départementale — 34 Mo, quelques dizaines de secondes.'
     + '<span class="jauge"><span></span></span></p>';
   try {
     const r = await api.reprendreArchive();

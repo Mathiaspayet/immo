@@ -556,9 +556,16 @@ def test_deux_ventes_indiscernables_restent_deux(base, monkeypatch):
 #  La reprise d'historique ancien
 # =====================================================================
 
-def _archiver(monkeypatch, lignes):
-    monkeypatch.setattr("app.sources.dvf_archive.telecharger",
-                        lambda code, progression=None: lignes)
+def _archiver(monkeypatch, lignes, titre="40 - Landes"):
+    """La source rend les lignes AVEC leur provenance : le departement se
+    deduit du code INSEE et n'est jamais choisi, donc il doit se lire."""
+    from app.sources.dvf_archive import Archive
+
+    monkeypatch.setattr(
+        "app.sources.dvf_archive.telecharger",
+        lambda code, progression=None: Archive(
+            lignes=lignes, departement=titre.split("-")[0].strip(),
+            titre=titre, url="https://exemple/40.csv"))
     return mutations.reprendre_archive("40184")
 
 
@@ -693,3 +700,47 @@ def test_le_courriel_dpe_montre_le_secteur_et_non_la_commune(base):
     assert "<th>Commune</th>" not in html
     assert "plage" in texte and "plage" in html
     assert "07/08/2026" in texte and "07/08/2026" in html
+
+
+def test_la_reprise_dit_sur_quel_departement_elle_a_porte(base, monkeypatch):
+    """
+    Le departement n'est jamais choisi : il se deduit des deux premiers
+    chiffres du code INSEE. Sans qu'il soit nomme, rien ne permet de
+    verifier apres coup que la reprise a porte la ou on le croyait — ni
+    de comprendre pourquoi elle a lu 34 Mo.
+    """
+    _importer(monkeypatch, [_ligne("2021-1", "40184000AA0265", 300000,
+                                   date="2021-05-10")])
+    resultat = _archiver(monkeypatch, [
+        _ligne("A-77", "40184000AA0100", 150000, date="2018-03-02")])
+
+    assert resultat["commune"] == "40184"
+    assert resultat["departement"] == "40"
+    assert resultat["source"] == "40 - Landes"
+    assert "40 - Landes" in resultat["message"]
+
+
+def test_le_departement_se_deduit_du_code_insee():
+    """Deux chiffres en metropole, trois outre-mer — sans quoi 97402
+    (La Reunion) chercherait le departement « 97 », qui n'existe pas."""
+    from app.sources import dvf_archive
+
+    assert dvf_archive.departement("40184") == "40"
+    assert dvf_archive.departement("31555") == "31"
+    assert dvf_archive.departement("97402") == "974"
+
+
+def test_l_ecran_annonce_la_cible_avant_de_telecharger(base, monkeypatch):
+    """L'ecran doit dire sur quoi le bouton va agir : on ne declenche pas
+    34 Mo de telechargement sans savoir lequel."""
+    from app.base.connexion import transaction
+
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom) VALUES ('40184','Mimizan')")
+    _importer(monkeypatch, [_ligne("2021-1", "40184000AA0265", 300000,
+                                   date="2021-05-10")])
+
+    p = mutations.profondeur("40184")
+    assert p["commune"] == "40184"
+    assert p["commune_nom"] == "Mimizan"
+    assert p["departement"] == "40"

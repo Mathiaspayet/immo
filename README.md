@@ -336,6 +336,27 @@ dupliquées ; rien n'est signalé par courriel, puisque c'est de l'histoire
 et non une actualité ; et l'import courant suivant ne détruit pas ce que
 geo-dvf ne sert plus.
 
+**Le département n'est jamais choisi : il se déduit.** La reprise part de
+la commune surveillée, lue dans les Réglages ; les deux premiers chiffres
+de son code INSEE donnent le département — trois outre-mer, sans quoi 97402
+chercherait un département « 97 » qui n'existe pas. L'adresse du fichier
+est ensuite demandée au catalogue de data.gouv.fr, dont les ressources
+s'intitulent « 40 - Landes ».
+
+```
+bouton  →  commune_surveillee()   → réglages : alerte_code_insee = 40184
+        →  departement("40184")   → "40"
+        →  catalogue data.gouv.fr → ressource « 40 - Landes »
+        →  34 Mo lus au fil de l'eau, on ne garde que code_commune = 40184
+```
+
+Rien de tout cela n'était visible, et c'était un défaut : on déclenchait
+34 Mo de téléchargement sans savoir lequel, et rien ne permettait de
+vérifier après coup que la reprise avait porté là où on le croyait.
+L'écran annonce donc sa cible **avant** — « Mimizan (40184) — archive du
+département 40 » — et le compte rendu nomme la ressource effectivement
+lue.
+
 La compilation est **figée** (mai 2023) et n'est donc pas guettée : on la
 lit une fois, le courant continue de venir de geo-dvf. Si elle disparaissait
 de data.gouv.fr, le bouton échouerait avec un message — ce qui est déjà

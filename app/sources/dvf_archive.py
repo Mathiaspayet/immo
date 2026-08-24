@@ -28,6 +28,7 @@ L'adresse du fichier porte une date dans son chemin ; on la demande donc
 a l'API de data.gouv.fr plutot que de l'ecrire en dur.
 """
 
+import collections
 import csv
 import io
 import json
@@ -39,6 +40,12 @@ import urllib.request
 from app.sources.client_http import CONTEXTE, ENTETES, ErreurSource
 
 logger = logging.getLogger(__name__)
+
+# Ce que la reprise a lu, et non seulement ce qu'elle a rendu. Sans cela
+# l'ecran ne pouvait pas dire SUR QUOI le bouton avait agi : le
+# departement n'est jamais choisi, il se deduit du code INSEE de la
+# commune, et rien ne le montrait.
+Archive = collections.namedtuple("Archive", "lignes departement titre url")
 
 JEU = ("https://www.data.gouv.fr/api/1/datasets/"
        "compilation-des-donnees-de-valeurs-foncieres-dvf-par-departement/")
@@ -77,6 +84,11 @@ def telecharger(code_insee, progression=None):
     Le fichier est departemental — 34 Mo pour les Landes — et se lit au
     fil de l'eau : on ne garde que la commune demandee, sans jamais poser
     l'ensemble en memoire.
+
+    Renvoie aussi le departement et l'intitule exact de la ressource lue.
+    Le departement n'est jamais choisi : il se deduit des deux premiers
+    chiffres du code INSEE. Le dire est le seul moyen de verifier, apres
+    coup, que la reprise a bien porte la ou on le croyait.
     """
     code_insee = str(code_insee).strip()
     dep = departement(code_insee)
@@ -97,6 +109,6 @@ def telecharger(code_insee, progression=None):
             f"Archive DVF injoignable ({type(erreur).__name__})") from erreur
 
     annees = sorted({(l.get("date_mutation") or "")[:4] for l in lignes} - {""})
-    logger.info("archive dvf %s : %d lignes, millesimes %s",
-                code_insee, len(lignes), ", ".join(annees) or "aucun")
-    return lignes
+    logger.info("archive dvf %s : ressource « %s », %d lignes, millesimes %s",
+                code_insee, titre, len(lignes), ", ".join(annees) or "aucun")
+    return Archive(lignes=lignes, departement=dep, titre=titre, url=url)
