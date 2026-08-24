@@ -387,3 +387,73 @@ def chercher_par_numero(numero, jeux=("existant", "neuf", "ancien")):
             time.sleep(0.2)
 
     return None, None, None
+
+
+# ---------------------------------------------------------------------
+#  Les orphelins : les DPE sans code INSEE
+# ---------------------------------------------------------------------
+#  Environ 5 % des DPE d'une commune n'ont pas de code INSEE — le
+#  geocodage de l'ADEME a echoue sur eux. Comme `telecharger` interroge
+#  par code INSEE, ils lui sont INVISIBLES. Mesure sur Mimizan le
+#  24/08/2026 : 102 manquants pour 2 023 vus, dont 48 maisons, et 46 de
+#  ces maisons datent de 2025 ou 2026.
+#
+#  Leur adresse brute est pourtant renseignee. On les retrouve par le
+#  code postal — le seul reperage geographique qui leur reste — puis on
+#  les geocode nous-memes (voir sources/ban.py), et le code INSEE rendu
+#  par la BAN dit lesquels sont vraiment de la commune : un code postal
+#  en couvre plusieurs, le 40200 en couvre cinq.
+# ---------------------------------------------------------------------
+
+CHAMPS_BRUTS = ("adresse_brut", "code_postal_brut", "nom_commune_brut",
+                "adresse_complete_brut")
+
+
+def orphelins(code_postal, correspondances, champs, jeu="existant",
+              progression=None, max_pages=MAX_PAGES):
+    """
+    Les lignes de ce code postal auxquelles l'ADEME n'a associe aucun
+    code INSEE.
+
+    Renvoie [] plutot que de lever quand la base ne s'y prete pas : c'est
+    un COMPLEMENT a l'import, jamais sa condition. Un import reussi ne
+    doit pas echouer parce que ce supplement n'a pas abouti.
+    """
+    champ_insee = correspondances.get("code_insee")
+    disponibles = {cle for cle, _libelle, _forme in champs}
+    champ_cp = "code_postal_brut" if "code_postal_brut" in disponibles else None
+    if not (code_postal and champ_insee and champ_cp):
+        return []
+
+    selection = _selection(correspondances)
+    supplement = [c for c in CHAMPS_BRUTS if c in disponibles]
+    selection = ",".join([selection] + supplement) if supplement else selection
+
+    base = f"{RACINE}/{JEUX[jeu]}/lines"
+    parametres = {f"{champ_cp}_eq": str(code_postal),
+                  "qs": f"NOT _exists_:{champ_insee}",
+                  "size": TAILLE_PAGE, "select": selection}
+    try:
+        reponse = appeler(construire_url(base, parametres), silencieux=True)
+    except ErreurSource as erreur:
+        logger.warning("orphelins %s : %s", code_postal, erreur)
+        return []
+
+    lignes = list(reponse.get("results") or [])
+    suivante = reponse.get("next")
+    page = 1
+    while suivante and page < max_pages:
+        time.sleep(PAUSE_PAGE)
+        try:
+            reponse = appeler(suivante, silencieux=True)
+        except ErreurSource as erreur:
+            logger.warning("orphelins %s, page %d : %s", code_postal, page + 1, erreur)
+            break
+        lignes.extend(reponse.get("results") or [])
+        suivante = reponse.get("next")
+        page += 1
+        if progression:
+            progression(len(lignes), f"sans code INSEE, {code_postal}, page {page}")
+
+    logger.info("orphelins %s : %d ligne(s) sans code INSEE", code_postal, len(lignes))
+    return lignes

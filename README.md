@@ -618,6 +618,7 @@ app/
 ├── base/            SQLite : connexion, migrations SQL, réglages
 │   └── sauvegarde.py        copies datées, vérifiées, tournantes
 ├── sources/         API externes : ADEME (3 bases), geo.api.gouv.fr
+│   ├── ban.py               géocodage des DPE que l'ADEME n'a pas placés
 │   ├── dvf.py               ventes, cinq millésimes glissants
 │   ├── dvf_archive.py       les millésimes que la source ne sert plus
 ├── metier/          logique portée des scripts d'origine
@@ -646,6 +647,60 @@ moindre écriture. Un échec ne laisse jamais la base à moitié remplie.
 Leaflet et les trois polices sont auto-hébergés dans l'image. Le fichier
 que vous lisez est celui que le navigateur exécute, et l'application
 fonctionne si le NAS perd Internet — seules les tuiles manqueront.
+
+### Un DPE sur vingt manquait à l'appel
+
+L'import interroge l'ADEME par **code INSEE** — c'est le seul repérage
+fiable, et un code postal couvre plusieurs communes (le 40200 en couvre
+cinq). Mais environ **5 % des DPE n'ont aucun code INSEE** : le géocodage
+de l'ADEME a échoué sur eux, et ils étaient donc invisibles.
+
+Mesure sur Mimizan, le 24 août 2026 :
+
+| | |
+|---|---|
+| DPE récupérés | 2 023 |
+| DPE sans code INSEE, donc manqués | **102** — 4,8 % |
+| …dont **maisons** | **48** |
+| …dont maisons de 2025-2026 | **46 sur 48** |
+
+Ce ne sont pas des miettes anciennes : quarante-six maisons diagnostiquées
+en dix-huit mois, dans la commune surveillée.
+
+**Ces lignes ne sont pas douteuses — leur adresse est bavarde.** Le motif
+saute aux yeux :
+
+```
+« 5 rue Bremontier - Résidence Cap Océan - Apt 317 »
+```
+
+Ni la résidence ni le numéro d'appartement ne figurent dans un référentiel
+d'adresses. Coupé après le nom de voie, ce qui reste se géocode sans peine.
+
+L'application les récupère donc par leur code postal — le seul repérage
+géographique qui leur reste — nettoie l'adresse, et la fait géocoder par la
+**Base Adresse Nationale** (déjà déclarée au CDC §4, jusque-là inutilisée).
+Réparée, la ligne redevient ordinaire : elle a sa position, donc son
+secteur, sa parcelle et son historique de ventes.
+
+**Le code INSEE que rend la BAN sert de garde-fou.** C'est lui qui décide
+si la ligne appartient vraiment à la commune : sans ce contrôle, réparer
+les orphelins de Mimizan y ferait entrer ceux d'Aureilhan, les deux
+partageant le 40200. Un test le vérifie, et échoue si le contrôle saute.
+
+Deux garde-fous de plus. Un **score minimum de 0,55** : les bonnes
+correspondances mesurées sortent entre 0,70 et 0,96, une rue mal reconnue
+à 0,40. Et la réparation **ne peut jamais faire échouer un import** — c'est
+un complément, pas une condition ; une panne de la BAN priverait sinon la
+veille de sa moisson quotidienne.
+
+Import réel de Mimizan avant / après : **4 343 → 4 448 DPE**, les 105
+nouveaux tous positionnés et rangés dans un secteur.
+
+Reste un cas voisin, non traité : 105 DPE que l'ADEME rattache bien à la
+commune mais **sans coordonnées**. Ils sont en base, cherchables par
+critères, mais restent « hors secteur ». La même mécanique les
+réparerait.
 
 ### Ce qui vient des scripts d'origine
 

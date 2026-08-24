@@ -31,7 +31,7 @@ from app.metier import coordonnees, zones
 from app.metier.valeurs import entier, nombre, texte
 from app.metier import mutations as metier_mutations
 from app.metier import parcelles as metier_parcelles
-from app.sources import ademe, geo
+from app.sources import ademe, ban, geo
 from app.sources.client_http import ErreurSource
 
 logger = logging.getLogger(__name__)
@@ -342,6 +342,79 @@ def _rafraichir_cadastres():
     return ", ".join(faits)
 
 
+def _reparer_orphelins(commune, correspondances, champs, jeu, progression=None):
+    """
+    Recupere les DPE que l'ADEME n'a pas su geocoder, et les repare.
+
+    Environ 5 % des DPE d'une commune n'ont aucun code INSEE : le
+    geocodage de l'ADEME a echoue, le plus souvent sur des adresses trop
+    bavardes — « 5 rue Bremontier - Residence Cap Ocean - Apt 317 ».
+    Comme l'import interroge par code INSEE, ces lignes lui sont
+    invisibles. Mesure sur Mimizan le 24/08/2026 : 102 manquantes pour
+    2 023 vues, dont 48 maisons, et 46 de ces maisons de 2025 ou 2026.
+
+    Leur adresse brute suffit a les retrouver. On la nettoie, la BAN la
+    geocode, et le code INSEE qu'elle rend dit lesquelles sont vraiment
+    de la commune — un code postal en couvre plusieurs, le 40200 en
+    couvre cinq. Reparee, la ligne redevient ordinaire : elle a sa
+    position, donc son secteur, sa parcelle et son historique de ventes.
+
+    Ne leve jamais : c'est un COMPLEMENT. Un import reussi ne doit pas
+    echouer parce que ce supplement n'a pas abouti.
+    """
+    code_insee = commune["code_insee"]
+    code_postal = commune.get("code_postal")
+    if not code_postal:
+        return []
+
+    try:
+        lignes = ademe.orphelins(code_postal, correspondances, champs, jeu=jeu,
+                                 progression=progression)
+    except Exception as erreur:                      # noqa: BLE001
+        logger.warning("orphelins de %s non recuperes : %s", code_insee, erreur)
+        return []
+    if not lignes:
+        return []
+
+    champ_adresse_brute = next(
+        (c for c in ("adresse_brut", "adresse_complete_brut")
+         if any(c in ligne for ligne in lignes[:5])), None)
+    if not champ_adresse_brute:
+        return []
+
+    adresses = [str(ligne.get(champ_adresse_brute) or "").strip() for ligne in lignes]
+    try:
+        placees = ban.geocoder([a for a in adresses if a], code_postal, code_insee)
+    except Exception as erreur:                      # noqa: BLE001
+        logger.warning("geocodage BAN pour %s indisponible : %s", code_insee, erreur)
+        return []
+
+    champ_insee = correspondances.get("code_insee")
+    champ_geo = correspondances.get("geopoint")
+    champ_adresse = correspondances.get("adresse")
+
+    reparees = []
+    for ligne, brute in zip(lignes, adresses):
+        trouvee = placees.get(brute)
+        if not trouvee:
+            continue
+        ligne = dict(ligne)
+        ligne[champ_insee] = trouvee["code_insee"]
+        if champ_geo:
+            ligne[champ_geo] = f"{trouvee['latitude']},{trouvee['longitude']}"
+        # L'adresse normalisee est vide chez ces lignes-la : c'est le
+        # symptome meme du geocodage manque. On y met celle de la BAN,
+        # sans quoi la fiche s'afficherait sans adresse.
+        if champ_adresse and not str(ligne.get(champ_adresse) or "").strip():
+            ligne[champ_adresse] = trouvee["label"] or brute
+        reparees.append(ligne)
+
+    if reparees:
+        logger.info("%s : %d DPE sans code INSEE repares par la BAN sur %d",
+                    code_insee, len(reparees), len(lignes))
+    return reparees
+
+
 def _moissonner(communes, jeux=None):
     """
     Telecharge puis enregistre, pour une liste de communes.
@@ -360,7 +433,7 @@ def _moissonner(communes, jeux=None):
     for jeu in jeux:
         _publier(etape=f"lecture du schema ({ademe.JEUX[jeu]})")
         try:
-            correspondances, _champs = ademe.preparer(jeu)
+            correspondances, champs = ademe.preparer(jeu)
         except ErreurSource as erreur:
             # Une base indisponible ne doit pas faire echouer les autres :
             # la veille ne depend que de « existant ».
@@ -383,6 +456,14 @@ def _moissonner(communes, jeux=None):
                 avertissements.append(f"{nom} / {ademe.JEUX[jeu]} : {erreur}")
                 logger.warning("%s / %s : %s", nom, jeu, erreur)
                 continue
+
+            # Les lignes que l'ADEME n'a pas su geocoder viennent ensuite,
+            # reparees : sans elles, un DPE sur vingt manque a l'appel.
+            reparees = _reparer_orphelins(commune, correspondances, champs,
+                                          jeu, progression)
+            if reparees:
+                lignes = list(lignes) + reparees
+                detail.append(f"{nom}/{jeu} : +{len(reparees)} sans code INSEE")
 
             retenues = 0
             for ligne in lignes:
