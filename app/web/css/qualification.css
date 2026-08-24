@@ -439,3 +439,70 @@
   /* Collé sous le bandeau de l'application, qui est lui-même fixe. */
   .fiche-barre { top: var(--bandeau-reel); }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Boîte de dialogue — le compte rendu du contrôle d'envoi            */
+/* ------------------------------------------------------------------ */
+
+.dialogue {
+  width: min(94vw, 46rem);
+  padding: calc(var(--pas) * 5);
+  border: 1px solid var(--encre);
+  border-radius: var(--rayon);
+  background: var(--papier-carte);
+  color: var(--encre);
+}
+
+.dialogue::backdrop { background: rgba(18, 38, 43, 0.45); }
+
+.dialogue-tete {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--pas) * 3);
+  margin-bottom: calc(var(--pas) * 3);
+}
+
+.dialogue-tete h3 { margin: 0; }
+.dialogue-pied { margin-top: calc(var(--pas) * 4); }
+
+/* Une étape par ligne : la marque dit l'issue d'un coup d'œil, le détail
+   donne de quoi chercher, la durée trahit un délai d'attente. */
+.etapes { list-style: none; margin: calc(var(--pas) * 3) 0 0; padding: 0; }
+
+.etape {
+  display: grid;
+  grid-template-columns: 1.4rem 9rem 1fr auto;
+  gap: calc(var(--pas) * 2);
+  align-items: baseline;
+  padding: calc(var(--pas) * 2) 0;
+  border-top: 1px solid var(--trait);
+  font-size: 0.85rem;
+}
+
+.etape-marque { font-weight: 700; text-align: center; }
+.etape-nom { font-weight: 600; }
+.etape-detail { color: var(--encre-douce); font-size: 0.78rem; word-break: break-word; }
+.etape-duree { color: var(--trait-fort); font-size: 0.75rem; }
+
+.etape-ok .etape-marque        { color: var(--pin); }
+.etape-echec .etape-marque     { color: var(--alerte); }
+.etape-attention .etape-marque { color: var(--ambre); }
+.etape-ignoree .etape-marque   { color: var(--trait-fort); }
+.etape-echec .etape-nom        { color: var(--alerte); }
+
+.piste {
+  margin-top: calc(var(--pas) * 4);
+  padding: calc(var(--pas) * 3);
+  background: var(--papier-creux);
+  border-left: 3px solid var(--atlantique);
+}
+
+@media (max-width: 640px) {
+  .dialogue { padding: calc(var(--pas) * 4); }
+  .etape {
+    grid-template-columns: 1.4rem 1fr;
+    row-gap: calc(var(--pas));
+  }
+  .etape-detail, .etape-duree { grid-column: 2; }
+}

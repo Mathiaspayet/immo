@@ -177,19 +177,69 @@ def envoyer_si_besoin():
 
 def essai(destinataire=None):
     """
-    Envoie un message de controle, pour verifier la configuration SMTP sans
-    attendre qu'un DPE paraisse. Leve ErreurCourriel si le serveur refuse :
-    ici, contrairement a l'alerte, on VEUT voir l'echec.
+    Envoie un message de controle, et raconte ce qui s'est passe.
+
+    Ne leve jamais : un echec est justement ce qu'on est venu voir. Le
+    resultat porte la trace pas a pas — configuration, connexion,
+    chiffrement, authentification, envoi — parce que « ca ne marche pas »
+    ne se debogue pas sans savoir OU cela s'arrete.
     """
     destinataire = (destinataire
                     or reglages.lire("alerte_destinataire") or "").strip()
-    courriel.envoyer(
-        destinataire,
-        "Veille immobilière — message de contrôle",
-        "Si vous lisez ceci, l'envoi de courriel fonctionne.\n"
-        "Les alertes de nouveaux DPE partiront par ce chemin.",
-        "<html><body style=\"font-family:system-ui,sans-serif\">"
-        "<p>Si vous lisez ceci, l'envoi de courriel fonctionne.</p>"
-        "<p>Les alertes de nouveaux DPE partiront par ce chemin.</p>"
-        "</body></html>")
-    return {"envoye": True, "destinataire": destinataire}
+    trace = courriel.Trace()
+    try:
+        courriel.envoyer(
+            destinataire,
+            "Veille immobilière — message de contrôle",
+            "Si vous lisez ceci, l'envoi de courriel fonctionne.\n"
+            "Les alertes de nouveaux DPE partiront par ce chemin.",
+            "<html><body style=\"font-family:system-ui,sans-serif\">"
+            "<p>Si vous lisez ceci, l'envoi de courriel fonctionne.</p>"
+            "<p>Les alertes de nouveaux DPE partiront par ce chemin.</p>"
+            "</body></html>",
+            trace=trace)
+    except ErreurCourriel as erreur:
+        echec = trace.dernier_echec()
+        return {
+            "envoye": False,
+            "destinataire": destinataire,
+            "message": str(erreur),
+            "etapes": trace.etapes,
+            "conseil": _conseil(echec, str(erreur)),
+        }
+    return {"envoye": True, "destinataire": destinataire,
+            "etapes": trace.etapes, "conseil": None}
+
+
+# Ce que dit l'echec, et ce qu'on peut en faire. Chaque piste vise une
+# cause concrete plutot qu'un « verifiez vos parametres » sans prise.
+def _conseil(echec, message):
+    etape = (echec or {}).get("nom", "")
+    bavard = f"{etape} {message}".lower()
+
+    if "timed out" in bavard or "timeout" in bavard:
+        return ("Le serveur n'a pas repondu. Le port est peut-etre ferme en "
+                "sortie du reseau, ou le nom du serveur est errone. Beaucoup "
+                "de fournisseurs offrent 587 (STARTTLS) et 465 (SSL direct) : "
+                "essayer l'autre.")
+    if "refused" in bavard or "connexion" in etape:
+        return ("Rien n'ecoute a cette adresse. Verifier le nom du serveur et "
+                "le port ; si le port est 465, « SSL direct » doit etre "
+                "choisi, et s'il est 587, ce doit etre STARTTLS.")
+    if "starttls" in bavard or "chiffrement" in etape:
+        return ("Ce port ne propose pas STARTTLS. C'est le symptome d'un port "
+                "SSL direct (465) laisse en STARTTLS, ou l'inverse : accorder "
+                "le port et le mode de chiffrement.")
+    if "authentification" in etape or "auth" in bavard or "535" in bavard:
+        return ("Les identifiants ont ete refuses. L'identifiant est en "
+                "general l'adresse complete. Chez plusieurs fournisseurs, "
+                "l'envoi par un logiciel tiers demande d'activer l'acces "
+                "POP3/IMAP dans les reglages du compte, voire un mot de passe "
+                "dedie a l'application.")
+    if "certificate" in bavard or "ssl" in bavard:
+        return ("Le certificat du serveur n'a pas ete valide. Verifier que le "
+                "nom du serveur est exactement celui du fournisseur.")
+    if "sender" in bavard or "from" in bavard or "553" in bavard or "550" in bavard:
+        return ("Le serveur a refuse l'adresse d'expedition. Elle doit "
+                "correspondre au compte utilise pour s'authentifier.")
+    return None

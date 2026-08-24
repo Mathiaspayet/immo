@@ -24,7 +24,7 @@ def poste(monkeypatch):
     """Un bureau de poste en carton : retient ce qui part, n'envoie rien."""
     partis = []
 
-    def faux_envoi(destinataire, sujet, texte, html=None):
+    def faux_envoi(destinataire, sujet, texte, html=None, trace=None):
         partis.append({"destinataire": destinataire, "sujet": sujet,
                        "texte": texte, "html": html})
         return True
@@ -417,3 +417,92 @@ def test_le_port_est_controle(base):
     with pytest.raises(ValueError):
         reglages.ecrire({"smtp_port": 99999})
     reglages.ecrire({"smtp_port": 465})
+
+
+# ---------------------------------------------------------------------
+#  Le controle d'envoi, et son diagnostic
+# ---------------------------------------------------------------------
+#  « Ca ne marche pas » ne se debogue pas : il faut savoir OU cela
+#  s'arrete. Chaque etape franchie ecarte une moitie des causes.
+
+def _smtp(**champs):
+    valeurs = {"smtp_hote": "smtp.exemple.fr", "smtp_port": 587,
+               "smtp_ssl": False, "smtp_expediteur": "veille@exemple.fr"}
+    valeurs.update(champs)
+    reglages.ecrire(valeurs)
+
+
+def test_l_essai_raconte_les_etapes_franchies(base):
+    """
+    Sur le vrai chemin d'envoi — un port ferme fait echouer a la connexion,
+    ce qui laisse voir les deux premieres etapes.
+    """
+    _smtp(smtp_hote="127.0.0.1", smtp_port=9)      # rien n'ecoute sur 9
+
+    resultat = alertes.essai("moi@exemple.fr")
+    assert resultat["envoye"] is False
+
+    etapes = {e["nom"]: e for e in resultat["etapes"]}
+    assert etapes["configuration"]["etat"] == "ok"
+    assert etapes["connexion"]["etat"] == "echec"
+
+    # La configuration se relit dans la trace : c'est la moitie du debogage.
+    detail = etapes["configuration"]["detail"]
+    assert "127.0.0.1:9" in detail
+    assert "STARTTLS" in detail
+    assert "veille@exemple.fr" in detail
+    assert "moi@exemple.fr" in detail
+    # Chaque etape est datee : un delai d'attente se reconnait a sa duree.
+    assert all(isinstance(e["ms"], int) for e in resultat["etapes"])
+
+
+def test_l_essai_ne_leve_jamais(base, monkeypatch):
+    """
+    Un echec est le RESULTAT de l'appel, pas une erreur de l'appel : c'est
+    justement ce qu'on est venu voir.
+    """
+    _smtp()
+
+    def refus(*args, **kwargs):
+        raise ErreurCourriel("connexion refusee")
+
+    monkeypatch.setattr("app.sources.courriel.envoyer", refus)
+    resultat = alertes.essai("moi@exemple.fr")
+    assert resultat["envoye"] is False
+    assert "connexion refusee" in resultat["message"]
+
+
+def test_l_essai_repond_200_meme_en_echec(client):
+    """L'ecran a besoin de la trace, qu'un code d'erreur lui refuserait."""
+    _smtp(smtp_hote="127.0.0.1", smtp_port=9)      # rien n'ecoute sur 9
+    reponse = client.post("/api/alertes/essai",
+                          json={"destinataire": "moi@exemple.fr"})
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["envoye"] is False
+    assert corps["etapes"][0]["nom"] == "configuration"
+    assert corps["etapes"][-1]["etat"] == "echec"
+    assert corps["conseil"]
+
+
+def test_la_trace_ne_divulgue_jamais_le_mot_de_passe(client):
+    """Elle est faite pour etre affichee : le secret n'y a pas sa place."""
+    _smtp(smtp_hote="127.0.0.1", smtp_port=9,
+          smtp_utilisateur="moi@exemple.fr", smtp_motdepasse="secret-absolu")
+    corps = client.post("/api/alertes/essai",
+                        json={"destinataire": "moi@exemple.fr"}).text
+    assert "secret-absolu" not in corps
+
+
+def test_le_conseil_vise_la_cause(base):
+    """Un « verifiez vos parametres » n'a aucune prise ; on nomme la piste."""
+    from app.metier.alertes import _conseil
+
+    assert "port" in _conseil({"nom": "connexion"}, "Connection refused").lower()
+    assert "starttls" in _conseil({"nom": "chiffrement"},
+                                  "n'offre pas STARTTLS").lower()
+    assert "pop3" in _conseil({"nom": "authentification"},
+                              "535 refuse").lower()
+    assert "sortie" in _conseil({"nom": "connexion"}, "timed out").lower()
+    # Un echec inconnu ne doit pas inventer de piste.
+    assert _conseil({"nom": "envoi"}, "quelque chose d'inedit") is None

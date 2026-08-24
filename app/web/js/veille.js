@@ -342,22 +342,78 @@ function peuplerZones(choisie) {
   liste.value = zones.includes(choisie) ? choisie : "";
 }
 
+const ETATS_ESSAI = {
+  ok:        { marque: "✓", classe: "etape-ok" },
+  echec:     { marque: "✕", classe: "etape-echec" },
+  attention: { marque: "!", classe: "etape-attention" },
+  ignoree:   { marque: "–", classe: "etape-ignoree" },
+};
+
+/**
+ * Le compte rendu du contrôle, étape par étape.
+ *
+ * « Ça ne marche pas » ne se débogue pas : il faut savoir OÙ cela
+ * s'arrête. La connexion a-t-elle abouti ? Le serveur a-t-il annoncé
+ * STARTTLS ? L'authentification est-elle passée ? Chaque réponse écarte
+ * une moitié des causes possibles.
+ */
+function dessinerEssai(resultat) {
+  const etapes = (resultat.etapes || []).map((e) => {
+    const etat = ETATS_ESSAI[e.etat] || ETATS_ESSAI.ignoree;
+    return `
+      <li class="etape ${etat.classe}">
+        <span class="etape-marque" aria-hidden="true">${etat.marque}</span>
+        <span class="etape-nom">${echapper(e.nom)}</span>
+        <span class="etape-detail donnee">${echapper(e.detail || "")}</span>
+        <span class="etape-duree donnee">${entierFr.format(e.ms)} ms</span>
+      </li>`;
+  }).join("");
+
+  $("#essai-titre").textContent = resultat.envoye
+    ? "Le message est parti" : "Le message n'est pas parti";
+
+  $("#essai-corps").innerHTML = `
+    <p class="${resultat.envoye ? "message message-succes" : "message message-erreur"}">
+      ${resultat.envoye
+        ? `Envoyé à <span class="donnee">${echapper(resultat.destinataire)}</span>.
+           S'il n'arrive pas, regardez les indésirables&nbsp;: le serveur, lui,
+           l'a accepté.`
+        : echapper(resultat.message || "Échec sans message.")}
+    </p>
+    <ol class="etapes">${etapes}</ol>
+    ${resultat.conseil
+      ? `<p class="explication piste"><strong>Piste&nbsp;:</strong>
+           ${echapper(resultat.conseil)}</p>`
+      : ""}`;
+}
+
 /** Un message de contrôle, pour ne pas découvrir un mot de passe faux au
  *  premier bien manqué. */
 async function envoyerEssaiAlerte() {
   const bouton = $("#essai-alerte");
   const libelle = bouton.textContent.trim();
+  const dialogue = $("#dialogue-essai");
   masquerErreur();
   bouton.disabled = true;
   bouton.textContent = "Envoi…";
+  $("#essai-titre").textContent = "Contrôle en cours…";
+  $("#essai-corps").innerHTML =
+    '<p class="message message-travail">Connexion au serveur d\'envoi…'
+    + '<span class="jauge"><span></span></span></p>';
+  if (!dialogue.open) dialogue.showModal();
+
   try {
-    const r = await api.essaiAlerte($("#r-alerte-destinataire").value.trim());
-    afficherSucces(`Message de contrôle envoyé à ${r.destinataire}.`);
+    dessinerEssai(await api.essaiAlerte($("#r-alerte-destinataire").value.trim()));
   } catch (erreur) {
-    afficherErreur("Le message de contrôle n'est pas parti.", erreur.message);
+    // Un échec d'envoi revient en 200 avec sa trace ; arriver ici veut
+    // dire que l'application elle-même n'a pas répondu.
+    $("#essai-titre").textContent = "Le contrôle n'a pas pu être lancé";
+    $("#essai-corps").innerHTML =
+      `<p class="message message-erreur">${echapper(erreur.message)}</p>`;
   } finally {
     bouton.disabled = false;
     bouton.textContent = libelle;
+    chargerEtatAlerte();
   }
 }
 
@@ -550,6 +606,8 @@ async function demarrer() {
   // s'affichaient, se modifiaient à l'écran, et rien n'était enregistré.
   $("#enregistrer-reglages").addEventListener("click", enregistrerReglages);
   $("#essai-alerte").addEventListener("click", envoyerEssaiAlerte);
+  $("#essai-fermer").addEventListener("click", () => $("#dialogue-essai").close());
+  $("#essai-relancer").addEventListener("click", envoyerEssaiAlerte);
   $("#r-alerte-commune").addEventListener("change", () => peuplerZones(""));
 
   // Ce qu'il faut rafraîchir quand un écran redevient visible.

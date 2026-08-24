@@ -10,11 +10,10 @@ premier bien manque.
 
 import logging
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body
 
 from app.base import reglages
 from app.metier import alertes, veille
-from app.sources.courriel import ErreurCourriel
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +56,11 @@ def etat():
 
 @routeur.post("/essai")
 def essai(corps: dict = Body(default={})):
-    """Envoie un message de controle. L'echec remonte tel quel : ici, on
-    veut precisement le voir."""
-    try:
-        return alertes.essai((corps or {}).get("destinataire"))
-    except ErreurCourriel as erreur:
-        raise HTTPException(status_code=400, detail=str(erreur)) from erreur
+    """
+    Envoie un message de controle et raconte ce qui s'est passe.
+
+    Repond 200 meme en cas d'echec : un echec n'est pas une erreur de
+    l'appel, c'est son resultat. Le corps porte la trace pas a pas, que
+    l'ecran affiche — sans elle, « ca ne marche pas » reste indeboguable.
+    """
+    return alertes.essai((corps or {}).get("destinataire"))

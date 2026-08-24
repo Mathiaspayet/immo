@@ -466,6 +466,21 @@
           Envoyer un message de contrôle
         </button>
       </p>
+
+      <!-- Le résultat du contrôle, étape par étape. Une boîte de dialogue
+           plutôt qu'un bandeau : le diagnostic tient en plusieurs lignes,
+           et on veut le lire sans le perdre au premier défilement. -->
+      <dialog id="dialogue-essai" class="dialogue">
+        <div class="dialogue-tete">
+          <h3 id="essai-titre">Message de contrôle</h3>
+          <button type="button" class="bouton-lien" id="essai-fermer"
+                  aria-label="Fermer">✕</button>
+        </div>
+        <div id="essai-corps"></div>
+        <div class="dialogue-pied">
+          <button type="button" class="bouton" id="essai-relancer">Réessayer</button>
+        </div>
+      </dialog>
     </section>
 
     <section>

@@ -620,6 +620,21 @@ Le bouton **Envoyer un message de contrôle** des Réglages éprouve la
 configuration sans attendre qu'un DPE paraisse : sans lui, on ne saurait
 qu'un mot de passe est faux qu'au premier bien manqué.
 
+Il ne répond pas par oui ou non. « Ça ne marche pas » ne se débogue pas :
+il faut savoir **où** cela s'arrête. Une boîte de dialogue montre donc la
+trace, étape par étape — configuration, connexion, chiffrement,
+authentification, envoi — chacune datée, car un délai d'attente se
+reconnaît à sa durée. Chaque étape franchie écarte une moitié des causes
+possibles.
+
+L'échec revient en 200, pas en erreur : c'est le *résultat* de l'appel, pas
+une erreur de l'appel, et un code d'erreur priverait l'écran de la trace.
+Le mot de passe n'y figure jamais — elle est faite pour être affichée.
+Quand la cause est reconnaissable, une piste concrète accompagne le
+diagnostic : un port qui ne répond pas, un STARTTLS demandé sur un port
+SSL, des identifiants refusés faute d'accès POP3/IMAP activé chez le
+fournisseur.
+
 **Les fichiers de l'interface se revalident à chaque chargement.** Starlette
 pose un ETag et un `Last-Modified`, mais aucun `Cache-Control` : sans
 consigne, le navigateur applique sa propre heuristique et peut réutiliser un
