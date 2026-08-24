@@ -57,11 +57,32 @@ services:
       VEILLE_PLANIFICATEUR: ${VEILLE_PLANIFICATEUR:-1}
       # DEBUG, INFO, WARNING, ERROR.
       VEILLE_LOG: ${VEILLE_LOG:-INFO}
+      # Ou vont les copies datees de la base, faites apres chaque import.
+      # Par defaut a cote d'elle, DANS le volume Docker — ce qui protege de
+      # l'effacement et de la corruption, mais pas de la panne du disque et
+      # reste malcommode a retrouver. Voir le montage ci-dessous.
+      VEILLE_SAUVEGARDES: ${VEILLE_SAUVEGARDES:-/sauvegardes}
 
     volumes:
       # La base SQLite. Sans ce volume, tout serait perdu a chaque mise a
       # jour de l'image par Watchtower (CDC 2).
       - veille-donnees:/data
+
+      # Les sauvegardes, dans un DOSSIER PARTAGE et non dans un volume
+      # Docker. C'est ce qui les rend perennes, pour deux raisons :
+      #
+      #   - on peut les voir, les copier et les emporter depuis DSM, sans
+      #     ligne de commande ;
+      #   - Hyper Backup sauvegarde des dossiers partages. Un volume Docker
+      #     vit dans /var/lib/docker et lui echappe le plus souvent.
+      #
+      # Le contenu de cette base ne se retelecharge pas : DVF ne se
+      # consulte que sur cinq ans, et le millesime qui sort de la fenetre
+      # ne subsiste plus qu'ici.
+      #
+      # Creer le dossier partage dans DSM avant le premier demarrage, et
+      # ajuster le chemin si le volume n'est pas /volume1.
+      - ${VEILLE_DOSSIER_SAUVEGARDES:-/volume1/veille-sauvegardes}:/sauvegardes
 
     labels:
       # Portee du Watchtower deja en place sur le NAS. Ne pas la changer :

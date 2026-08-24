@@ -15,6 +15,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app import config
+from app.base import sauvegarde
 from app.metier import alerte_ventes, alertes, import_dpe, mutations
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,27 @@ def _tache():
         logger.error("alerte en echec : %s", erreur)
 
     _ventes()
+    _sauvegarder()
+
+
+def _sauvegarder():
+    """
+    Une copie datee, apres l'import.
+
+    Apres et non avant : c'est l'etat le plus recent qu'on veut pouvoir
+    retrouver. Elle ne leve jamais — un disque plein ne doit pas faire
+    echouer une moisson reussie — et une copie qui ne se verifie pas ne
+    remplace rien.
+    """
+    try:
+        resultat = sauvegarde.sauvegarder()
+        if resultat["faite"]:
+            logger.info("sauvegarde %s (%.1f Mo)",
+                        resultat["fichier"], resultat["octets"] / 1e6)
+        else:
+            logger.error("sauvegarde non faite : %s", resultat["raison"])
+    except Exception as erreur:                     # noqa: BLE001
+        logger.error("sauvegarde en echec : %s", erreur)
 
 
 def _ventes():
@@ -114,7 +136,7 @@ def demarrer():
         CronTrigger(day_of_week=config.IMPORT_JOUR, hour=config.IMPORT_HEURE,
                     minute=0, timezone=config.FUSEAU),
         id=IDENTIFIANT,
-        name="Import quotidien des DPE, alerte, puis guet des ventes",
+        name="Import quotidien, alertes, guet des ventes, sauvegarde",
         # Si le NAS etait eteint a l'heure prevue, on rattrape au demarrage
         # dans l'heure qui suit, mais on ne cumule pas les executions ratees.
         coalesce=True,

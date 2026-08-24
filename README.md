@@ -390,6 +390,76 @@ test au passage — il enverrait un courriel absurde le jour de la parution.
 
 ---
 
+## Sauvegardes
+
+**Ce que contient cette base ne se retélécharge pas.** DVF ne se consulte
+que sur cinq ans ; à chaque parution d'automne, le millésime le plus ancien
+quitte la source et ne subsiste plus qu'ici. Les DPE ne sont pas purgés. La
+sauvegarde n'est donc pas une précaution d'usage, c'est la seule chose qui
+sépare cet historique de sa disparition.
+
+Une copie datée est écrite **après chaque import**, dans
+`VEILLE_SAUVEGARDES` (`/sauvegardes` sur le NAS).
+
+**La copie est vérifiée avant de compter.** `quick_check` relit toutes les
+pages, et les lignes de `dpe`, `mutation`, `parcelle` et `reglage` sont
+recomptées dans la copie. Une copie qui ne se vérifie pas est jetée et ne
+remplace rien : sauvegarder une base abîmée puis faire tourner la rotation
+est la façon classique de tout perdre en croyant se protéger.
+
+**Elle est publiée de façon atomique.** L'écriture se fait dans un fichier
+`.partiel` à côté, et le nom définitif n'apparaît qu'une fois la
+vérification passée. Sans cela, deux sauvegardes dans la même minute
+portaient le même nom — et une seconde qui échoue avait déjà écrasé la
+première. C'est un test qui l'a trouvé, pas une relecture.
+
+**Chaque sauvegarde tient en un seul fichier.** `backup()` reproduit le
+mode WAL de la source, et la copie traînait un `-wal` et un `-shm`
+orphelins. Un `PRAGMA journal_mode = DELETE` replie tout dedans : c'est ce
+qu'on glisse sur une clé, ce qu'Hyper Backup emporte, et ce qu'on rouvrira
+sans se demander quels fichiers vont ensemble.
+
+**La rotation garde le récent et l'ancien** : les sept derniers jours, puis
+une par mois sur douze mois, puis une par an sans limite. Ne garder que les
+dernières copies serait un piège — une corruption passe rarement inaperçue
+le jour même, et s'il faut trois semaines pour la remarquer, sept jours de
+rétention n'ont plus rien à offrir. Mesuré : quatre ans de copies
+quotidiennes se réduisent à **23 fichiers**, soit environ 700 Mo pour une
+base de 30 Mo.
+
+### Restaurer
+
+Trois gestes, sans outil :
+
+```bash
+docker compose stop veille                       # 1. arrêter
+cp /volume1/veille-sauvegardes/veille-2026-08-24-0700.db    /var/lib/docker/volumes/veille-donnees/_data/veille.db
+docker compose start veille                      # 3. redémarrer
+```
+
+Un test rejoue exactement cette procédure : il peuple une base, la
+sauvegarde, **efface la base vivante**, restaure par simple copie, et
+vérifie que les données sont là, que la base est de nouveau *écrivable*, et
+que les migrations ne rejouent rien. Une sauvegarde qui ne se restaure pas
+ne sert à rien, et on ne l'apprend qu'au pire moment.
+
+### Ce que cela ne protège pas
+
+Les copies vivent sur le même NAS. Elles couvrent l'effacement accidentel,
+une corruption de la base, une mise à jour qui tourne mal. **Elles ne
+couvrent pas la panne du disque** — pour cela il faut qu'elles sortent du
+NAS, et c'est le travail d'Hyper Backup.
+
+C'est la raison du montage en **dossier partagé** plutôt qu'en volume
+Docker : Hyper Backup sauvegarde des dossiers partagés, tandis qu'un volume
+Docker vit dans `/var/lib/docker` et lui échappe le plus souvent. Le dossier
+est aussi visible depuis DSM, donc consultable et copiable sans ligne de
+commande.
+
+Rien ne part vers un tiers (CDC 9) : tout reste sur le NAS.
+
+---
+
 ## Déploiement sur le NAS
 
 La chaîne est entièrement automatique :
@@ -483,6 +553,7 @@ app/
 ├── config.py        variables d'environnement (chemins, port, fuseau)
 ├── planificateur.py APScheduler — import quotidien, puis alerte
 ├── base/            SQLite : connexion, migrations SQL, réglages
+│   └── sauvegarde.py        copies datées, vérifiées, tournantes
 ├── sources/         API externes : ADEME (3 bases), geo.api.gouv.fr
 │   ├── dvf.py               ventes, cinq millésimes glissants
 │   ├── dvf_archive.py       les millésimes que la source ne sert plus

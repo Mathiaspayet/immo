@@ -12,6 +12,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from app.base import sauvegarde
 from app.metier import alertes, import_dpe, mutations
 
 logger = logging.getLogger(__name__)
@@ -85,3 +86,23 @@ def reprendre_archive(code_insee: str = None):
     except Exception as erreur:                      # noqa: BLE001
         logger.warning("reprise d'archive DVF impossible : %s", erreur)
         raise HTTPException(status_code=502, detail=str(erreur)) from erreur
+
+
+@routeur.get("/sauvegardes")
+def etat_sauvegardes():
+    """Ou en sont les copies datees de la base."""
+    return sauvegarde.etat()
+
+
+@routeur.post("/sauvegardes", status_code=200)
+def sauvegarder_maintenant():
+    """
+    Ecrit une copie tout de suite.
+
+    Repond a la fin : quelques secondes pour quelques dizaines de
+    mega-octets, et l'utilisateur veut savoir si elle s'est VERIFIEE.
+    """
+    resultat = sauvegarde.sauvegarder()
+    if not resultat["faite"]:
+        raise HTTPException(status_code=500, detail=resultat["raison"])
+    return {**resultat, "etat": sauvegarde.etat()}

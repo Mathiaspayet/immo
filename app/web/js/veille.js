@@ -440,6 +440,62 @@ async function reprendreArchiveVentes() {
   }
 }
 
+// ---------------------------------------------------------------------
+//  Sauvegardes
+// ---------------------------------------------------------------------
+
+function poids(octets) {
+  if (!octets) return "0 Mo";
+  return `${(octets / 1e6).toFixed(1)} Mo`;
+}
+
+async function chargerEtatSauvegardes() {
+  const liste = $("#etat-sauvegardes");
+  if (!liste) return;
+  try {
+    const e = await api.etatSauvegardes();
+    const rangs = e.copies
+      ? [["Dernière", `${dateFr(e.derniere)} · il y a ${e.age_heures} h`],
+         ["Copies conservées", `${e.copies} — depuis ${dateFr(e.depuis)}`],
+         ["Place occupée", poids(e.octets)],
+         ["Dossier", e.dossier]]
+      : [["Copies conservées", "aucune pour l'instant"],
+         ["Dossier", e.dossier]];
+    liste.innerHTML = rangs
+      .map(([cle, valeur]) => `<dt>${cle}</dt><dd>${echapper(valeur)}</dd>`)
+      .join("");
+    // L'alerte se voit ici plutôt qu'au moment de restaurer.
+    $("#sauvegarde-etat").innerHTML = e.alerte
+      ? `<p class="message message-erreur">${echapper(e.alerte)}</p>` : "";
+  } catch (_) {
+    liste.innerHTML = "<dt>Sauvegardes</dt><dd>indisponible</dd>";
+  }
+}
+
+async function sauvegarderMaintenant() {
+  const bouton = $("#sauvegarder-maintenant");
+  const etat = $("#sauvegarde-etat");
+  bouton.disabled = true;
+  const libelle = bouton.textContent;
+  bouton.textContent = "Copie…";
+  etat.innerHTML = '<p class="message message-travail">Copie et vérification…'
+    + '<span class="jauge"><span></span></span></p>';
+  try {
+    const r = await api.sauvegarderMaintenant();
+    etat.innerHTML = `<p class="message message-succes">`
+      + `${echapper(r.fichier)} — ${poids(r.octets)}, vérifiée`
+      + (r.retirees.length ? ` · ${r.retirees.length} ancienne(s) retirée(s)` : "")
+      + `</p>`;
+    await chargerEtatSauvegardes();
+  } catch (erreur) {
+    etat.innerHTML =
+      `<p class="message message-erreur">${echapper(erreur.message || String(erreur))}</p>`;
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = libelle;
+  }
+}
+
 async function afficherVersion() {
   try {
     const sante = await api.sante();
@@ -631,7 +687,9 @@ async function demarrer() {
     chargerEtatAlerte(); chargerJournal(); chargerProfondeurVentes();
   });
   chargerProfondeurVentes();
+  chargerEtatSauvegardes();
   $("#reprendre-archive")?.addEventListener("click", reprendreArchiveVentes);
+  $("#sauvegarder-maintenant")?.addEventListener("click", sauvegarderMaintenant);
   initialiserParcours();
   brancherHistorique();
   await reprendreSuiviEventuel();

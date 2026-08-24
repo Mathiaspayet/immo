@@ -141,6 +141,11 @@ export const api = {
 
   // Répond à la fin : le fichier est départemental, l'attente de l'ordre
   // de la minute, et c'est un geste qu'on ne fait qu'une fois.
+  etatSauvegardes: () => demander("/api/import/sauvegardes"),
+
+  sauvegarderMaintenant: () =>
+    demander("/api/import/sauvegardes", { method: "POST" }),
+
   // Sans commune, le serveur prend celle qui est surveillée.
   reprendreArchive: (code_insee) =>
     demander("/api/import/ventes/archive"

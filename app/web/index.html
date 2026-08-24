@@ -568,6 +568,29 @@
       <div id="archive-etat" class="explication"></div>
     </section>
 
+    <section class="reglage" data-reglage="sauvegardes">
+      <div class="reglage-tete">
+        <h2>Sauvegardes</h2>
+        <button type="button" class="bouton" id="sauvegarder-maintenant">
+          Sauvegarder maintenant
+        </button>
+      </div>
+      <dl class="reglage-resume" id="etat-sauvegardes"></dl>
+      <p class="explication">
+        Une copie datée de la base est écrite après chaque import, puis
+        <strong>vérifiée</strong>&nbsp;: relecture complète et recomptage des
+        lignes. Une copie qui ne se vérifie pas est jetée et ne remplace
+        rien&nbsp;— sauvegarder une base abîmée en écrasant la bonne est la
+        façon classique de tout perdre en croyant se protéger.
+      </p>
+      <p class="explication">
+        Sont conservées&nbsp;: les sept derniers jours, puis une par mois sur
+        douze mois, puis une par an. Une corruption remarquée trois semaines
+        plus tard reste ainsi rattrapable.
+      </p>
+      <div id="sauvegarde-etat" class="explication"></div>
+    </section>
+
     <section class="reglage" data-reglage="vue-rue">
       <div class="reglage-tete">
         <h2>Vue de rue sur la fiche</h2>

@@ -19,6 +19,14 @@ import pathlib
 # de l'image. Sans ce volume, tout serait perdu a chaque redeploiement.
 CHEMIN_BASE = pathlib.Path(os.environ.get("VEILLE_BASE", "/data/veille.db"))
 
+# Ou vont les copies datees de la base. A cote d'elle par defaut, donc sur
+# le meme volume : cela protege de l'effacement et de la corruption, pas de
+# la panne du disque. Pour cela il faut que la sauvegarde du NAS (Hyper
+# Backup) les voie — d'ou l'interet de pointer ceci vers un dossier partage
+# monte dans le conteneur. Voir docker-compose.synology.yml.
+CHEMIN_SAUVEGARDES = pathlib.Path(
+    os.environ.get("VEILLE_SAUVEGARDES", str(CHEMIN_BASE.parent / "sauvegardes")))
+
 # --- Serveur ---------------------------------------------------------
 HOTE = os.environ.get("VEILLE_HOTE", "0.0.0.0")
 PORT = int(os.environ.get("VEILLE_PORT", "8000"))
