@@ -565,6 +565,35 @@
         n'est signalé par courriel, ce sont des ventes anciennes. À ne faire
         qu'une fois.
       </p>
+      <div class="grille-champs">
+        <div class="champ">
+          <label for="archive-portee">Reprendre</label>
+          <select id="archive-portee" class="donnee">
+            <option value="surveillee">la commune surveillée</option>
+            <option value="commune">une autre commune</option>
+            <option value="departement">tout un département</option>
+          </select>
+        </div>
+        <div class="champ" id="archive-champ-commune" hidden>
+          <label for="archive-commune">Commune</label>
+          <input type="text" id="archive-commune" class="donnee"
+                 list="archive-communes" placeholder="nom ou code INSEE"
+                 autocomplete="off">
+          <datalist id="archive-communes"></datalist>
+        </div>
+        <div class="champ" id="archive-champ-departement" hidden>
+          <label for="archive-departement">Département</label>
+          <input type="text" id="archive-departement" class="donnee"
+                 inputmode="numeric" placeholder="40" maxlength="3">
+        </div>
+      </div>
+      <p class="explication" id="archive-avertissement" hidden>
+        Un département entier, c'est tout autre chose&nbsp;: les Landes
+        comptent <strong>327 communes et 69 699 ventes</strong>, et la base
+        passe de quelques mégaoctets à une quarantaine. Le fichier
+        téléchargé est le même — il est départemental de toute façon —,
+        seules changent les lignes conservées.
+      </p>
       <div id="archive-etat" class="explication"></div>
     </section>
 

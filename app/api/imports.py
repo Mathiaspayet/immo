@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.base import sauvegarde
 from app.metier import alertes, import_dpe, mutations
+from app.sources.dvf_archive import ArchiveIntrouvable
 
 logger = logging.getLogger(__name__)
 
@@ -66,23 +67,45 @@ def profondeur_ventes(code_insee: str = None):
 
 
 @routeur.post("/ventes/archive", status_code=200)
-def reprendre_archive(code_insee: str = None):
+def reprendre_archive(code_insee: str = None, dep: str = None):
     """
     Reprend les millesimes que la source officielle ne sert plus.
 
-    Repond a la fin, contrairement a l'import ADEME : le fichier est
-    departemental mais ne se lit qu'une fois, et l'attente reste de
-    l'ordre de la minute. Un 202 obligerait a un second canal de suivi
-    pour un geste qu'on ne fait qu'une fois.
+    Une commune, ou tout un departement (`dep`). Sans rien, c'est la
+    commune surveillee : le cas courant ne demande donc aucun choix.
+
+    Repond a la fin, contrairement a l'import ADEME. Mesure sur les
+    Landes — le plus gros cas, 327 communes : 8 s d'import, le
+    telechargement de 34 Mo dominant largement. Un 202 obligerait a un
+    second canal de suivi pour un geste qu'on ne fait qu'une fois.
     """
-    code_insee = code_insee or alertes.commune_surveillee()
-    if not code_insee:
+    if dep and code_insee:
+        # Preferer l'un en taisant l'autre serait pire qu'un refus : on
+        # croirait avoir repris une commune et on aurait pris tout le
+        # departement — 327 communes et 38 Mo au lieu de quelques-uns.
         raise HTTPException(
             status_code=400,
-            detail="Aucune commune surveillee : choisissez-la dans "
-                   "« Alerte par courriel » ou « Secteurs ».")
+            detail="Preciser une commune OU un departement, pas les deux.")
+    if not dep:
+        code_insee = code_insee or alertes.commune_surveillee()
+        if not code_insee:
+            raise HTTPException(
+                status_code=400,
+                detail="Aucune commune surveillee : choisissez-la dans "
+                       "« Alerte par courriel » ou « Secteurs », ou "
+                       "indiquez un departement.")
     try:
-        return mutations.reprendre_archive(code_insee)
+        return mutations.reprendre_archive(
+            code_insee=None if dep else code_insee, dep=dep or None)
+    except ValueError as erreur:
+        # Trois issues distinctes, parce qu'elles n'appellent pas la meme
+        # reaction : corriger sa saisie (400), constater que la
+        # compilation ne couvre pas ce departement (404), ou reessayer
+        # plus tard (502). Les confondre enverrait chercher le probleme
+        # au mauvais endroit.
+        raise HTTPException(status_code=400, detail=str(erreur)) from erreur
+    except ArchiveIntrouvable as erreur:
+        raise HTTPException(status_code=404, detail=str(erreur)) from erreur
     except Exception as erreur:                      # noqa: BLE001
         logger.warning("reprise d'archive DVF impossible : %s", erreur)
         raise HTTPException(status_code=502, detail=str(erreur)) from erreur

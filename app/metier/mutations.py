@@ -407,63 +407,113 @@ def publication(code_insee):
     }
 
 
-def reprendre_archive(code_insee, progression=None):
+def _repartir(lignes):
+    """
+    Range les lignes par commune, mais SANS couper une vente en deux.
+
+    510 des 69 699 ventes des Landes portent sur plusieurs communes : des
+    parcelles limitrophes vendues ensemble — 40271 et 40272, 40280 et
+    40281. Les repartir ligne par ligne les scinderait, et comme l'ecriture
+    refait les rattachements a neuf, la seconde commune effacerait les
+    parcelles de la premiere. Mesure : 4 450 rattachements perdus.
+
+    Une vente est donc rangee ENTIERE dans la commune de sa premiere
+    ligne — celle-la meme que `_regrouper` retient comme sienne. Ses
+    parcelles peuvent etre ailleurs ; c'est le cas normal d'un bien a
+    cheval sur une limite.
+    """
+    par_mutation = collections.defaultdict(list)
+    for ligne in lignes:
+        identifiant = (ligne.get("id_mutation") or "").strip()
+        if identifiant:
+            par_mutation[identifiant].append(ligne)
+
+    par_commune = collections.defaultdict(list)
+    for groupe in par_mutation.values():
+        commune = (groupe[0].get("code_commune") or "").strip()
+        if commune:
+            par_commune[commune].extend(groupe)
+    return par_commune
+
+
+def reprendre_archive(code_insee=None, dep=None, progression=None):
     """
     Reprend les millesimes que la source officielle ne sert plus.
 
     DVF ne se consulte que sur cinq ans, et la restriction est en amont
     d'Etalab : le jeu officiel de la DGFiP n'en offre pas davantage. Une
-    compilation departementale archivee couvre 2018-2022 ; pour Mimizan
-    elle rend 1 222 ventes de 2018, 2019 et 2020.
+    compilation departementale archivee couvre 2018-2022.
+
+    Une commune (`code_insee`) ou tout un departement (`dep`). Le fichier
+    telecharge est le meme dans les deux cas — il est departemental —,
+    seules changent les lignes retenues : prendre le departement entier ne
+    coute pas un telechargement de plus. Mesure sur les Landes : 184 878
+    lignes, 327 communes, 69 699 ventes, 8 s d'import et 38 Mo de base.
+
+    L'ecriture se fait COMMUNE PAR COMMUNE, jamais en bloc. Tout ce qui
+    tient l'import droit raisonne par commune : la reconnaissance des
+    ventes deja connues par empreinte, la suppression du premier import,
+    le comptage des rattachements. Un import global les fausserait tous
+    en silence.
 
     Rien n'est signale : ce sont des ventes anciennes, et les annoncer par
-    courriel n'aurait aucun sens. Les ventes deja connues sont reconnues
-    par leur empreinte, non par leur numero — les deux chaines de
-    publication numerotent differemment.
-
-    A lancer une fois. La suite continue de venir de geo-dvf.
+    courriel n'aurait aucun sens.
     """
-    code_insee = str(code_insee).strip()
-    archive = dvf_archive.telecharger(code_insee, progression=progression)
-    # D'ou vient ce qu'on vient de lire. Le departement se deduit du code
-    # INSEE et n'est jamais choisi : le nommer est le seul moyen de
-    # verifier, apres coup, que la reprise a porte la ou on le croyait.
+    code_insee = str(code_insee).strip() if code_insee else None
+    archive = dvf_archive.telecharger(code_insee=code_insee, dep=dep,
+                                      progression=progression)
     provenance = {"commune": code_insee, "departement": archive.departement,
                   "source": archive.titre, "lignes": len(archive.lignes)}
-    if not archive.lignes:
-        return {**provenance, "mutations": 0, "ajoutees": 0,
-                "message": (f"Aucune vente archivee pour {code_insee}"
+
+    par_commune = _repartir(archive.lignes)
+
+    if not par_commune:
+        cible = code_insee or f"le departement {archive.departement}"
+        return {**provenance, "communes": 0, "mutations": 0, "ajoutees": 0,
+                "message": (f"Aucune vente archivee pour {cible}"
                             f" dans « {archive.titre} ».")}
 
-    with connexion() as conn:
-        avant = conn.execute(
-            "SELECT count(*) FROM mutation WHERE code_insee = ?",
-            (code_insee,)).fetchone()[0]
+    codes = sorted(par_commune)
+    avant = _compter_ventes(codes)
 
-    resultat = importer(code_insee, lignes=archive.lignes, signaler=False)
+    total = 0
+    for rang, commune in enumerate(codes, 1):
+        if progression and len(codes) > 1:
+            progression(f"archive — commune {rang}/{len(codes)}")
+        resultat = importer(commune, lignes=par_commune[commune], signaler=False)
+        total += resultat["mutations"]
 
+    apres = _compter_ventes(codes)
     with connexion() as conn:
-        apres = conn.execute(
-            "SELECT count(*) FROM mutation WHERE code_insee = ?",
-            (code_insee,)).fetchone()[0]
         plage = conn.execute(
             "SELECT min(date_mutation) AS d, max(date_mutation) AS f"
-            " FROM mutation WHERE code_insee = ?", (code_insee,)).fetchone()
+            " FROM mutation").fetchone()
 
     ajoutees = apres - avant
-    resultat.update({
-        **provenance,
-        "ajoutees": ajoutees,
-        "depuis": plage["d"],
-        "jusqu_a": plage["f"],
-        "message": (f"{ajoutees} vente(s) ancienne(s) reprise(s) depuis"
-                    f" « {archive.titre} » — historique du {plage['d']}"
-                    f" au {plage['f']}"),
-    })
-    logger.info("archive dvf %s : ressource « %s », %d ajoutees,"
+    ou = (f"{len(codes)} commune(s) du departement {archive.departement}"
+          if code_insee is None else code_insee)
+    message = (f"{ajoutees} vente(s) ancienne(s) reprise(s) sur {ou},"
+               f" depuis « {archive.titre} » — historique du {plage['d']}"
+               f" au {plage['f']}")
+    logger.info("archive dvf : ressource « %s », %d commune(s), %d ajoutees,"
                 " historique %s -> %s",
-                code_insee, archive.titre, ajoutees, plage["d"], plage["f"])
-    return resultat
+                archive.titre, len(codes), ajoutees, plage["d"], plage["f"])
+    return {**provenance, "communes": len(codes), "mutations": total,
+            "ajoutees": ajoutees, "depuis": plage["d"], "jusqu_a": plage["f"],
+            "message": message}
+
+
+def _compter_ventes(codes):
+    """Les ventes en base pour ces communes. Decoupe en paquets : SQLite
+    limite le nombre de parametres, et un departement en compte 327."""
+    total = 0
+    with connexion() as conn:
+        for paquet in _par_paquets(list(codes)):
+            marques = ", ".join("?" * len(paquet))
+            total += conn.execute(
+                f"SELECT count(*) FROM mutation WHERE code_insee IN ({marques})",
+                paquet).fetchone()[0]
+    return total
 
 
 def profondeur(code_insee=None):

@@ -146,9 +146,11 @@ export const api = {
   sauvegarderMaintenant: () =>
     demander("/api/import/sauvegardes", { method: "POST" }),
 
-  // Sans commune, le serveur prend celle qui est surveillée.
-  reprendreArchive: (code_insee) =>
+  // Sans rien, le serveur prend la commune surveillée. Sinon une autre
+  // commune, ou tout un département.
+  reprendreArchive: ({ code_insee, dep } = {}) =>
     demander("/api/import/ventes/archive"
-      + (code_insee ? `?code_insee=${encodeURIComponent(code_insee)}` : ""),
+      + (dep ? `?dep=${encodeURIComponent(dep)}`
+             : code_insee ? `?code_insee=${encodeURIComponent(code_insee)}` : ""),
       { method: "POST" }),
 };

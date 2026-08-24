@@ -563,10 +563,10 @@ def _archiver(monkeypatch, lignes, titre="40 - Landes"):
 
     monkeypatch.setattr(
         "app.sources.dvf_archive.telecharger",
-        lambda code, progression=None: Archive(
+        lambda code_insee=None, dep=None, progression=None: Archive(
             lignes=lignes, departement=titre.split("-")[0].strip(),
             titre=titre, url="https://exemple/40.csv"))
-    return mutations.reprendre_archive("40184")
+    return mutations.reprendre_archive(code_insee="40184")
 
 
 def test_la_reprise_ajoute_les_millesimes_disparus(base, monkeypatch):
@@ -744,3 +744,138 @@ def test_l_ecran_annonce_la_cible_avant_de_telecharger(base, monkeypatch):
     assert p["commune"] == "40184"
     assert p["commune_nom"] == "Mimizan"
     assert p["departement"] == "40"
+
+
+# =====================================================================
+#  Reprendre une autre commune, ou tout un departement
+# =====================================================================
+
+def _archiver_dep(monkeypatch, lignes, titre="40 - Landes", **appel):
+    from app.sources.dvf_archive import Archive
+
+    vus = {}
+
+    def faux(code_insee=None, dep=None, progression=None):
+        vus["code_insee"], vus["dep"] = code_insee, dep
+        gardees = ([l for l in lignes
+                    if (l.get("code_commune") or "").strip() == code_insee]
+                   if code_insee else lignes)
+        return Archive(lignes=gardees, departement=titre.split("-")[0].strip(),
+                       titre=titre, url="https://exemple/40.csv")
+
+    monkeypatch.setattr("app.sources.dvf_archive.telecharger", faux)
+    return mutations.reprendre_archive(**appel), vus
+
+
+def _ligne_commune(identifiant, commune, parcelle, valeur, date="2018-03-02"):
+    ligne = _ligne(identifiant, parcelle, valeur, date=date)
+    ligne["code_commune"] = commune
+    return ligne
+
+
+def test_un_departement_entier_importe_toutes_ses_communes(base, monkeypatch):
+    """
+    Mesure sur les Landes : 184 878 lignes, 327 communes, 69 699 ventes,
+    8 s d'import. Le fichier telecharge est le meme que pour une seule
+    commune — il est departemental —, seules changent les lignes gardees.
+    """
+    resultat, vus = _archiver_dep(monkeypatch, [
+        _ligne_commune("A-1", "40184", "40184000AA0100", 150000),
+        _ligne_commune("A-2", "40088", "40088000AB0200", 250000),
+        _ligne_commune("A-3", "40046", "40046000AC0300", 350000),
+    ], dep="40")
+
+    assert vus["dep"] == "40" and vus["code_insee"] is None
+    assert resultat["communes"] == 3
+    assert resultat["ajoutees"] == 3
+
+    with connexion() as conn:
+        communes = {l["code_insee"] for l in conn.execute(
+            "SELECT DISTINCT code_insee FROM mutation")}
+    assert communes == {"40184", "40088", "40046"}
+
+
+def test_une_vente_a_cheval_sur_deux_communes_garde_ses_parcelles(
+        base, monkeypatch):
+    """
+    510 des 69 699 ventes des Landes portent sur plusieurs communes : des
+    parcelles limitrophes vendues ensemble — 40271 et 40272, 40280 et
+    40281.
+
+    Repartir les lignes commune par commune scinderait ces ventes, et
+    comme l'ecriture refait les rattachements a neuf, la seconde commune
+    effacerait les parcelles de la premiere. Mesure sur les Landes :
+    4 450 rattachements perdus.
+    """
+    _archiver_dep(monkeypatch, [
+        _ligne_commune("A-CHEVAL", "40271", "40271000AI0062", 10000),
+        _ligne_commune("A-CHEVAL", "40272", "402720000S0480", 10000),
+    ], dep="40")
+
+    with connexion() as conn:
+        ventes = list(conn.execute("SELECT id, code_insee FROM mutation"))
+        parcelles = {l["parcelle_id"] for l in conn.execute(
+            "SELECT parcelle_id FROM mutation_parcelle"
+            " WHERE mutation_id = 'A-CHEVAL'")}
+    assert len(ventes) == 1, "la vente a ete dedoublee"
+    assert parcelles == {"40271000AI0062", "402720000S0480"}, (
+        "une commune a efface les parcelles de l'autre")
+
+
+def test_une_autre_commune_que_celle_surveillee(base, monkeypatch):
+    """On doit pouvoir reprendre une commune qu'on ne surveille pas."""
+    reglages.ecrire({"alerte_code_insee": "40184"})
+    resultat, vus = _archiver_dep(monkeypatch, [
+        _ligne_commune("A-1", "40184", "40184000AA0100", 150000),
+        _ligne_commune("A-2", "40088", "40088000AB0200", 250000),
+    ], code_insee="40088")
+
+    assert vus["code_insee"] == "40088" and vus["dep"] is None
+    assert resultat["communes"] == 1
+    with connexion() as conn:
+        communes = {l["code_insee"] for l in conn.execute(
+            "SELECT DISTINCT code_insee FROM mutation")}
+    assert communes == {"40088"}
+
+
+def test_une_saisie_fautive_ne_passe_pas_pour_une_panne(base):
+    """
+    Trois issues distinctes, parce qu'elles n'appellent pas la meme
+    reaction : corriger sa saisie, constater que la compilation ne couvre
+    pas ce departement, ou reessayer plus tard. Les confondre enverrait
+    chercher le probleme au mauvais endroit.
+    """
+    from app.sources import dvf_archive
+
+    with pytest.raises(ValueError, match="invalide"):
+        dvf_archive.telecharger(dep="400")
+    with pytest.raises(ValueError, match="OU"):
+        dvf_archive.telecharger(code_insee="40184", dep="40")
+    with pytest.raises(ValueError, match="OU"):
+        dvf_archive.telecharger()
+
+
+def test_un_departement_saisi_court_est_complete(base):
+    """« 4 » veut dire le 04 : sans cela, la requete ne rendrait rien et
+    le message parlerait d'une archive absente."""
+    from app.sources import dvf_archive
+
+    assert dvf_archive._departement_valide("4") == "04"
+    assert dvf_archive._departement_valide("2a") == "2A"
+    assert dvf_archive._departement_valide("974") == "974"
+
+
+def test_l_api_refuse_commune_et_departement_ensemble(base):
+    """
+    Taire l'un des deux serait pire qu'un refus : on croirait avoir repris
+    une commune et on aurait pris tout le departement — 327 communes et
+    38 Mo au lieu de quelques-uns.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.main import application
+
+    client = TestClient(application)
+    reponse = client.post("/api/import/ventes/archive?dep=40&code_insee=40184")
+    assert reponse.status_code == 400
+    assert "OU" in reponse.json()["detail"]

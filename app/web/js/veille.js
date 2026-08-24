@@ -415,7 +415,7 @@ async function chargerProfondeurVentes() {
       : "aucune commune surveillée";
 
     liste.innerHTML = [
-      ["Porte sur", porte],
+      ["Commune surveillée", porte],
       ["Ventes conservées", entierFr.format(p.ventes)],
       ["Historique", `du ${p.depuis} au ${p.jusqu_a}`],
       ["Millésimes servis par la source", p.millesimes_source.join(", ")],
@@ -428,17 +428,91 @@ async function chargerProfondeurVentes() {
   }
 }
 
+/** Montre le champ qu'appelle la portée choisie, et l'avertissement. */
+function ajusterPorteeArchive() {
+  const portee = $("#archive-portee").value;
+  $("#archive-champ-commune").hidden = portee !== "commune";
+  $("#archive-champ-departement").hidden = portee !== "departement";
+  // Un département entier change la taille de la base : le dire avant,
+  // pas après.
+  $("#archive-avertissement").hidden = portee !== "departement";
+
+  // Le résumé au-dessus dit ce que la base CONTIENT ; cette ligne dit ce
+  // que le bouton VA FAIRE. Les confondre laissait croire que la reprise
+  // porterait sur la commune surveillée même après avoir choisi un
+  // département.
+  const annonce = {
+    surveillee: "Reprendra la commune surveillée, ci-dessus.",
+    commune: "Reprendra la commune indiquée, quelle qu'elle soit.",
+    departement: "Reprendra <strong>toutes</strong> les communes du "
+                 + "département indiqué.",
+  }[portee];
+  $("#archive-etat").innerHTML = `<p class="message">${annonce}</p>`;
+}
+
+/** Ce que l'écran demande : rien, une commune, ou un département. */
+async function cibleArchive() {
+  const portee = $("#archive-portee").value;
+  if (portee === "departement") {
+    const dep = $("#archive-departement").value.trim();
+    return dep ? { dep } : { erreur: "Indiquez un numéro de département." };
+  }
+  if (portee !== "commune") return {};
+
+  const saisie = $("#archive-commune").value.trim();
+  if (!saisie) return { erreur: "Indiquez une commune." };
+
+  // Le champ accepte le code, ou le nom seul. Le datalist propose
+  // « Mimizan (40184) » ; si le code est là, il tranche.
+  const code = (saisie.match(/\b(\d{5})\b/) || [])[1];
+  if (code) return { code_insee: code };
+
+  // Sinon on résout le nom : exiger un choix dans la liste alors que le
+  // nom suffit à trancher serait une contrainte gratuite.
+  try {
+    const reponse = await api.chercherCommunes(saisie);
+    const trouvees = reponse.communes || [];
+    if (trouvees.length === 1) return { code_insee: trouvees[0].code_insee };
+    if (trouvees.length === 0) {
+      return { erreur: `Aucune commune ne correspond à « ${saisie} ».` };
+    }
+    return { erreur: `Plusieurs communes correspondent à « ${saisie} » : `
+                     + trouvees.slice(0, 4).map((c) => `${c.nom} (${c.code_insee})`)
+                         .join(", ") + ". Précisez." };
+  } catch (erreur) {
+    return { erreur: "Recherche de commune indisponible — saisissez le "
+                     + "code INSEE à cinq chiffres." };
+  }
+}
+
+async function proposerCommunesArchive() {
+  const saisie = $("#archive-commune").value.trim();
+  if (saisie.length < 2) return;
+  try {
+    const reponse = await api.chercherCommunes(saisie);
+    $("#archive-communes").innerHTML = (reponse.communes || [])
+      .map((c) => `<option value="${echapper(c.nom)} (${c.code_insee})"></option>`)
+      .join("");
+  } catch (_) { /* la saisie directe du code reste possible */ }
+}
+
 async function reprendreArchiveVentes() {
   const bouton = $("#reprendre-archive");
   const etat = $("#archive-etat");
+  const cible = await cibleArchive();
+  if (cible.erreur) {
+    etat.innerHTML = `<p class="message message-erreur">${echapper(cible.erreur)}</p>`;
+    return;
+  }
   bouton.disabled = true;
   const libelle = bouton.textContent;
   bouton.textContent = "Reprise…";
   etat.innerHTML = '<p class="message message-travail">Lecture de l\'archive '
     + 'départementale — 34 Mo, quelques dizaines de secondes.'
+    + (cible.dep ? ' Tout le département : comptez une minute de plus.' : '')
     + '<span class="jauge"><span></span></span></p>';
   try {
-    const r = await api.reprendreArchive();
+    const r = await api.reprendreArchive(cible);
     etat.innerHTML = `<p class="message message-succes">${r.message}</p>`;
     await chargerProfondeurVentes();
   } catch (erreur) {
@@ -699,6 +773,9 @@ async function demarrer() {
   chargerProfondeurVentes();
   chargerEtatSauvegardes();
   $("#reprendre-archive")?.addEventListener("click", reprendreArchiveVentes);
+  $("#archive-portee")?.addEventListener("change", ajusterPorteeArchive);
+  $("#archive-commune")?.addEventListener("input", proposerCommunesArchive);
+  ajusterPorteeArchive();
   $("#sauvegarder-maintenant")?.addEventListener("click", sauvegarderMaintenant);
   initialiserParcours();
   brancherHistorique();

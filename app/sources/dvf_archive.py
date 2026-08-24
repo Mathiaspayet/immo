@@ -39,6 +39,15 @@ import urllib.request
 
 from app.sources.client_http import CONTEXTE, ENTETES, ErreurSource
 
+
+class ArchiveIntrouvable(ErreurSource):
+    """Le departement est valide, mais la compilation ne le couvre pas.
+
+    Distinct d'une panne : reessayer n'y changera rien, et l'annoncer
+    comme une indisponibilite ferait chercher le probleme du mauvais
+    cote. Une saisie fautive, elle, leve ValueError.
+    """
+
 logger = logging.getLogger(__name__)
 
 # Ce que la reprise a lu, et non seulement ce qu'elle a rendu. Sans cela
@@ -57,6 +66,24 @@ def departement(code_insee):
     return code[:3] if code[:2] == "97" else code[:2]
 
 
+def _departement_valide(dep):
+    """Normalise un numero de departement saisi a la main.
+
+    Sans ce controle, « 4 » au lieu de « 04 » ne rendrait rien et le
+    message parlerait d'une archive absente, alors que c'est la saisie
+    qui est en cause.
+    """
+    code = str(dep).strip().upper()
+    if code in ("2A", "2B") or (code.isdigit() and len(code) == 3
+                                and code.startswith("97")):
+        return code
+    if code.isdigit() and len(code) in (1, 2):
+        return code.zfill(2)
+    raise ValueError(
+        f"Numero de departement invalide : {dep!r}. Attendu deux chiffres"
+        " (40), « 2A »/« 2B », ou trois chiffres outre-mer (974).")
+
+
 def _ressource(dep):
     """L'adresse du fichier departemental, demandee au catalogue."""
     try:
@@ -73,35 +100,48 @@ def _ressource(dep):
         # Les titres sont de la forme « 40 - Landes ».
         if titre.split("-")[0].strip() == dep:
             return ressource.get("url"), titre
-    raise ErreurSource(
-        f"Aucune archive DVF pour le departement {dep} dans la compilation.")
+    raise ArchiveIntrouvable(
+        f"Aucune archive DVF pour le departement {dep} dans la compilation."
+        " Elle ne couvre pas tous les departements.")
 
 
-def telecharger(code_insee, progression=None):
+def telecharger(code_insee=None, dep=None, progression=None):
     """
-    Les lignes archivees d'une commune, au format de geo-dvf.
+    Les lignes archivees, au format de geo-dvf.
 
-    Le fichier est departemental — 34 Mo pour les Landes — et se lit au
-    fil de l'eau : on ne garde que la commune demandee, sans jamais poser
-    l'ensemble en memoire.
+    Deux facons de designer ce qu'on veut, et une seule a la fois :
 
-    Renvoie aussi le departement et l'intitule exact de la ressource lue.
-    Le departement n'est jamais choisi : il se deduit des deux premiers
-    chiffres du code INSEE. Le dire est le seul moyen de verifier, apres
-    coup, que la reprise a bien porte la ou on le croyait.
+      - `code_insee` : une commune. Le departement s'en deduit — deux
+        chiffres, trois outre-mer — et n'est jamais choisi ;
+      - `dep` : le departement entier, toutes communes confondues.
+
+    Le fichier est departemental dans les deux cas — 34 Mo pour les
+    Landes, 184 878 lignes, 327 communes. Il se lit au fil de l'eau : on
+    ne retient que ce qui est demande, sans jamais poser l'ensemble en
+    memoire. Prendre tout le departement ne coute donc pas un
+    telechargement de plus, seulement les lignes gardees.
+
+    Renvoie l'intitule exact de la ressource lue : c'est le seul moyen de
+    verifier, apres coup, que la reprise a porte la ou on le croyait.
     """
-    code_insee = str(code_insee).strip()
-    dep = departement(code_insee)
+    if bool(code_insee) == bool(dep):
+        raise ValueError(
+            "Preciser une commune OU un departement, pas les deux ni aucun.")
+
+    code_insee = str(code_insee).strip() if code_insee else None
+    dep = departement(code_insee) if code_insee else _departement_valide(dep)
     url, titre = _ressource(dep)
     if progression:
-        progression(f"archive DVF « {titre} »…")
+        cible = code_insee or f"departement {dep}"
+        progression(f"archive DVF « {titre} » — {cible}…")
 
     try:
         requete = urllib.request.Request(url, headers=ENTETES)
         with urllib.request.urlopen(requete, timeout=DELAI, context=CONTEXTE) as reponse:
             flux = io.TextIOWrapper(reponse, encoding="utf-8", errors="replace")
             lignes = [l for l in csv.DictReader(flux)
-                      if (l.get("code_commune") or "").strip() == code_insee]
+                      if code_insee is None
+                      or (l.get("code_commune") or "").strip() == code_insee]
     except urllib.error.HTTPError as erreur:
         raise ErreurSource(f"Archive DVF : HTTP {erreur.code}") from erreur
     except Exception as erreur:                      # noqa: BLE001
@@ -110,5 +150,6 @@ def telecharger(code_insee, progression=None):
 
     annees = sorted({(l.get("date_mutation") or "")[:4] for l in lignes} - {""})
     logger.info("archive dvf %s : ressource « %s », %d lignes, millesimes %s",
-                code_insee, titre, len(lignes), ", ".join(annees) or "aucun")
+                code_insee or f"dep {dep}", titre, len(lignes),
+                ", ".join(annees) or "aucun")
     return Archive(lignes=lignes, departement=dep, titre=titre, url=url)

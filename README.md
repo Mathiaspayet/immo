@@ -357,6 +357,48 @@ L'écran annonce donc sa cible **avant** — « Mimizan (40184) — archive du
 département 40 » — et le compte rendu nomme la ressource effectivement
 lue.
 
+#### Une commune, ou tout un département
+
+Le fichier téléchargé est départemental dans les deux cas — il n'existe
+qu'à cette maille. Prendre le département entier ne coûte donc **pas un
+téléchargement de plus**, seulement les lignes conservées. Mesure sur les
+Landes :
+
+| | commune (Mimizan) | département entier |
+|---|---|---|
+| Lignes lues | 3 867 | 184 878 |
+| Communes | 1 | 327 |
+| Ventes | 2 244 | 69 699 |
+| Durée d'import | < 1 s | **9 s** |
+| Taille de la base | ~7 Mo | **38 Mo** |
+
+C'est ce chiffre de 9 s qui autorise l'appel synchrone : le téléchargement
+des 34 Mo domine largement.
+
+**L'écriture reste commune par commune.** Tout ce qui tient l'import droit
+raisonne par commune — la reconnaissance des ventes déjà connues par
+empreinte, la suppression du premier import, le comptage des
+rattachements. Un import global les fausserait tous en silence.
+
+**Mais une vente n'est jamais coupée en deux.** 510 des 69 699 ventes des
+Landes portent sur plusieurs communes : des parcelles limitrophes vendues
+ensemble — 40271 et 40272, 40280 et 40281. Répartir les *lignes* par
+commune les scinderait, et comme l'écriture refait les rattachements à
+neuf, la seconde commune effacerait les parcelles de la première. Mesuré :
+**4 450 rattachements perdus**. Le regroupement se fait donc par vente
+d'abord, chaque vente étant rangée entière dans la commune de sa première
+ligne. Vérifié sur le département réel : 138 148 rattachements contre
+133 609 avec le découpage naïf, et les 510 ventes à cheval conservent
+leurs parcelles des deux côtés.
+
+**Trois issues distinctes**, parce qu'elles n'appellent pas la même
+réaction : une saisie fautive rend **400**, un département que la
+compilation ne couvre pas rend **404**, une panne de data.gouv.fr rend
+**502**. Les confondre enverrait chercher le problème au mauvais endroit.
+Préciser une commune *et* un département est refusé plutôt qu'arbitré :
+taire l'un des deux ferait croire qu'on a repris une commune alors qu'on
+aurait pris 327.
+
 La compilation est **figée** (mai 2023) et n'est donc pas guettée : on la
 lit une fois, le courant continue de venir de geo-dvf. Si elle disparaissait
 de data.gouv.fr, le bouton échouerait avec un message — ce qui est déjà
