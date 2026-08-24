@@ -506,3 +506,19 @@
   }
   .etape-detail, .etape-duree { grid-column: 2; }
 }
+
+/* La vue de rue : sa propre bande, à sa taille native. L'étirer sur toute
+   la largeur d'une fiche l'agrandirait au-delà des 640 px que la source
+   fournit, et le flou se verrait. */
+.extrait-rue {
+  max-width: 640px;
+  margin: 0 0 calc(var(--pas) * 8);
+}
+
+.extrait-rue img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--encre);
+  background: var(--papier-creux);
+}

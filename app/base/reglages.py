@@ -115,12 +115,21 @@ DEFAUTS = {
     "smtp_expediteur": "",
     "smtp_utilisateur": "",
     "smtp_motdepasse": "",
+
+    # --- Vue de rue (Google Street View) -----------------------------
+    # Vide, la fiche garde son simple lien et rien ne part chez Google.
+    # Renseignee, elle affiche le cliche — au prix d'un ecart assume au
+    # CDC 9, les coordonnees du bien etant alors transmises a un tiers.
+    #
+    # Second secret de la table, donc inscrit dans SECRETS comme le mot de
+    # passe : une cle d'API se facture a qui la trouve.
+    "streetview_cle": "",
 }
 
 # Cles dont la valeur ne doit jamais sortir par l'API. `tous()` les masque,
 # et il faut la demander explicitement pour l'obtenir. Le defaut est donc
 # le silence : ajouter un secret plus tard le protege sans y penser.
-SECRETS = {"smtp_motdepasse"}
+SECRETS = {"smtp_motdepasse", "streetview_cle"}
 
 MASQUE = "\u2022" * 8
 

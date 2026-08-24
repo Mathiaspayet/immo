@@ -318,6 +318,46 @@ function blocVentes(ventes) {
     <ol class="ventes">${lignes}</ol>`;
 }
 
+/**
+ * La vue de rue, quand une clé est configurée et qu'un cliché existe.
+ *
+ * Elle prend sa propre bande plutôt que de rejoindre la paire
+ * cadastre/satellite : celle-ci tire sa valeur de son cadrage identique,
+ * qu'une troisième vue romprait. Et la photo dit autre chose — ce que le
+ * bien donne à voir depuis la voie.
+ *
+ * L'image passe par le NAS : la page n'appelle aucun tiers, et la clé
+ * d'API reste sur le serveur. Un cliché absent est le cas courant, pas
+ * une panne : la figure se retire alors sans bruit.
+ */
+function vueDeRue(bien) {
+  if (bien.latitude == null || bien.longitude == null) return "";
+  return `
+  <figure class="extrait extrait-rue" id="figure-rue" hidden>
+    <img id="image-rue" alt="Vue depuis la rue"
+         src="/api/parcelles/vue-rue?n_dpe=${encodeURIComponent(bien.n_dpe)}">
+    <figcaption>
+      <span>Vue depuis la rue</span>
+      <span class="donnee">Google</span>
+    </figcaption>
+  </figure>`;
+}
+
+/** Montre la figure si le cliché arrive, la retire sinon. */
+function brancherVueDeRue() {
+  const image = document.getElementById("image-rue");
+  if (!image) return;
+  image.addEventListener("load", () => {
+    const figure = document.getElementById("figure-rue");
+    if (figure) figure.hidden = false;
+  });
+  // 404 quand rien n'a été photographié là, ou quand aucune clé n'est
+  // renseignée. Dans les deux cas il n'y a rien à dire à l'utilisateur.
+  image.addEventListener("error", () => {
+    document.getElementById("figure-rue")?.remove();
+  });
+}
+
 function ligneChronologie(diagnostic) {
   const retire = !diagnostic.encore_publie;
   return `
@@ -491,6 +531,8 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
         immeuble, ou voie sans numéro. La chronologie ci-dessous les mélange.
       </p>` : ""}
 
+    ${vueDeRue(principal)}
+
     ${blocVentes(ventes)}
 
     <h2>Chronologie — ${entierFr.format(diagnostics.length)} diagnostic(s)</h2>
@@ -514,6 +556,7 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
   }
 
   $("#fiche-retour").addEventListener("click", revenir);
+  brancherVueDeRue();
 
   const chargeur = $("#fiche-contenu").querySelector("[data-charger-cadastre]");
   if (chargeur) {

@@ -466,6 +466,30 @@
           Envoyer un message de contrôle
         </button>
       </p>
+    </section>
+
+    <section>
+      <h2>Vue de rue sur la fiche</h2>
+      <p class="explication">
+        Facultatif. Sans clé, la fiche garde son simple lien et
+        <strong>rien n'est transmis</strong>. Avec une clé, elle affiche le
+        cliché de rue&nbsp;: l'image passe par le NAS, votre navigateur
+        n'appelle donc jamais Google et la clé ne le quitte pas — mais le NAS,
+        lui, transmet les coordonnées du bien consulté. C'est un écart assumé
+        au CDC&nbsp;§9.
+      </p>
+      <p class="explication">
+        La clé se crée dans la console Google Cloud, en activant
+        <span class="donnee">Street View Static API</span>. Pensez à la
+        restreindre à cette seule API.
+      </p>
+      <div class="grille-champs">
+        <div class="champ champ-large">
+          <label for="r-streetview">Clé d'API Google</label>
+          <input type="password" id="r-streetview" class="donnee"
+                 autocomplete="new-password">
+        </div>
+      </div>
 
       <!-- Le résultat du contrôle, étape par étape. Une boîte de dialogue
            plutôt qu'un bandeau : le diagnostic tient en plusieurs lignes,

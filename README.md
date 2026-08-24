@@ -23,6 +23,7 @@ Spécification complète : [`CAHIER_DES_CHARGES.md`](CAHIER_DES_CHARGES.md).
 | **F2** Identifier un bien depuis une annonce | livrée |
 | **F4** Fiche bien, chronologie, remplacements | livrée |
 | Historique des ventes (DVF) | livré |
+| Vue de rue sur la fiche (option) | livrée |
 | Carte d'exploration, parcelles colorées | livrée |
 | Import ADEME des trois bases, avec cache et journal | livré |
 | Import quotidien automatique | livré |
@@ -180,6 +181,40 @@ faire disparaître celles qui portent l'information.
 L'échelle ensuite : en dessous du zoom 15, une commune entière tient à
 l'écran et ses parcelles font quelques pixels. La carte demande alors de
 zoomer, au lieu de peiner en silence.
+
+### La vue de rue
+
+La fiche affiche le cliché de rue du bien, **si une clé d'API Google est
+renseignée**. Sans clé, elle garde son simple lien et rien n'est transmis :
+c'est le comportement par défaut.
+
+C'est un **écart assumé au CDC §9** — « aucune donnée transmise à un
+service tiers hors des API publiques listées en section 4 » — puisque
+consulter une fiche envoie les coordonnées du bien à Google. Le choix a été
+fait faute d'alternative couvrante, et la mesure est nette : sur
+**Panoramax**, l'équivalent ouvert de l'IGN, on compte 89 prises de vue
+dans les 200 m à Launaguet mais **zéro dans le bourg de Mimizan**. Sur un
+échantillon de 60 adresses de Mimizan, 13 % seulement avaient une vue à
+moins de 40 m, issue d'une campagne isolée de 2019.
+
+Deux précautions limitent la portée de l'écart :
+
+- **L'image passe par le NAS.** Le navigateur n'appelle jamais Google — ce
+  qui préserve la règle du §3, aucune requête de la page vers un tiers — et
+  la clé ne quitte pas le serveur. Vérifié : la fiche n'émet de requêtes
+  que vers `data.geopf.fr`.
+- **La clé est un secret**, au même titre que le mot de passe SMTP : elle
+  vit dans `SECRETS`, l'API ne renvoie que des puces, et un test verrouille
+  qu'elle n'apparaît nulle part dans les réponses.
+
+Deux détails qui font la qualité du résultat. Le **catalogue est interrogé
+avant l'image** : cette consultation est gratuite, elle dit si une vue
+existe — ce qui évite de payer un cliché absent et de l'afficher en
+rectangle gris — et elle donne la position réelle de la prise de vue. On en
+déduit alors **vers où tourner l'objectif** : la caméra est sur la voie, le
+bien est de côté, et sans ce cap on reçoit ce que le véhicule avait devant
+lui, c'est-à-dire la route. Le cliché obtenu est enfin **gardé sur disque**,
+une même fiche se consultant plusieurs fois et chaque image se facturant.
 
 ### L'historique des ventes (DVF)
 

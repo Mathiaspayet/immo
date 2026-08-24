@@ -272,6 +272,8 @@ async function chargerReglages() {
     // Le serveur ne renvoie jamais le mot de passe, seulement des puces
     // quand il en existe un. Les reposter tel quel le conserve.
     $("#r-smtp-motdepasse").value = reglages.smtp_motdepasse ?? "";
+    // Même règle que le mot de passe : le serveur ne renvoie que des puces.
+    $("#r-streetview").value = reglages.streetview_cle ?? "";
     // Les listes se peuplent AVANT qu'on y pose la valeur enregistrée :
     // affecter une option qui n'existe pas encore la perdrait.
     await chargerEtatAlerte(reglages.alerte_code_insee ?? "",
@@ -466,6 +468,7 @@ async function enregistrerReglages() {
       // Renvoyé tel quel : le serveur reconnaît son propre masque et
       // conserve le mot de passe. Vidé volontairement, il l'efface.
       smtp_motdepasse: $("#r-smtp-motdepasse").value,
+      streetview_cle: $("#r-streetview").value,
     };
   } catch (erreur) {
     afficherErreur(erreur.message);
