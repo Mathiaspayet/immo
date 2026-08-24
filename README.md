@@ -152,7 +152,11 @@ qu'on cherche. Chaque contour porte enfin un liseré blanc plein : sur une
 photo, une teinte seule disparaît contre une toiture claire ou dans l'ombre
 d'un arbre.
 
-**Un clic ouvre la fiche, directement.** Les deux chemins y mènent : quand
+Sur l'écran **Les DPE récents**, un repère mène lui aussi à la fiche du
+bien — c'est là qu'on allait de toute façon. Le sens inverse est conservé :
+cliquer une ligne de la liste la situe sur la carte sans quitter l'écran.
+
+**Sur la carte d'exploration, un clic ouvre la fiche, directement.** Les deux chemins y mènent : quand
 la parcelle porte un diagnostic, c'est la fiche du bien avec sa
 chronologie ; sinon c'est celle de la parcelle — contour, voisinage, bâti,
 et ses ventes s'il y en a. Le second cas est de loin le plus fréquent, 468

@@ -571,7 +571,11 @@ function deplierCarte() {
 }
 
 function initialiserCarte() {
-  etat.carte = creerCarte("carte", selectionner);
+  // Un clic sur un repère ouvre la fiche du bien, comme sur la carte
+  // d'exploration : c'est là qu'on allait de toute façon. Le sens inverse
+  // — cliquer une ligne pour la situer sur la carte — reste inchangé.
+  etat.carte = creerCarte("carte", (numero) =>
+    ouvrirFiche({ n_dpe: numero, retour: "veille" }));
   // Sur grand écran la carte est visible d'emblée ; sur téléphone elle est
   // repliée pour que la liste passe en premier.
   if (window.matchMedia("(min-width: 940px)").matches) {
