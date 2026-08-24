@@ -323,8 +323,13 @@
       </p>
     </section>
 
-    <section>
-      <h2>Points de référence des secteurs</h2>
+    <section class="reglage" data-reglage="secteurs">
+      <div class="reglage-tete">
+        <h2>Points de référence des secteurs</h2>
+        <button type="button" class="bouton bouton-modifier">Modifier</button>
+      </div>
+      <dl class="reglage-resume"></dl>
+      <div class="reglage-edition" hidden>
       <p class="explication">
         Mimizan-Plage n'a ni code postal ni code INSEE propre. Chaque logement est
         donc rattaché au point de référence le plus proche. Un point par ligne,
@@ -346,10 +351,22 @@
         <label for="r-zones">Secteurs</label>
         <textarea id="r-zones" class="donnee" rows="3" style="font-size:0.88rem;padding:8px;border:1px solid var(--trait-fort);border-radius:3px;background:var(--papier-carte);resize:vertical"></textarea>
       </div>
+        <div class="reglage-actions">
+          <button type="button" class="bouton bouton-principal" data-enregistrer>
+            Enregistrer
+          </button>
+          <button type="button" class="bouton" data-annuler>Annuler</button>
+        </div>
+      </div>
     </section>
 
-    <section>
-      <h2>Filtres par défaut</h2>
+    <section class="reglage" data-reglage="filtres">
+      <div class="reglage-tete">
+        <h2>Filtres par défaut</h2>
+        <button type="button" class="bouton bouton-modifier">Modifier</button>
+      </div>
+      <dl class="reglage-resume"></dl>
+      <div class="reglage-edition" hidden>
       <p class="explication">Ce que l'écran Veille affiche à l'ouverture.</p>
       <div class="grille-champs">
         <div class="champ">
@@ -377,11 +394,22 @@
           <input type="number" id="r-purge" min="0" max="600" class="donnee">
         </div>
       </div>
-      <button type="button" class="bouton bouton-principal" id="enregistrer-reglages">Enregistrer</button>
+        <div class="reglage-actions">
+          <button type="button" class="bouton bouton-principal" data-enregistrer>
+            Enregistrer
+          </button>
+          <button type="button" class="bouton" data-annuler>Annuler</button>
+        </div>
+      </div>
     </section>
 
-    <section>
-      <h2>Alerte par courriel</h2>
+    <section class="reglage" data-reglage="alerte">
+      <div class="reglage-tete">
+        <h2>Alerte par courriel</h2>
+        <button type="button" class="bouton bouton-modifier">Modifier</button>
+      </div>
+      <dl class="reglage-resume"></dl>
+      <div class="reglage-edition" hidden>
       <p class="explication">
         À la suite de l'import quotidien, un message part si de nouveaux DPE
         répondent aux critères ci-dessus. Un bien n'est signalé qu'une fois,
@@ -421,7 +449,22 @@
         </div>
       </div>
 
-      <h3>Serveur d'envoi</h3>
+        <div class="reglage-actions">
+          <button type="button" class="bouton bouton-principal" data-enregistrer>
+            Enregistrer
+          </button>
+          <button type="button" class="bouton" data-annuler>Annuler</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="reglage" data-reglage="envoi">
+      <div class="reglage-tete">
+        <h2>Serveur d'envoi</h2>
+        <button type="button" class="bouton bouton-modifier">Modifier</button>
+      </div>
+      <dl class="reglage-resume"></dl>
+      <div class="reglage-edition" hidden>
       <p class="explication">
         Tout se règle ici&nbsp;: rien à poser dans le conteneur. Le mot de
         passe est le seul secret de l'application&nbsp;; il est conservé en
@@ -461,15 +504,35 @@
                  autocomplete="new-password">
         </div>
       </div>
-      <p>
+        <div class="reglage-actions">
+          <button type="button" class="bouton bouton-principal" data-enregistrer>
+            Enregistrer
+          </button>
+          <button type="button" class="bouton" data-annuler>Annuler</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="reglage" data-reglage="controle">
+      <div class="reglage-tete">
+        <h2>Contrôle de l'envoi</h2>
         <button type="button" class="bouton" id="essai-alerte">
           Envoyer un message de contrôle
         </button>
+      </div>
+      <p class="explication">
+        Éprouve la configuration affichée ci-dessus, enregistrée ou non, et
+        dit à quelle étape elle s'arrête.
       </p>
     </section>
 
-    <section>
-      <h2>Vue de rue sur la fiche</h2>
+    <section class="reglage" data-reglage="vue-rue">
+      <div class="reglage-tete">
+        <h2>Vue de rue sur la fiche</h2>
+        <button type="button" class="bouton bouton-modifier">Modifier</button>
+      </div>
+      <dl class="reglage-resume"></dl>
+      <div class="reglage-edition" hidden>
       <p class="explication">
         Facultatif. Sans clé, la fiche garde son simple lien et
         <strong>rien n'est transmis</strong>. Avec une clé, elle affiche le
@@ -504,8 +567,16 @@
         <div class="dialogue-pied">
           <button type="button" class="bouton" id="essai-relancer">Réessayer</button>
         </div>
-      </dialog>
+        <div class="reglage-actions">
+          <button type="button" class="bouton bouton-principal" data-enregistrer>
+            Enregistrer
+          </button>
+          <button type="button" class="bouton" data-annuler>Annuler</button>
+        </div>
+      </div>
     </section>
+
+      </dialog>
 
     <section>
       <h2>Journal des imports</h2>

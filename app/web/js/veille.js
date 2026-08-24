@@ -2,6 +2,7 @@ import { api, ErreurApi } from "./api.js";
 import { creerCarte } from "./carte.js";
 import { auTermeDeLImport, lancerImport, reprendreSuiviEventuel } from "./import.js";
 import { initialiserExploration } from "./exploration.js";
+import { initialiserReglages, rafraichirReglages } from "./reglages.js";
 import {
   communeCourante, dessinerContexte, initialiserParcours, libelleIntention,
   surCommunePrete,
@@ -199,90 +200,6 @@ async function charger() {
 //  Écran Réglages
 // --------------------------------------------------------------------
 
-function zonesVersTexte(zones) {
-  return Object.entries(zones).map(([nom, p]) => `${nom} ${p[0]} ${p[1]}`).join("\n");
-}
-
-function texteVersZones(texte) {
-  const zones = {};
-  for (const ligne of texte.split("\n").map((l) => l.trim()).filter(Boolean)) {
-    const [nom, lat, lon] = ligne.split(/\s+/);
-    if (!nom || lat === undefined || lon === undefined) {
-      throw new Error(`Secteur mal formé : « ${ligne} ». Attendu : nom latitude longitude.`);
-    }
-    zones[nom] = [Number(lat), Number(lon)];
-  }
-  return zones;
-}
-
-/**
- * Ajuste ce qui dépend du contenu réel du cache : le sous-titre, la barre
- * de contexte, et le filtre par secteur — qui n'a de sens que là où des
- * secteurs ont été définis.
- */
-async function chargerContexte() {
-  const commune = communeCourante();
-  try {
-    const { communes, zones } = await api.communes();
-    const ici = communes.find((c) => c.code_insee === commune?.code_insee);
-
-    // Le sous-titre suit l'intention : « DPE récents » était juste quand
-    // la veille était l'écran unique, il ne l'est plus.
-    const quoi = libelleIntention();
-    $("#sous-titre").textContent = commune ? `${quoi} · ${commune.nom}` : quoi;
-    dessinerContexte({ dpe: ici?.dpe });
-
-    // Les secteurs sont propres à une commune : ailleurs, plus rien n'en
-    // porte et le filtre n'a rien à filtrer.
-    const selecteurZone = $("#f-zone");
-    const champSecteur = selecteurZone.closest(".champ");
-    if (!zones || zones.length === 0) {
-      champSecteur.hidden = true;
-      selecteurZone.value = "";
-    } else {
-      champSecteur.hidden = false;
-      const zoneChoisie = selecteurZone.value;
-      selecteurZone.innerHTML = '<option value="">tous</option>' +
-        zones.map((zone) => `<option>${echapper(zone)}</option>`).join("");
-      selecteurZone.value = zoneChoisie;
-    }
-    return communes;
-  } catch (_) {
-    return [];
-  }
-}
-
-async function chargerReglages() {
-  try {
-    const { reglages } = await api.reglages();
-    $("#r-zones").value = zonesVersTexte(reglages.zones);
-    $("#r-fenetre").value = reglages.fenetre_jours;
-    $("#r-type").value = reglages.type_batiment ?? "";
-    $("#r-surface-min").value = reglages.surface_min;
-    $("#r-surface-max").value = reglages.surface_max;
-    $("#r-purge").value = reglages.purge_mois;
-    $("#r-zones-insee").value = reglages.zones_code_insee ?? "";
-    $("#r-alerte-active").value = reglages.alerte_active ? "1" : "0";
-    $("#r-alerte-destinataire").value = reglages.alerte_destinataire ?? "";
-    $("#r-smtp-hote").value = reglages.smtp_hote ?? "";
-    $("#r-smtp-port").value = reglages.smtp_port ?? 587;
-    $("#r-smtp-ssl").value = reglages.smtp_ssl ? "1" : "0";
-    $("#r-smtp-expediteur").value = reglages.smtp_expediteur ?? "";
-    $("#r-smtp-utilisateur").value = reglages.smtp_utilisateur ?? "";
-    // Le serveur ne renvoie jamais le mot de passe, seulement des puces
-    // quand il en existe un. Les reposter tel quel le conserve.
-    $("#r-smtp-motdepasse").value = reglages.smtp_motdepasse ?? "";
-    // Même règle que le mot de passe : le serveur ne renvoie que des puces.
-    $("#r-streetview").value = reglages.streetview_cle ?? "";
-    // Les listes se peuplent AVANT qu'on y pose la valeur enregistrée :
-    // affecter une option qui n'existe pas encore la perdrait.
-    await chargerEtatAlerte(reglages.alerte_code_insee ?? "",
-                            reglages.alerte_zone ?? "");
-  } catch (erreur) {
-    afficherErreur("Impossible de lire les réglages.", erreur.message);
-  }
-}
-
 /**
  * L'état de l'alerte : ce que les Réglages ne peuvent pas dire d'eux-mêmes.
  *
@@ -444,46 +361,6 @@ async function envoyerEssaiAlerte() {
   }
 }
 
-async function enregistrerReglages() {
-  masquerErreur();
-  let valeurs;
-  try {
-    valeurs = {
-      zones: texteVersZones($("#r-zones").value),
-      fenetre_jours: Number($("#r-fenetre").value),
-      type_batiment: $("#r-type").value,
-      surface_min: Number($("#r-surface-min").value),
-      surface_max: Number($("#r-surface-max").value),
-      purge_mois: Number($("#r-purge").value),
-      zones_code_insee: $("#r-zones-insee").value.trim(),
-      alerte_active: $("#r-alerte-active").value === "1",
-      alerte_destinataire: $("#r-alerte-destinataire").value.trim(),
-      alerte_code_insee: $("#r-alerte-commune").value.trim(),
-      alerte_zone: $("#r-alerte-zone").value.trim(),
-      smtp_hote: $("#r-smtp-hote").value.trim(),
-      smtp_port: Number($("#r-smtp-port").value),
-      smtp_ssl: $("#r-smtp-ssl").value === "1",
-      smtp_expediteur: $("#r-smtp-expediteur").value.trim(),
-      smtp_utilisateur: $("#r-smtp-utilisateur").value.trim(),
-      // Renvoyé tel quel : le serveur reconnaît son propre masque et
-      // conserve le mot de passe. Vidé volontairement, il l'efface.
-      smtp_motdepasse: $("#r-smtp-motdepasse").value,
-      streetview_cle: $("#r-streetview").value,
-    };
-  } catch (erreur) {
-    afficherErreur(erreur.message);
-    return;
-  }
-
-  try {
-    await api.enregistrerReglages(valeurs);
-    afficherSucces("Réglages enregistrés.");
-    await chargerReglages();
-    await chargerJournal();
-  } catch (erreur) {
-    afficherErreur("Réglages refusés.", erreur.message);
-  }
-}
 
 /** Version déployée, affichée en permanence dans le bandeau. */
 async function afficherVersion() {
@@ -512,6 +389,7 @@ async function afficherVersion() {
     boite.title = `Version ${sante.version}\nConstruite le ${sante.date_build}`;
   } catch (_) { /* le bandeau reste vide, ce n'est pas bloquant */ }
 }
+
 
 async function chargerJournal() {
   try {
@@ -636,7 +514,6 @@ async function demarrer() {
 
   // Ce bouton n'a jamais été branché depuis le lot 1 : les réglages
   // s'affichaient, se modifiaient à l'écran, et rien n'était enregistré.
-  $("#enregistrer-reglages").addEventListener("click", enregistrerReglages);
   $("#essai-alerte").addEventListener("click", envoyerEssaiAlerte);
   $("#essai-fermer").addEventListener("click", () => $("#dialogue-essai").close());
   $("#essai-relancer").addEventListener("click", envoyerEssaiAlerte);
@@ -650,7 +527,11 @@ async function demarrer() {
   // Le parcours nous prévient quand une commune est choisie et prête.
   surCommunePrete(() => { chargerContexte(); charger(); });
 
-  auChangement("reglages", () => { chargerReglages(); chargerJournal(); });
+  auChangement("reglages", () => {
+    rafraichirReglages().catch(() => {});
+    chargerEtatAlerte();
+    chargerJournal();
+  });
   auChangement("veille", () => { if (etat.carte) etat.carte.redimensionner(); });
 
   initialiserIdentification();
@@ -662,11 +543,14 @@ async function demarrer() {
     appliquerFiltres(reponse.filtres);
   } catch (_) { /* charger() affichera l'erreur */ }
 
-  await chargerReglages();
+  await rafraichirReglages().catch(() => {});
   afficherVersion();
 
   // Le parcours prend la main : accueil, puis commune, puis résultats.
   initialiserExploration();
+  // Les réglages se rechargent après un enregistrement : les filtres
+  // par défaut et l'état de l'alerte en dépendent.
+  initialiserReglages(() => { chargerEtatAlerte(); chargerJournal(); });
   initialiserParcours();
   brancherHistorique();
   await reprendreSuiviEventuel();

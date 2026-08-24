@@ -522,3 +522,66 @@
   border: 1px solid var(--encre);
   background: var(--papier-creux);
 }
+
+/* ------------------------------------------------------------------ */
+/*  Réglages — ce qui est enregistré, et ce qu'on est en train de saisir */
+/* ------------------------------------------------------------------ */
+/*  Une zone montre d'abord SES VALEURS ENREGISTRÉES. Les champs de
+    saisie n'apparaissent qu'à la demande : un champ pré-rempli ne dit
+    pas s'il porte ce qui est en base ou ce qu'on vient de taper.        */
+
+.reglage-tete {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--pas) * 4);
+  flex-wrap: wrap;
+}
+
+.reglage-tete h2 { margin-bottom: calc(var(--pas) * 2); }
+
+.reglage-resume {
+  margin: calc(var(--pas) * 2) 0 0;
+  display: grid;
+  gap: calc(var(--pas) * 2) calc(var(--pas) * 6);
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+.reglage-resume > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: calc(var(--pas) * 2) 0;
+  border-top: 1px solid var(--trait);
+}
+
+.reglage-resume dt {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--encre-douce);
+}
+
+.reglage-resume dd {
+  margin: 0;
+  font-family: var(--donnees);
+  font-size: 0.88rem;
+  color: var(--encre);
+  word-break: break-word;
+}
+
+/* L'édition se distingue nettement du résumé : on est ailleurs, dans un
+   état où rien n'est encore acquis. */
+.reglage-edition {
+  margin-top: calc(var(--pas) * 3);
+  padding: calc(var(--pas) * 4);
+  background: var(--papier-creux);
+  border-left: 3px solid var(--atlantique);
+}
+
+.reglage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pas) * 3);
+  margin-top: calc(var(--pas) * 4);
+}

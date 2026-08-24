@@ -714,6 +714,20 @@ atteint 105 px. Les éléments qui se collent dessous s'y cachaient à moitié.
 Un `ResizeObserver` publie la hauteur réelle dans `--bandeau-reel`, que
 suivent les règles collantes — aucune constante ne peut prévoir un repli.
 
+**L'écran des Réglages montre ce qui est enregistré, pas des champs de
+saisie.** Il présentait des champs déjà remplis, et rien ne distinguait une
+valeur venue de la base de celle qu'on venait de taper. Pire : un unique
+bouton « Enregistrer », posé au milieu de la page dans « Filtres par
+défaut », enregistrait *toutes* les zones — y compris celles situées en
+dessous, dont on ne voyait pas qu'elles étaient concernées.
+
+Chaque zone affiche donc maintenant ses valeurs enregistrées, en lecture
+seule. « Modifier » ouvre les champs — sur un fond distinct, parce qu'on
+est alors dans un état où rien n'est acquis — « Enregistrer » n'écrit que
+cette zone-là, et « Annuler » referme sans rien changer. Le même défaut
+avait déjà produit une confusion sur le contrôle d'envoi, qui éprouvait la
+table pendant que l'écran montrait autre chose.
+
 **Le conteneur tourne en root**, comme `gestion-locative`. C'est ce qui
 évite les refus d'écriture sur le volume monté. L'application n'étant pas
 exposée publiquement, le compromis est assumé.
