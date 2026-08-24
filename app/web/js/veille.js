@@ -379,6 +379,67 @@ async function envoyerEssaiAlerte() {
 
 
 /** Version déployée, affichée en permanence dans le bandeau. */
+// ---------------------------------------------------------------------
+//  Historique des ventes : ce que la base garde au-delà de la source
+// ---------------------------------------------------------------------
+
+/** La profondeur d'historique conservée, et jusqu'où la source va. */
+async function chargerProfondeurVentes() {
+  const liste = $("#profondeur-ventes");
+  if (!liste) return;
+  try {
+    // La commune vient du serveur, qui la lit dans les réglages : les
+    // champs de l'écran sont masqués et vides tant qu'on n'a pas cliqué
+    // sur « Modifier ».
+    const p = await api.profondeurVentes();
+    if (!p.ventes) {
+      liste.innerHTML = "<dt>Ventes conservées</dt>"
+        + "<dd>aucune — lancez d'abord un import</dd>";
+      return;
+    }
+    // Ce que la base garde en plus de ce que la source sert encore : la
+    // seule mesure qui dise si l'archive a servi à quelque chose.
+    const plusAncien = Number(String(p.depuis).slice(0, 4));
+    const premierServi = Math.min(...p.millesimes_source);
+    const gagnees = p.par_annee
+      .filter((a) => Number(a.annee) < premierServi)
+      .reduce((total, a) => total + a.ventes, 0);
+
+    liste.innerHTML = [
+      ["Ventes conservées", entierFr.format(p.ventes)],
+      ["Historique", `du ${p.depuis} au ${p.jusqu_a}`],
+      ["Millésimes servis par la source", p.millesimes_source.join(", ")],
+      ["Conservées au-delà de la source", gagnees
+        ? `${entierFr.format(gagnees)} vente(s), depuis ${plusAncien}`
+        : "aucune pour l'instant"],
+    ].map(([cle, valeur]) => `<dt>${cle}</dt><dd>${valeur}</dd>`).join("");
+  } catch (erreur) {
+    liste.innerHTML = "<dt>Ventes conservées</dt><dd>indisponible</dd>";
+  }
+}
+
+async function reprendreArchiveVentes() {
+  const bouton = $("#reprendre-archive");
+  const etat = $("#archive-etat");
+  bouton.disabled = true;
+  const libelle = bouton.textContent;
+  bouton.textContent = "Reprise…";
+  etat.innerHTML = '<p class="message message-travail">Lecture de l\'archive '
+    + 'départementale — quelques dizaines de secondes.'
+    + '<span class="jauge"><span></span></span></p>';
+  try {
+    const r = await api.reprendreArchive();
+    etat.innerHTML = `<p class="message message-succes">${r.message}</p>`;
+    await chargerProfondeurVentes();
+  } catch (erreur) {
+    etat.innerHTML =
+      `<p class="message message-erreur">${erreur.message || erreur}</p>`;
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = libelle;
+  }
+}
+
 async function afficherVersion() {
   try {
     const sante = await api.sante();
@@ -566,7 +627,11 @@ async function demarrer() {
   initialiserExploration();
   // Les réglages se rechargent après un enregistrement : les filtres
   // par défaut et l'état de l'alerte en dépendent.
-  initialiserReglages(() => { chargerEtatAlerte(); chargerJournal(); });
+  initialiserReglages(() => {
+    chargerEtatAlerte(); chargerJournal(); chargerProfondeurVentes();
+  });
+  chargerProfondeurVentes();
+  $("#reprendre-archive")?.addEventListener("click", reprendreArchiveVentes);
   initialiserParcours();
   brancherHistorique();
   await reprendreSuiviEventuel();

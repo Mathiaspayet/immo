@@ -288,6 +288,59 @@ UPDATE`. Une vente déjà connue est corrigée dans ses données mais garde son
 `alerte_le` — sans quoi chaque republication semestrielle re-signalerait
 tout le millésime corrigé comme neuf.
 
+#### `id_mutation` n'est pas une clef
+
+Le fait le plus contre-intuitif de cette source, et celui qui coûte le plus
+cher si on l'ignore. `id_mutation` est un **numéro d'ordre attribué par la
+chaîne de publication**, pas un identifiant de la vente.
+
+Mesure sur Mimizan, millésime 2021 : la version géocodée d'Etalab et la
+compilation départementale décrivent les **mêmes 574 ventes** et n'ont que
+**15 identifiants en commun**. Pire, le numéro `2021-693984` désigne une
+vente à 175 000 € sur neuf parcelles chez l'un, et une vente à 113 700 €
+sur une parcelle chez l'autre.
+
+L'écriture se faisant en `ON CONFLICT(id) DO UPDATE`, une republication
+renumérotée aurait fait deux dégâts d'un coup : les anciennes lignes
+seraient restées en base sans plus rien désigner, et **toutes** les ventes
+du millésime auraient paru neuves — le courriel d'alerte en aurait annoncé
+des centaines. Je n'ai pas pu prouver qu'Etalab renumérote : ses deux
+publications en ligne sont identiques au bit près, ETag compris. Mais la
+compilation prouve que rien ne l'en empêche.
+
+Une vente se reconnaît donc à ce qui lui appartient — **date, montant,
+parcelles** — et non au numéro de qui la publie. Vérifié : l'empreinte
+reconnaît 574 des 574 ventes de 2021 d'une source à l'autre. Trois paires
+sur les 2 054 partagent date, montant et parcelles, `numero_disposition`
+compris : indiscernables par tout ce que la source publie, elles sont
+distinguées par un rang.
+
+#### Reprendre l'historique que la source ne sert plus
+
+Cinq ans est la limite de la source, pas d'Etalab : le jeu officiel de la
+DGFiP n'offre lui aussi que 2021-2025. Aucune requête ne la contourne.
+
+Reste ce que d'autres ont archivé pendant que c'était servi. Une
+compilation départementale publiée sur data.gouv.fr couvre 2018-2022 ; pour
+Mimizan elle rend **1 222 ventes** de 2018, 2019 et 2020. Le bouton
+« Reprendre l'historique ancien » des Réglages la lit une fois.
+
+| | avant | après |
+|---|---|---|
+| Ventes conservées | 2 054 | **3 276** |
+| Historique | 2021-01-05 → 2025-12-30 | **2018-01-04** → 2025-12-30 |
+
+Trois choses rendent la reprise sûre, et sont testées : les 1 022 ventes
+que les deux sources ont en commun sont reconnues par leur empreinte et non
+dupliquées ; rien n'est signalé par courriel, puisque c'est de l'histoire
+et non une actualité ; et l'import courant suivant ne détruit pas ce que
+geo-dvf ne sert plus.
+
+La compilation est **figée** (mai 2023) et n'est donc pas guettée : on la
+lit une fois, le courant continue de venir de geo-dvf. Si elle disparaissait
+de data.gouv.fr, le bouton échouerait avec un message — ce qui est déjà
+repris resterait en base.
+
 ### L'alerte sur les ventes
 
 Le pendant de l'alerte DPE, sur le **même périmètre** — commune et secteur.
@@ -311,6 +364,20 @@ sont modifiables dans les Réglages, et une colonne figée dirait « plage »
 pour une vente que les repères actuels rangent au bourg. Une vente sans
 position n'est jamais rangée dans un secteur — la taire vaut mieux que l'y
 mettre au hasard.
+
+**La profondeur d'historique est affichée.** Elle ne se devine pas : la
+source n'offre que cinq ans, la base en garde davantage à mesure que les
+millésimes en sortent, et rien d'autre ne dirait où l'on en est. L'écran
+Réglages montre donc combien de ventes sont conservées, sur quelle période,
+quels millésimes la source sert encore, et **combien sont gardées au-delà** —
+la seule mesure qui dise si la reprise a servi à quelque chose.
+
+**La commune surveillée se lit dans les réglages, jamais à l'écran.** Les
+champs dorment masqués et vides tant qu'on n'a pas cliqué sur « Modifier » :
+les lire rendait la chaîne vide, et « Reprendre l'historique » visait alors
+toutes les communes ou aucune. C'est le serveur qui tranche désormais. Le
+même piège avait déjà fait échouer le contrôle d'envoi — troisième fois que
+cette structure d'écran le tend.
 
 **Le passage de version ne transforme pas l'archive en nouveautés.** Les
 2 054 ventes déjà en base ont été importées avant que l'alerte n'existe :
@@ -417,6 +484,8 @@ app/
 ├── planificateur.py APScheduler — import quotidien, puis alerte
 ├── base/            SQLite : connexion, migrations SQL, réglages
 ├── sources/         API externes : ADEME (3 bases), geo.api.gouv.fr
+│   ├── dvf.py               ventes, cinq millésimes glissants
+│   ├── dvf_archive.py       les millésimes que la source ne sert plus
 ├── metier/          logique portée des scripts d'origine
 │   ├── veille.py            F1 — les DPE récents, dédoublonnés
 │   ├── identification.py    F2 — l'entonnoir et le classement

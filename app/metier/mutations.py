@@ -20,7 +20,7 @@ import json
 import logging
 
 from app.base.connexion import connexion, transaction
-from app.sources import dvf
+from app.sources import dvf, dvf_archive
 from app.sources.client_http import ErreurSource
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,59 @@ def _par_paquets(elements, taille=PAQUET):
         yield elements[debut:debut + taille]
 
 
-def importer(code_insee, progression=None):
+def empreinte(date_mutation, valeur_fonciere, parcelles):
+    """
+    De quoi reconnaitre une vente sans le numero de qui la publie.
+
+    `id_mutation` est un numero d'ordre, pas une clef : sur Mimizan en
+    2021, deux chaines de publication decrivent les memes 574 ventes avec
+    seulement 15 identifiants en commun, et le meme numero y designe deux
+    ventes sans rapport. Une republication qui renumeroterait ferait donc
+    paraitre neuves TOUTES les ventes du millesime.
+
+    Date, montant et parcelles appartiennent en revanche a la vente. La
+    mesure le confirme : 574 des 574 ventes de 2021 se reconnaissent ainsi
+    d'une source a l'autre.
+    """
+    montant = "" if valeur_fonciere is None else f"{float(valeur_fonciere):.2f}"
+    return "|".join([str(date_mutation or ""), montant,
+                     ",".join(sorted(parcelles))])
+
+
+def _rang(empreintes):
+    """Numerote les empreintes repetees, pour distinguer des ventes que
+    la source ne distingue pas — trois paires sur les 2 054 de Mimizan
+    partagent date, montant et parcelles."""
+    vus, rangs = {}, []
+    for e in empreintes:
+        vus[e] = vus.get(e, 0) + 1
+        rangs.append(e if vus[e] == 1 else f"{e}#{vus[e]}")
+    return rangs
+
+
+def _deja_connues(conn, code_insee):
+    """{empreinte: id} des ventes deja en base pour cette commune.
+
+    Recalculee depuis les donnees plutot que lue dans la colonne : une
+    base anterieure au 008 n'a pas encore d'empreinte, et un premier
+    passage doit malgre tout reconnaitre son propre historique.
+    """
+    parcelles = {}
+    for ligne in conn.execute(
+            "SELECT mp.mutation_id AS m, mp.parcelle_id AS p"
+            " FROM mutation_parcelle mp JOIN mutation mu ON mu.id = mp.mutation_id"
+            " WHERE mu.code_insee = ?", (code_insee,)):
+        parcelles.setdefault(ligne["m"], []).append(ligne["p"])
+
+    lignes = list(conn.execute(
+        "SELECT id, date_mutation, valeur_fonciere FROM mutation"
+        " WHERE code_insee = ? ORDER BY id", (code_insee,)))
+    brutes = [empreinte(l["date_mutation"], l["valeur_fonciere"],
+                        parcelles.get(l["id"], [])) for l in lignes]
+    return {rang: l["id"] for rang, l in zip(_rang(brutes), lignes)}
+
+
+def importer(code_insee, progression=None, lignes=None, signaler=True):
     """
     Telecharge et enregistre les ventes d'une commune.
 
@@ -136,9 +188,15 @@ def importer(code_insee, progression=None):
     Une mutation deja connue est mise a jour dans ses donnees, mais garde
     `alerte_le` : DVF corrige parfois une vente passee, et une correction
     ne doit pas la faire re-signaler comme neuve.
+
+    `lignes` evite un second telechargement quand l'appelant les a deja —
+    c'est par la que passe la reprise d'archive. `signaler=False` marque
+    tout comme deja vu : une archive apporte de l'HISTOIRE, et annoncer
+    par courriel des ventes de 2018 n'aurait aucun sens.
     """
     code_insee = str(code_insee).strip()
-    lignes = dvf.telecharger(code_insee, progression=progression)
+    if lignes is None:
+        lignes = dvf.telecharger(code_insee, progression=progression)
     mutations = _regrouper(lignes)
     maintenant = datetime.datetime.now().isoformat(timespec="seconds")
 
@@ -152,6 +210,25 @@ def importer(code_insee, progression=None):
         deja_connue = conn.execute(
             "SELECT 1 FROM mutation WHERE code_insee = ? LIMIT 1",
             (code_insee,)).fetchone() is not None
+
+        # Une vente republiee sous un autre numero doit retrouver SA
+        # ligne : sinon l'ancienne resterait en base sans plus rien
+        # designer, et la nouvelle paraitrait neuve — le courriel
+        # d'alerte en annoncerait des centaines d'un coup.
+        connues = _deja_connues(conn, code_insee)
+        rangs = _rang([empreinte(m["date_mutation"], m["valeur_fonciere"],
+                                 m["parcelles"]) for m in mutations])
+        renumerotees = 0
+        for mutation, rang in zip(mutations, rangs):
+            mutation["empreinte"] = rang
+            ancien_id = connues.get(rang)
+            if ancien_id and ancien_id != mutation["id"]:
+                mutation["id"] = ancien_id
+                renumerotees += 1
+        if renumerotees:
+            logger.warning(
+                "dvf %s : %d vente(s) republiee(s) sous un autre numero —"
+                " reconnues par leur empreinte", code_insee, renumerotees)
 
         identifiants = [m["id"] for m in mutations]
         # Les rattachements sont refaits a neuf pour les mutations
@@ -167,8 +244,8 @@ def importer(code_insee, progression=None):
             "INSERT INTO mutation (id, code_insee, date_mutation, nature,"
             " valeur_fonciere, nb_parcelles, nb_locaux, surface_bati_m2,"
             " surface_terrain_m2, types_locaux_json, adresse, latitude,"
-            " longitude, importe_le, vu_le, alerte_le)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            " longitude, empreinte, importe_le, vu_le, alerte_le)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             " ON CONFLICT(id) DO UPDATE SET"
             "   code_insee = excluded.code_insee,"
             "   date_mutation = excluded.date_mutation,"
@@ -182,6 +259,7 @@ def importer(code_insee, progression=None):
             "   adresse = excluded.adresse,"
             "   latitude = excluded.latitude,"
             "   longitude = excluded.longitude,"
+            "   empreinte = excluded.empreinte,"
             "   importe_le = excluded.importe_le",
             # `vu_le` et `alerte_le` ne figurent pas dans le DO UPDATE :
             # ils appartiennent a la ligne deja en base, pas au fichier.
@@ -190,8 +268,8 @@ def importer(code_insee, progression=None):
               m["nb_locaux"], m["surface_bati_m2"], m["surface_terrain_m2"],
               json.dumps(m["types_locaux"], ensure_ascii=False),
               m["adresse"], m["latitude"], m["longitude"],
-              maintenant, maintenant,
-              None if deja_connue else maintenant)
+              m["empreinte"], maintenant, maintenant,
+              None if (deja_connue and signaler) else maintenant)
              for m in mutations])
         conn.executemany(
             "INSERT OR IGNORE INTO mutation_parcelle (mutation_id, parcelle_id)"
@@ -210,6 +288,7 @@ def importer(code_insee, progression=None):
                 " %d a signaler", code_insee, len(mutations), rattachees, nouvelles)
     return {
         "mutations": len(mutations),
+        "renumerotees": renumerotees,
         "lignes": len(lignes),
         "parcelles_rattachees": rattachees,
         "nouvelles": nouvelles,
@@ -326,3 +405,81 @@ def publication(code_insee):
         "changees": [] if premier else changees,
         "millesimes": sorted(a for a, s in releve.items() if s is not None),
     }
+
+
+def reprendre_archive(code_insee, progression=None):
+    """
+    Reprend les millesimes que la source officielle ne sert plus.
+
+    DVF ne se consulte que sur cinq ans, et la restriction est en amont
+    d'Etalab : le jeu officiel de la DGFiP n'en offre pas davantage. Une
+    compilation departementale archivee couvre 2018-2022 ; pour Mimizan
+    elle rend 1 222 ventes de 2018, 2019 et 2020.
+
+    Rien n'est signale : ce sont des ventes anciennes, et les annoncer par
+    courriel n'aurait aucun sens. Les ventes deja connues sont reconnues
+    par leur empreinte, non par leur numero — les deux chaines de
+    publication numerotent differemment.
+
+    A lancer une fois. La suite continue de venir de geo-dvf.
+    """
+    code_insee = str(code_insee).strip()
+    lignes = dvf_archive.telecharger(code_insee, progression=progression)
+    if not lignes:
+        return {"mutations": 0, "lignes": 0, "ajoutees": 0,
+                "message": "Aucune vente archivee pour cette commune."}
+
+    with connexion() as conn:
+        avant = conn.execute(
+            "SELECT count(*) FROM mutation WHERE code_insee = ?",
+            (code_insee,)).fetchone()[0]
+
+    resultat = importer(code_insee, lignes=lignes, signaler=False)
+
+    with connexion() as conn:
+        apres = conn.execute(
+            "SELECT count(*) FROM mutation WHERE code_insee = ?",
+            (code_insee,)).fetchone()[0]
+        plage = conn.execute(
+            "SELECT min(date_mutation) AS d, max(date_mutation) AS f"
+            " FROM mutation WHERE code_insee = ?", (code_insee,)).fetchone()
+
+    ajoutees = apres - avant
+    resultat.update({
+        "ajoutees": ajoutees,
+        "depuis": plage["d"],
+        "jusqu_a": plage["f"],
+        "message": (f"{ajoutees} vente(s) ancienne(s) reprise(s) —"
+                    f" historique du {plage['d']} au {plage['f']}"),
+    })
+    logger.info("archive dvf %s : %d ajoutees, historique %s -> %s",
+                code_insee, ajoutees, plage["d"], plage["f"])
+    return resultat
+
+
+def profondeur(code_insee=None):
+    """
+    Ce que la base garde comme historique de ventes.
+
+    Affiche a l'ecran parce que la profondeur ne se devine pas : la source
+    n'offre que cinq ans, la base en garde davantage a mesure que les
+    millesimes en sortent, et rien d'autre ne dit ou l'on en est.
+    """
+    ou, valeurs = "", []
+    if code_insee:
+        ou, valeurs = " WHERE code_insee = ?", [str(code_insee).strip()]
+    with connexion() as conn:
+        ligne = conn.execute(
+            "SELECT count(*) AS ventes, min(date_mutation) AS depuis,"
+            " max(date_mutation) AS jusqu_a FROM mutation" + ou, valeurs).fetchone()
+        par_annee = [
+            {"annee": l["annee"], "ventes": l["ventes"]}
+            for l in conn.execute(
+                "SELECT substr(date_mutation, 1, 4) AS annee, count(*) AS ventes"
+                " FROM mutation" + ou +
+                " GROUP BY annee ORDER BY annee", valeurs)]
+    return {"ventes": ligne["ventes"], "depuis": ligne["depuis"],
+            "jusqu_a": ligne["jusqu_a"], "par_annee": par_annee,
+            # Ce que la source sert aujourd'hui : au-dela, c'est la base
+            # seule qui conserve, et plus personne ne pourrait le rendre.
+            "millesimes_source": list(dvf.millesimes())}

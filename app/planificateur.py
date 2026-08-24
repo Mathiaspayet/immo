@@ -15,7 +15,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app import config
-from app.base import reglages
 from app.metier import alerte_ventes, alertes, import_dpe, mutations
 
 logger = logging.getLogger(__name__)
@@ -51,14 +50,6 @@ def _tache():
     _ventes()
 
 
-def _commune_surveillee():
-    """La commune dont on guette les ventes : celle des alertes, a defaut
-    celle des secteurs. Sans l'une ni l'autre, il n'y a rien a guetter."""
-    parametres = reglages.tous()
-    code_insee, _ = alertes.perimetre(parametres)
-    return code_insee or (parametres.get("zones_code_insee") or "").strip()
-
-
 def _ventes():
     """
     Guette la publication DVF, et n'importe que si elle a bouge.
@@ -69,7 +60,7 @@ def _ventes():
     apprendre. Guetter la donnee plutot que sa publication couterait un
     megaoctet par jour pour le meme resultat.
     """
-    code_insee = _commune_surveillee()
+    code_insee = alertes.commune_surveillee()
     if not code_insee:
         logger.info("pas de commune surveillee : ventes non guettees")
         return

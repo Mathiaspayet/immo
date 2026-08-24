@@ -45,6 +45,22 @@ def perimetre(parametres=None):
             (parametres.get("alerte_zone") or "").strip())
 
 
+def commune_surveillee(parametres=None):
+    """
+    La commune sur laquelle porte la veille : celle des alertes, a defaut
+    celle des secteurs.
+
+    Elle se lit dans les REGLAGES, jamais dans l'ecran. Les champs de
+    l'ecran dorment masques et vides tant qu'on n'a pas clique sur
+    « Modifier » : les lire rendait la chaine vide, et le geste — reprendre
+    l'archive, guetter les ventes — visait alors toutes les communes ou
+    aucune. Le meme piege avait deja fait echouer le controle d'envoi.
+    """
+    parametres = reglages.tous() if parametres is None else parametres
+    code_insee, _ = perimetre(parametres)
+    return code_insee or (parametres.get("zones_code_insee") or "").strip()
+
+
 def _filtres():
     """
     Les criteres enregistres, restreints a la commune et au secteur

@@ -134,4 +134,16 @@ export const api = {
       body: JSON.stringify({ ...(destinataire ? { destinataire } : {}),
                              ...(smtp ? { smtp } : {}) }),
     }),
+
+  profondeurVentes: (code_insee) =>
+    demander("/api/import/ventes/profondeur"
+      + (code_insee ? `?code_insee=${encodeURIComponent(code_insee)}` : "")),
+
+  // Répond à la fin : le fichier est départemental, l'attente de l'ordre
+  // de la minute, et c'est un geste qu'on ne fait qu'une fois.
+  // Sans commune, le serveur prend celle qui est surveillée.
+  reprendreArchive: (code_insee) =>
+    demander("/api/import/ventes/archive"
+      + (code_insee ? `?code_insee=${encodeURIComponent(code_insee)}` : ""),
+      { method: "POST" }),
 };

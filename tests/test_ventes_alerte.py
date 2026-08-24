@@ -469,3 +469,174 @@ def test_le_guet_quotidien_ne_telecharge_rien_sans_parution(base, monkeypatch):
     _signatures(monkeypatch, {2025: "bbb", 2026: None})
     planificateur._ventes()
     assert telechargements == ["40184"]
+
+
+# =====================================================================
+#  La renumerotation
+# =====================================================================
+
+def test_une_vente_republiee_sous_un_autre_numero_est_reconnue(base, monkeypatch):
+    """
+    `id_mutation` est un numero d'ordre, pas une clef. Mesure sur
+    Mimizan 2021 : deux chaines de publication decrivent les MEMES 574
+    ventes avec seulement 15 identifiants en commun, et le meme numero y
+    designe deux ventes sans rapport.
+
+    Si l'import ne s'appuyait que sur le numero, une republication
+    renumerotee ferait deux degats d'un coup : les anciennes lignes
+    resteraient en base en doublon, et toutes les ventes du millesime
+    paraitraient neuves — le courriel en annoncerait des centaines.
+    """
+    _importer(monkeypatch, [
+        _ligne("2021-111", "40184000AA0265", 300000, date="2021-05-10"),
+        _ligne("2021-112", "40184000AA0266", 400000, date="2021-06-20"),
+    ])
+
+    # Meme millesime, memes ventes, numeros entierement differents.
+    resultat = _importer(monkeypatch, [
+        _ligne("2021-999", "40184000AA0265", 300000, date="2021-05-10"),
+        _ligne("2021-998", "40184000AA0266", 400000, date="2021-06-20"),
+    ])
+
+    with connexion() as conn:
+        total = conn.execute("SELECT count(*) FROM mutation").fetchone()[0]
+    assert total == 2, f"{total} lignes : la republication a fait des doublons"
+    assert resultat["renumerotees"] == 2
+    assert alerte_ventes.candidats() == [], (
+        "des ventes deja connues seraient annoncees comme neuves")
+
+
+def test_la_renumerotation_ne_perd_pas_le_marquage(base, monkeypatch):
+    """Une vente deja signalee ne doit pas l'etre a nouveau parce que son
+    numero a change."""
+    _importer(monkeypatch, [_ligne("2021-111", "40184000AA0265", 300000,
+                                   date="2021-05-10")])
+    _importer(monkeypatch, [
+        _ligne("2021-111", "40184000AA0265", 300000, date="2021-05-10"),
+        _ligne("2021-112", "40184000AA0266", 400000, date="2021-06-20"),
+    ])
+    alerte_ventes.marquer([v["id"] for v in alerte_ventes.candidats()])
+    assert alerte_ventes.candidats() == []
+
+    # Republication renumerotee : rien ne doit reparaitre.
+    _importer(monkeypatch, [
+        _ligne("2021-777", "40184000AA0265", 300000, date="2021-05-10"),
+        _ligne("2021-778", "40184000AA0266", 400000, date="2021-06-20"),
+    ])
+    assert alerte_ventes.candidats() == []
+
+
+def test_deux_ventes_indiscernables_restent_deux(base, monkeypatch):
+    """
+    Trois paires sur les 2 054 ventes de Mimizan partagent date, montant
+    ET parcelles — `numero_disposition` compris. Les confondre en
+    perdrait une ; un rang les distingue.
+    """
+    _importer(monkeypatch, [
+        _ligne("A", "40184000AA0265", 172000, date="2021-10-01"),
+        _ligne("B", "40184000AA0265", 172000, date="2021-10-01"),
+    ])
+    with connexion() as conn:
+        total = conn.execute("SELECT count(*) FROM mutation").fetchone()[0]
+        empreintes = [l["empreinte"] for l in conn.execute(
+            "SELECT empreinte FROM mutation ORDER BY empreinte")]
+    assert total == 2, "une des deux ventes jumelles a ete perdue"
+    assert empreintes[1].endswith("#2")
+
+    # Et une reimportation ne doit pas les dedoubler non plus.
+    _importer(monkeypatch, [
+        _ligne("C", "40184000AA0265", 172000, date="2021-10-01"),
+        _ligne("D", "40184000AA0265", 172000, date="2021-10-01"),
+    ])
+    with connexion() as conn:
+        assert conn.execute("SELECT count(*) FROM mutation").fetchone()[0] == 2
+
+
+# =====================================================================
+#  La reprise d'historique ancien
+# =====================================================================
+
+def _archiver(monkeypatch, lignes):
+    monkeypatch.setattr("app.sources.dvf_archive.telecharger",
+                        lambda code, progression=None: lignes)
+    return mutations.reprendre_archive("40184")
+
+
+def test_la_reprise_ajoute_les_millesimes_disparus(base, monkeypatch):
+    """
+    DVF ne se consulte que sur cinq ans, et la restriction est en amont
+    d'Etalab : le jeu officiel de la DGFiP n'en offre pas davantage.
+    L'archive rend les millesimes qu'aucune source vivante ne sert plus.
+    """
+    _importer(monkeypatch, [_ligne("2021-1", "40184000AA0265", 300000,
+                                   date="2021-05-10")])
+    resultat = _archiver(monkeypatch, [
+        # Numeros de l'AUTRE chaine de publication : sans rapport.
+        _ligne("A-77", "40184000AA0100", 150000, date="2018-03-02"),
+        _ligne("A-78", "40184000AA0101", 160000, date="2019-07-15"),
+        _ligne("A-79", "40184000AA0265", 300000, date="2021-05-10"),
+    ])
+    assert resultat["ajoutees"] == 2, "seules les ventes inconnues s'ajoutent"
+    assert resultat["depuis"] == "2018-03-02"
+
+    with connexion() as conn:
+        total = conn.execute("SELECT count(*) FROM mutation").fetchone()[0]
+    assert total == 3, "la vente de 2021 a ete dupliquee"
+
+
+def test_la_reprise_ne_signale_rien(base, monkeypatch):
+    """Annoncer par courriel des ventes de 2018 n'aurait aucun sens : ce
+    n'est pas une actualite, c'est de l'histoire."""
+    _importer(monkeypatch, [_ligne("2021-1", "40184000AA0265", 300000,
+                                   date="2021-05-10")])
+    _importer(monkeypatch, [
+        _ligne("2021-1", "40184000AA0265", 300000, date="2021-05-10")])
+    _archiver(monkeypatch, [
+        _ligne("A-77", "40184000AA0100", 150000, date="2018-03-02"),
+        _ligne("A-78", "40184000AA0101", 160000, date="2019-07-15"),
+    ])
+    assert alerte_ventes.candidats() == []
+
+
+def test_deux_reprises_ne_dupliquent_rien(base, monkeypatch):
+    lignes = [_ligne("A-77", "40184000AA0100", 150000, date="2018-03-02")]
+    _importer(monkeypatch, [_ligne("2021-1", "40184000AA0265", 300000,
+                                   date="2021-05-10")])
+    _archiver(monkeypatch, lignes)
+    second = _archiver(monkeypatch, lignes)
+    assert second["ajoutees"] == 0
+
+
+def test_un_import_courant_ne_detruit_pas_l_archive(base, monkeypatch):
+    """
+    Le point qui compte : geo-dvf ne servira jamais 2018. Si l'import
+    courant effacait ce qu'il ne voit pas, la reprise serait annulee au
+    passage suivant.
+    """
+    _importer(monkeypatch, [_ligne("2021-1", "40184000AA0265", 300000,
+                                   date="2021-05-10")])
+    _archiver(monkeypatch, [
+        _ligne("A-77", "40184000AA0100", 150000, date="2018-03-02")])
+
+    _importer(monkeypatch, [_ligne("2021-1", "40184000AA0265", 300000,
+                                   date="2021-05-10")])
+    with connexion() as conn:
+        anciennes = conn.execute(
+            "SELECT count(*) FROM mutation WHERE date_mutation < '2019'"
+        ).fetchone()[0]
+    assert anciennes == 1, "l'import courant a efface l'archive"
+
+
+def test_la_profondeur_dit_ce_que_la_base_garde_en_plus(base, monkeypatch):
+    """La profondeur ne se devine pas : la source n'offre que cinq ans, et
+    rien d'autre ne dit ou l'on en est."""
+    _importer(monkeypatch, [_ligne("2021-1", "40184000AA0265", 300000,
+                                   date="2021-05-10")])
+    _archiver(monkeypatch, [
+        _ligne("A-77", "40184000AA0100", 150000, date="2018-03-02")])
+
+    p = mutations.profondeur("40184")
+    assert p["ventes"] == 2
+    assert p["depuis"] == "2018-03-02"
+    assert min(p["millesimes_source"]) > 2018, (
+        "2018 doit etre hors de ce que la source sert encore")
