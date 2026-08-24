@@ -125,10 +125,13 @@ export const api = {
 
   etatAlerte: () => demander("/api/alertes"),
 
-  essaiAlerte: (destinataire) =>
+  // `smtp` porte la configuration affichée, pas celle enregistrée : le
+  // contrôle éprouve ce qu'on voit à l'écran.
+  essaiAlerte: (destinataire, smtp) =>
     demander("/api/alertes/essai", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(destinataire ? { destinataire } : {}),
+      body: JSON.stringify({ ...(destinataire ? { destinataire } : {}),
+                             ...(smtp ? { smtp } : {}) }),
     }),
 };

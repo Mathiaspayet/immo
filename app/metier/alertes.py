@@ -175,7 +175,7 @@ def envoyer_si_besoin():
             "destinataire": destinataire}
 
 
-def essai(destinataire=None):
+def essai(destinataire=None, brouillon=None):
     """
     Envoie un message de controle, et raconte ce qui s'est passe.
 
@@ -183,6 +183,11 @@ def essai(destinataire=None):
     resultat porte la trace pas a pas — configuration, connexion,
     chiffrement, authentification, envoi — parce que « ca ne marche pas »
     ne se debogue pas sans savoir OU cela s'arrete.
+
+    `brouillon` est la configuration AFFICHEE, pas celle enregistree : on
+    eprouve ce qu'on voit. Sans cela, remplir les champs puis cliquer sur
+    « controle » sans enregistrer testait une table vide, et le diagnostic
+    accusait une configuration absente que l'ecran montrait pourtant.
     """
     destinataire = (destinataire
                     or reglages.lire("alerte_destinataire") or "").strip()
@@ -197,7 +202,7 @@ def essai(destinataire=None):
             "<p>Si vous lisez ceci, l'envoi de courriel fonctionne.</p>"
             "<p>Les alertes de nouveaux DPE partiront par ce chemin.</p>"
             "</body></html>",
-            trace=trace)
+            trace=trace, brouillon=brouillon)
     except ErreurCourriel as erreur:
         echec = trace.dernier_echec()
         return {

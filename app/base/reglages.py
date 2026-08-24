@@ -125,15 +125,35 @@ SECRETS = {"smtp_motdepasse"}
 MASQUE = "\u2022" * 8
 
 
-def smtp():
+def smtp(brouillon=None):
     """
     La configuration d'envoi, telle qu'elle est reglee dans l'ecran.
 
-    Une seule source : cette table. Rien a poser dans le conteneur, rien a
-    redemarrer pour changer d'adresse — et aucune ambiguite sur l'origine
-    d'un reglage qui ne prend pas effet.
+    Une seule source enregistree : cette table. Rien a poser dans le
+    conteneur, rien a redemarrer pour changer d'adresse — et aucune
+    ambiguite sur l'origine d'un reglage qui ne prend pas effet.
+
+    `brouillon` permet d'eprouver une configuration AVANT de l'enregistrer.
+    C'est ce qu'attend un bouton « tester » : on remplit, on essaie, on
+    enregistre quand cela marche. Eprouver la table pendant que l'ecran
+    montre autre chose ne pouvait qu'egarer.
+
+    Un mot de passe egal au MASQUE veut dire « celui deja enregistre » :
+    l'ecran ne peut pas le relire, il ne peut donc pas le renvoyer.
     """
     valeurs = tous(avec_secrets=True)
+    if brouillon:
+        secret = str(brouillon.get("motdepasse", "") or "")
+        valeurs = {
+            **valeurs,
+            "smtp_hote": brouillon.get("hote", valeurs["smtp_hote"]),
+            "smtp_port": brouillon.get("port", valeurs["smtp_port"]) or 587,
+            "smtp_ssl": bool(brouillon.get("ssl", valeurs["smtp_ssl"])),
+            "smtp_expediteur": brouillon.get("expediteur", valeurs["smtp_expediteur"]),
+            "smtp_utilisateur": brouillon.get("utilisateur", valeurs["smtp_utilisateur"]),
+            "smtp_motdepasse": (valeurs["smtp_motdepasse"] if secret == MASQUE
+                                else secret),
+        }
     hote = str(valeurs.get("smtp_hote") or "").strip()
     return {
         "hote": hote,

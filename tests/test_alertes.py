@@ -506,3 +506,55 @@ def test_le_conseil_vise_la_cause(base):
     assert "sortie" in _conseil({"nom": "connexion"}, "timed out").lower()
     # Un echec inconnu ne doit pas inventer de piste.
     assert _conseil({"nom": "envoi"}, "quelque chose d'inedit") is None
+
+
+def test_le_controle_eprouve_ce_que_l_ecran_affiche(client):
+    """
+    Le geste naturel : remplir les champs, cliquer sur « controle »,
+    enregistrer quand cela marche. Sans cela, le controle testait la table
+    — vide — pendant que l'ecran montrait une configuration complete, et
+    le diagnostic accusait une absence que l'utilisateur voyait remplie.
+    """
+    # Rien d'enregistre : la table est vide.
+    corps = client.post("/api/alertes/essai", json={
+        "destinataire": "moi@exemple.fr",
+        "smtp": {"hote": "127.0.0.1", "port": 9, "ssl": False,
+                 "expediteur": "veille@exemple.fr"},
+    }).json()
+
+    assert corps["envoye"] is False
+    etapes = {e["nom"]: e for e in corps["etapes"]}
+    # La configuration passe : c'est bien le brouillon qui a ete lu.
+    assert etapes["configuration"]["etat"] == "ok"
+    assert "127.0.0.1:9" in etapes["configuration"]["detail"]
+    assert etapes["connexion"]["etat"] == "echec"
+
+
+def test_sans_brouillon_le_controle_lit_la_table(client):
+    """L'ancien comportement reste celui du chemin automatique."""
+    _smtp(smtp_hote="127.0.0.1", smtp_port=9)
+    corps = client.post("/api/alertes/essai",
+                        json={"destinataire": "moi@exemple.fr"}).json()
+    assert "127.0.0.1:9" in corps["etapes"][0]["detail"]
+
+
+def test_le_masque_designe_le_mot_de_passe_enregistre(base):
+    """
+    L'ecran ne peut pas relire le mot de passe : il affiche des puces et
+    les renvoie. Les prendre pour un mot de passe ferait echouer tout
+    controle des qu'un secret est enregistre.
+    """
+    _smtp(smtp_utilisateur="moi@exemple.fr", smtp_motdepasse="vrai-secret")
+
+    effectif = reglages.smtp({"hote": "autre.exemple.fr",
+                              "motdepasse": reglages.MASQUE})
+    assert effectif["hote"] == "autre.exemple.fr"
+    assert effectif["motdepasse"] == "vrai-secret"
+
+    # Un mot de passe reellement saisi remplace bien l'ancien.
+    remplace = reglages.smtp({"motdepasse": "nouveau"})
+    assert remplace["motdepasse"] == "nouveau"
+
+    # Et la table n'a pas bouge : un controle n'enregistre rien.
+    assert reglages.lire("smtp_motdepasse") == "vrai-secret"
+    assert reglages.lire("smtp_hote") == "smtp.exemple.fr"

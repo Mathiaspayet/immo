@@ -64,7 +64,8 @@ class Trace:
         return None
 
 
-def envoyer(destinataire, sujet, texte, html=None, trace=None):
+def envoyer(destinataire, sujet, texte, html=None, trace=None,
+            brouillon=None):
     """
     Envoie un message. Leve ErreurCourriel si le serveur refuse.
 
@@ -72,10 +73,12 @@ def envoyer(destinataire, sujet, texte, html=None, trace=None):
     client qui n'affiche pas le second, et c'est aussi ce qui evite qu'un
     message tout-HTML soit classe en indesirable.
 
-    `trace` recoit le detail de chaque etape, pour le diagnostic.
+    `trace` recoit le detail de chaque etape, pour le diagnostic, et
+    `brouillon` une configuration non encore enregistree — celle que
+    l'ecran affiche au moment ou l'on demande un controle.
     """
     trace = trace if trace is not None else Trace()
-    serveur_config = reglages.smtp()
+    serveur_config = reglages.smtp(brouillon)
     if not (serveur_config["hote"] and serveur_config["expediteur"]):
         trace.noter("configuration", "echec",
                     "serveur ou adresse d'expedition absents")

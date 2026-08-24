@@ -62,5 +62,9 @@ def essai(corps: dict = Body(default={})):
     Repond 200 meme en cas d'echec : un echec n'est pas une erreur de
     l'appel, c'est son resultat. Le corps porte la trace pas a pas, que
     l'ecran affiche — sans elle, « ca ne marche pas » reste indeboguable.
+
+    `smtp` porte la configuration AFFICHEE, pas celle enregistree : on
+    eprouve ce qu'on voit, puis on enregistre quand cela marche.
     """
-    return alertes.essai((corps or {}).get("destinataire"))
+    corps = corps or {}
+    return alertes.essai(corps.get("destinataire"), brouillon=corps.get("smtp"))

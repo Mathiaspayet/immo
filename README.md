@@ -620,6 +620,13 @@ Le bouton **Envoyer un message de contrôle** des Réglages éprouve la
 configuration sans attendre qu'un DPE paraisse : sans lui, on ne saurait
 qu'un mot de passe est faux qu'au premier bien manqué.
 
+**Il éprouve ce que l'écran affiche, pas ce que la table a retenu.** Le
+geste naturel est de remplir les champs puis de cliquer sur « contrôle » ;
+il testait auparavant la configuration *enregistrée* — vide tant qu'on n'a
+pas cliqué sur Enregistrer — et le diagnostic accusait une absence que
+l'utilisateur voyait pourtant remplie à l'écran. Un contrôle réussi
+rappelle donc d'enregistrer, et n'écrit lui-même rien en base.
+
 Il ne répond pas par oui ou non. « Ça ne marche pas » ne se débogue pas :
 il faut savoir **où** cela s'arrête. Une boîte de dialogue montre donc la
 trace, étape par étape — configuration, connexion, chiffrement,

@@ -342,6 +342,20 @@ function peuplerZones(choisie) {
   liste.value = zones.includes(choisie) ? choisie : "";
 }
 
+/** Le serveur d'envoi tel qu'il est saisi, enregistré ou non. */
+function lireServeurAffiche() {
+  return {
+    hote: $("#r-smtp-hote").value.trim(),
+    port: Number($("#r-smtp-port").value) || 587,
+    ssl: $("#r-smtp-ssl").value === "1",
+    expediteur: $("#r-smtp-expediteur").value.trim(),
+    utilisateur: $("#r-smtp-utilisateur").value.trim(),
+    // Les puces veulent dire « celui déjà enregistré » : l'écran ne peut
+    // pas relire le mot de passe, il ne peut donc pas le renvoyer.
+    motdepasse: $("#r-smtp-motdepasse").value,
+  };
+}
+
 const ETATS_ESSAI = {
   ok:        { marque: "✓", classe: "etape-ok" },
   echec:     { marque: "✕", classe: "etape-echec" },
@@ -380,6 +394,13 @@ function dessinerEssai(resultat) {
            l'a accepté.`
         : echapper(resultat.message || "Échec sans message.")}
     </p>
+    ${resultat.envoye ? `
+      <p class="explication piste">
+        <strong>À faire&nbsp;:</strong> ce contrôle a éprouvé ce que l'écran
+        affiche. Cliquez sur <strong>Enregistrer</strong> pour que l'alerte
+        s'en serve — sans quoi elle continuera d'utiliser l'ancienne
+        configuration.
+      </p>` : ""}
     <ol class="etapes">${etapes}</ol>
     ${resultat.conseil
       ? `<p class="explication piste"><strong>Piste&nbsp;:</strong>
@@ -403,7 +424,11 @@ async function envoyerEssaiAlerte() {
   if (!dialogue.open) dialogue.showModal();
 
   try {
-    dessinerEssai(await api.essaiAlerte($("#r-alerte-destinataire").value.trim()));
+    // On éprouve ce que l'écran affiche, pas ce que la base a retenu :
+    // remplir les champs puis cliquer sans enregistrer est le geste
+    // naturel, et il testait auparavant une table vide.
+    dessinerEssai(await api.essaiAlerte(
+      $("#r-alerte-destinataire").value.trim(), lireServeurAffiche()));
   } catch (erreur) {
     // Un échec d'envoi revient en 200 avec sa trace ; arriver ici veut
     // dire que l'application elle-même n'a pas répondu.
