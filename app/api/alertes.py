@@ -12,6 +12,7 @@ import logging
 
 from fastapi import APIRouter, Body
 
+from app import config, planificateur
 from app.base import reglages
 from app.metier import alertes, veille
 
@@ -44,6 +45,25 @@ def etat():
         # chercher pourquoi un changement d'ecran ne prend pas effet.
         "smtp_source": serveur["source"],
         "en_attente": len(alertes.candidats(limite=500)),
+        # QUAND l'alerte part. Sans cette information, « je n'ai rien recu
+        # aujourd'hui » n'a pas de reponse : on ne sait ni a quelle heure
+        # le passage a lieu, ni s'il a lieu du tout sur ce conteneur.
+        "planificateur": {
+            "actif": config.PLANIFICATEUR_ACTIF,
+            "heure": config.IMPORT_HEURE,
+            "jours": config.IMPORT_JOUR,
+            "fuseau": config.FUSEAU,
+            "prochaine": planificateur.prochaine_execution(),
+        },
+        # Les criteres qui decident d'un envoi. Ils sont plus etroits qu'on
+        # ne le croit — maisons seules, fenetre glissante — et c'est la
+        # premiere explication d'un silence.
+        "criteres": {
+            "fenetre_jours": parametres.get("fenetre_jours"),
+            "type_batiment": parametres.get("type_batiment") or "tous types",
+            "surface_min": parametres.get("surface_min"),
+            "surface_max": parametres.get("surface_max"),
+        },
         # De quoi peupler les deux listes de choix. Les secteurs etant
         # propres a une commune, ils sont donnes par commune : l'ecran
         # change la seconde liste sans repasser par le serveur.

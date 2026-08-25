@@ -216,18 +216,49 @@ async function chargerEtatAlerte(communeChoisie = null, zoneChoisie = null) {
     peuplerCommunes(etat.communes || [],
                     communeChoisie ?? etat.code_insee ?? "");
     peuplerZones(zoneChoisie ?? etat.zone ?? "");
-    if (!etat.smtp_configure) {
-      boite.innerHTML = `Aucun serveur d'envoi configuré&nbsp;: renseignez
-        le serveur SMTP et l'adresse d'expédition ci-dessous. Rien ne peut
-        partir tant que ce n'est pas fait.`;
-      return;
-    }
     const attente = etat.en_attente === 0
       ? "aucun bien en attente"
       : `${etat.en_attente} bien(s) seraient signalés au prochain import`;
-    boite.innerHTML = `Envoi par <span class="donnee">${echapper(etat.smtp_hote)}</span>
-      ${etat.smtp_authentifie ? "avec authentification" : "sans authentification"}
-      · ${echapper(attente)}.`;
+
+    // QUAND le message part. Sans cela, « je n'ai rien reçu aujourd'hui »
+    // reste sans réponse : on ignore l'heure du passage, et même s'il a
+    // lieu sur ce conteneur.
+    const p = etat.planificateur || {};
+    let quand;
+    if (!p.actif) {
+      quand = "Import automatique <strong>désactivé</strong> sur ce conteneur"
+        + "&nbsp;: rien ne partira de soi-même.";
+    } else {
+      const jours = p.jours === "*" ? "chaque jour" : `les jours ${p.jours}`;
+      const prochaine = p.prochaine
+        ? ` — prochain passage le ${dateFr(p.prochaine)}`
+        : "";
+      quand = `Passage ${jours} à <strong>${p.heure}h00</strong>`
+        + ` (${echapper(p.fuseau || "")})${echapper(prochaine)}.`;
+    }
+
+    // Les critères qui décident d'un envoi : plus étroits qu'on ne le
+    // croit, et première explication d'un silence.
+    const c = etat.criteres || {};
+    const criteres = `Un message ne part que pour un bien <em>neuf</em> répondant
+      aux critères&nbsp;: ${echapper(c.type_batiment || "tous types")},
+      de ${entierFr.format(c.surface_min || 0)} à ${entierFr.format(c.surface_max || 0)}&nbsp;m²,
+      diagnostiqué dans les ${entierFr.format(c.fenetre_jours || 0)} derniers jours.
+      Sans nouveauté, rien ne part — c'est le cas la plupart des jours.`;
+
+    // Le « quand » ne dépend pas du « comment » : l'horaire s'affiche même
+    // sans serveur d'envoi, sans quoi une configuration incomplète cachait
+    // l'information qu'on venait justement chercher.
+    const envoi = etat.smtp_configure
+      ? `<p>Envoi par <span class="donnee">${echapper(etat.smtp_hote)}</span>
+         ${etat.smtp_authentifie ? "avec authentification" : "sans authentification"}
+         · ${echapper(attente)}.</p>`
+      : `<p class="message message-erreur">Aucun serveur d'envoi
+         configuré&nbsp;: renseignez le serveur SMTP et l'adresse
+         d'expédition ci-dessous. Rien ne peut partir tant que ce n'est
+         pas fait.</p>`;
+
+    boite.innerHTML = `${envoi}<p>${quand}</p><p>${criteres}</p>`;
   } catch (erreur) {
     boite.textContent = "État de l'alerte indisponible.";
   }

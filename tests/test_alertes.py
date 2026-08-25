@@ -587,3 +587,25 @@ def test_le_masque_designe_le_mot_de_passe_enregistre(base):
     # Et la table n'a pas bouge : un controle n'enregistre rien.
     assert reglages.lire("smtp_motdepasse") == "vrai-secret"
     assert reglages.lire("smtp_hote") == "smtp.exemple.fr"
+
+
+def test_l_etat_dit_quand_l_alerte_part(base):
+    """
+    « Je n'ai rien recu aujourd'hui » restait sans reponse : l'ecran ne
+    disait ni l'heure du passage, ni s'il avait lieu sur ce conteneur, ni
+    quels criteres decident d'un envoi.
+    """
+    from fastapi.testclient import TestClient
+    from app.main import application
+
+    with TestClient(application) as client:
+        etat = client.get("/api/alertes").json()
+
+    p = etat["planificateur"]
+    assert set(p) >= {"actif", "heure", "jours", "fuseau", "prochaine"}
+    assert isinstance(p["heure"], int) and 0 <= p["heure"] <= 23
+    assert p["fuseau"]
+
+    c = etat["criteres"]
+    assert c["fenetre_jours"] and c["surface_min"] and c["surface_max"]
+    assert c["type_batiment"]

@@ -1032,6 +1032,24 @@ configuration parfaitement valide. Le brouillon n'est donc lu que si la
 zone est ouverte, et le rappel d'enregistrer n'apparaît que dans ce cas :
 sinon il n'y a rien à enregistrer. Le contrôle n'écrit jamais en base.
 
+**L'écran dit QUAND l'alerte part, et à quelles conditions.** « Je n'ai
+rien reçu aujourd'hui » restait sans réponse : rien n'indiquait l'heure du
+passage, ni s'il avait seulement lieu sur ce conteneur, ni ce qui décide
+d'un envoi. `prochaine_execution()` existait dans le planificateur mais
+n'était exposée nulle part.
+
+La zone Alerte affiche donc le passage — chaque jour à 7 h, fuseau compris,
+avec la date du prochain — et rappelle les critères, qui sont plus étroits
+qu'on ne le croit : **maisons seules**, 80 à 400 m², diagnostiquées dans les
+120 derniers jours. Sur Mimizan cela représente environ quinze biens par
+mois, et ils arrivent par paquets — l'ADEME publie avec deux à trois
+semaines de retard, pas au fil de l'eau. **Plusieurs jours sans courriel
+sont donc normaux**, et c'est ce que l'écran dit maintenant.
+
+L'horaire s'affiche même sans serveur d'envoi configuré : le « quand » ne
+dépend pas du « comment », et une configuration incomplète cachait
+justement l'information qu'on venait chercher.
+
 Il ne répond pas par oui ou non. « Ça ne marche pas » ne se débogue pas :
 il faut savoir **où** cela s'arrête. Une boîte de dialogue montre donc la
 trace, étape par étape — configuration, connexion, chiffrement,
