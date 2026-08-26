@@ -25,7 +25,8 @@ from app.base.connexion import connexion, transaction  # noqa: E402
 # d'un test a l'autre : les mutations d'un test se retrouvaient dans le
 # suivant, qui echouait sur une contrainte d'unicite.
 TABLES = ("dpe", "parcelle", "batiment", "mutation", "mutation_parcelle",
-          "dvf_millesime", "commune", "reglage", "journal_import")
+          "dvf_millesime", "commune", "reglage", "journal_import",
+          "journal_alerte")
 
 
 def _vider(conn):

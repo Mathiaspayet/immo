@@ -609,3 +609,86 @@ def test_l_etat_dit_quand_l_alerte_part(base):
     c = etat["criteres"]
     assert c["fenetre_jours"] and c["surface_min"] and c["surface_max"]
     assert c["type_batiment"]
+
+
+# =====================================================================
+#  Le journal des tentatives
+# =====================================================================
+
+def test_chaque_passage_laisse_une_trace_meme_muet(base, monkeypatch):
+    """
+    C'est LE cas qu'on cherche a expliquer. Sans trace du silence, « je
+    n'ai rien recu ce matin » ne se distingue pas de « le passage n'a pas
+    eu lieu » — et l'issue partait au journal du conteneur, illisible
+    depuis un NAS.
+    """
+    resultat = alertes.envoyer_si_besoin()
+    assert resultat["raison"] == "desactivee"
+
+    tentatives = alertes.journal()
+    assert len(tentatives) == 1
+    assert tentatives[0]["sujet"] == "dpe"
+    assert tentatives[0]["envoye"] == 0
+    assert tentatives[0]["raison"] == "desactivee"
+
+
+def test_un_envoi_reussi_est_journalise_avec_son_compte(base, monkeypatch):
+    envois = []
+    monkeypatch.setattr("app.sources.courriel.envoyer",
+                        lambda *a, **k: envois.append(a) or True)
+    reglages.ecrire({"alerte_active": True,
+                     "alerte_destinataire": "moi@exemple.fr"})
+    inserer_dpe(n_dpe="D1", commune="Mimizan", code_insee="40184",
+                surface_habitable=100, type_batiment="maison",
+                date_etablissement=datetime.date.today().isoformat())
+
+    resultat = alertes.envoyer_si_besoin()
+    assert resultat["envoye"] is True
+
+    trace = alertes.journal()[0]
+    assert trace["envoye"] == 1
+    assert trace["raison"] == "envoyee"
+    assert trace["biens"] == resultat["biens"]
+    assert trace["destinataire"] == "moi@exemple.fr"
+
+
+def test_un_echec_d_envoi_garde_son_message(base, monkeypatch):
+    """Le detail de l'echec est ce qu'on vient lire : « serveur
+    injoignable » et « identifiants refuses » ne se corrigent pas
+    pareil."""
+    from app.sources.courriel import ErreurCourriel
+
+    def refuser(*a, **k):
+        raise ErreurCourriel("535 identifiants refuses")
+
+    monkeypatch.setattr("app.sources.courriel.envoyer", refuser)
+    reglages.ecrire({"alerte_active": True,
+                     "alerte_destinataire": "moi@exemple.fr"})
+    inserer_dpe(n_dpe="D1", commune="Mimizan", code_insee="40184",
+                surface_habitable=100, type_batiment="maison",
+                date_etablissement=datetime.date.today().isoformat())
+
+    alertes.envoyer_si_besoin()
+    trace = alertes.journal()[0]
+    assert trace["raison"] == "echec_envoi"
+    assert "535" in trace["message"]
+
+
+def test_le_journal_ne_melange_pas_dpe_et_ventes(base):
+    from app.metier import alerte_ventes
+
+    alertes.envoyer_si_besoin()
+    alerte_ventes.envoyer_si_besoin()
+    sujets = [t["sujet"] for t in alertes.journal()]
+    assert set(sujets) == {"dpe", "ventes"}
+
+
+def test_un_journal_illisible_ne_fait_pas_echouer_l_alerte(base, monkeypatch):
+    """Le journal est un temoin, jamais une condition : une ecriture
+    impossible ne doit pas empecher un courriel de partir."""
+    def tombe(*a, **k):
+        raise RuntimeError("base verrouillee")
+
+    monkeypatch.setattr("app.metier.alertes.transaction", tombe)
+    resultat = alertes.envoyer_si_besoin()
+    assert resultat["raison"] == "desactivee"      # l'alerte a bien repondu

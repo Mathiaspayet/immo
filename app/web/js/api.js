@@ -125,6 +125,10 @@ export const api = {
 
   etatAlerte: () => demander("/api/alertes"),
 
+  // Ce que chaque passage a donné, envoyé ou non : la seule
+  // réponse consultable à « je n'ai rien reçu ce matin ».
+  journalAlerte: () => demander("/api/alertes/journal"),
+
   // `smtp` porte la configuration affichée, pas celle enregistrée : le
   // contrôle éprouve ce qu'on voit à l'écran.
   essaiAlerte: (destinataire, smtp) =>

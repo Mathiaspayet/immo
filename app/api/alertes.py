@@ -74,6 +74,18 @@ def etat():
     }
 
 
+@routeur.get("/journal")
+def journal(limite: int = 15):
+    """
+    Les dernieres tentatives d'alerte, envoyees ou non.
+
+    C'est la seule reponse consultable a « je n'ai rien recu ce matin » :
+    le journal des imports dit que la moisson a reussi, ce qui est vrai
+    meme les jours ou aucun courriel ne part.
+    """
+    return {"tentatives": alertes.journal(limite)}
+
+
 @routeur.post("/essai")
 def essai(corps: dict = Body(default={})):
     """

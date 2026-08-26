@@ -1032,6 +1032,34 @@ configuration parfaitement valide. Le brouillon n'est donc lu que si la
 zone est ouverte, et le rappel d'enregistrer n'apparaît que dans ce cas :
 sinon il n'y a rien à enregistrer. Le contrôle n'écrit jamais en base.
 
+**Chaque passage laisse une trace, même muet.** C'est le complément
+indispensable du précédent : savoir que le passage a lieu à 7 h ne dit pas
+ce qu'il a donné. L'issue de chaque tentative — envoyée, rien de neuf,
+désactivée, serveur injoignable — partait au journal du conteneur et nulle
+part ailleurs. Sur un NAS, ce journal n'est pas lisible sans SSH, et « je
+n'ai rien reçu ce matin » restait donc sans réponse consultable.
+
+Le journal des imports ne suffisait pas : il dit que la moisson a réussi,
+ce qui est vrai **même les jours où aucun courriel ne part**. Les deux
+événements sont distincts, et leurs silences ont des causes différentes.
+
+Une ligne est donc écrite à chaque passage, y compris quand rien ne part —
+c'est justement le cas qu'on cherche à expliquer. Sans trace du silence,
+« je n'ai rien reçu » ne se distingue pas de « le passage n'a pas eu lieu ».
+Les raisons sont affichées en clair, et leur couleur dit s'il y a quelque
+chose à corriger :
+
+| Ce qu'on lit | Ce que ça veut dire |
+|---|---|
+| Message envoyé — 3 bien(s) | tout va bien |
+| Rien de neuf | aucun bien ne répondait aux critères — le cas le plus fréquent |
+| Alerte désactivée | un réglage à changer |
+| Aucun destinataire enregistré | l'adresse n'a jamais été enregistrée |
+| Envoi refusé par le serveur | avec le message exact du serveur |
+
+Le journal est un **témoin, jamais une condition** : une écriture
+impossible ne doit pas empêcher un courriel de partir. Un test le vérifie.
+
 **L'écran dit QUAND l'alerte part, et à quelles conditions.** « Je n'ai
 rien reçu aujourd'hui » restait sans réponse : rien n'indiquait l'heure du
 passage, ni s'il avait seulement lieu sur ce conteneur, ni ce qui décide

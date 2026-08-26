@@ -200,13 +200,16 @@ def envoyer_si_besoin():
     """
     parametres = reglages.tous()
     if not parametres.get("alerte_active"):
-        return {"envoye": False, "raison": "desactivee", "ventes": 0}
+        return alertes.noter("ventes", {"envoye": False, "raison": "desactivee",
+                                        "ventes": 0})
     if not parametres.get("alerte_ventes_active"):
-        return {"envoye": False, "raison": "ventes_desactivees", "ventes": 0}
+        return alertes.noter("ventes", {"envoye": False,
+                                        "raison": "ventes_desactivees", "ventes": 0})
 
     destinataire = (parametres.get("alerte_destinataire") or "").strip()
     if not destinataire:
-        return {"envoye": False, "raison": "sans_destinataire", "ventes": 0}
+        return alertes.noter("ventes", {"envoye": False,
+                                        "raison": "sans_destinataire", "ventes": 0})
 
     # `_decorer` apporte le prix au metre carre, et surtout son refus de le
     # calculer quand la vente porte sur plusieurs biens : afficher le prix
@@ -215,7 +218,8 @@ def envoyer_si_besoin():
     from app.metier import mutations
     ventes = [mutations._decorer(v) for v in candidats()]
     if not ventes:
-        return {"envoye": False, "raison": "rien_de_neuf", "ventes": 0}
+        return alertes.noter("ventes", {"envoye": False, "raison": "rien_de_neuf",
+                                        "ventes": 0})
 
     texte, corps_html = _corps(ventes)
     sujet = (f"Veille immobilière — {len(ventes)} nouvelle"
@@ -226,9 +230,12 @@ def envoyer_si_besoin():
         courriel.envoyer(destinataire, sujet, texte, corps_html)
     except ErreurCourriel as erreur:
         logger.error("alerte ventes non envoyee : %s", erreur)
-        return {"envoye": False, "raison": "echec_envoi",
-                "ventes": len(ventes), "message": str(erreur)}
+        return alertes.noter("ventes", {"envoye": False, "raison": "echec_envoi",
+                                        "ventes": len(ventes),
+                                        "message": str(erreur),
+                                        "destinataire": destinataire})
 
     marquer([v["id"] for v in ventes])
-    return {"envoye": True, "raison": "envoyee", "ventes": len(ventes),
-            "destinataire": destinataire}
+    return alertes.noter("ventes", {"envoye": True, "raison": "envoyee",
+                                    "ventes": len(ventes),
+                                    "destinataire": destinataire})

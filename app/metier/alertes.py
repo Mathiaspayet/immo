@@ -184,15 +184,16 @@ def envoyer_si_besoin():
     """
     parametres = reglages.tous()
     if not parametres.get("alerte_active"):
-        return {"envoye": False, "raison": "desactivee", "biens": 0}
+        return noter("dpe", {"envoye": False, "raison": "desactivee", "biens": 0})
 
     destinataire = (parametres.get("alerte_destinataire") or "").strip()
     if not destinataire:
-        return {"envoye": False, "raison": "sans_destinataire", "biens": 0}
+        return noter("dpe", {"envoye": False, "raison": "sans_destinataire",
+                             "biens": 0})
 
     biens = candidats()
     if not biens:
-        return {"envoye": False, "raison": "rien_de_neuf", "biens": 0}
+        return noter("dpe", {"envoye": False, "raison": "rien_de_neuf", "biens": 0})
 
     texte, corps_html = _corps(biens)
     sujet = (f"Veille immobilière — {len(biens)} nouveau"
@@ -204,12 +205,13 @@ def envoyer_si_besoin():
         # import les signalera. Une alerte en retard vaut mieux qu'une
         # alerte perdue.
         logger.error("alerte non envoyee : %s", erreur)
-        return {"envoye": False, "raison": "echec_envoi",
-                "biens": len(biens), "message": str(erreur)}
+        return noter("dpe", {"envoye": False, "raison": "echec_envoi",
+                             "biens": len(biens), "message": str(erreur),
+                             "destinataire": destinataire})
 
     marquer_alertes([b["n_dpe"] for b in biens])
-    return {"envoye": True, "raison": "envoyee", "biens": len(biens),
-            "destinataire": destinataire}
+    return noter("dpe", {"envoye": True, "raison": "envoyee", "biens": len(biens),
+                         "destinataire": destinataire})
 
 
 def essai(destinataire=None, brouillon=None):
@@ -285,3 +287,39 @@ def _conseil(echec, message):
         return ("Le serveur a refusé l'adresse d'expédition. Elle doit "
                 "correspondre au compte utilisé pour s'authentifier.")
     return None
+
+
+# ---------------------------------------------------------------------
+#  Journal des tentatives (F6)
+# ---------------------------------------------------------------------
+#  Une ligne par passage, MEME quand rien ne part. C'est justement le cas
+#  qu'on cherche a expliquer : sans trace du silence, « je n'ai rien recu
+#  ce matin » ne se distingue pas de « le passage n'a pas eu lieu ».
+# ---------------------------------------------------------------------
+
+def noter(sujet, resultat):
+    """Enregistre l'issue d'une tentative d'alerte. Ne leve jamais."""
+    try:
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO journal_alerte (quand, sujet, envoye, raison,"
+                " biens, destinataire, message) VALUES (?,?,?,?,?,?,?)",
+                (datetime.datetime.now().isoformat(timespec="seconds"),
+                 sujet,
+                 1 if resultat.get("envoye") else 0,
+                 resultat.get("raison") or "?",
+                 int(resultat.get("biens") or resultat.get("ventes") or 0),
+                 resultat.get("destinataire"),
+                 resultat.get("message")))
+    except Exception as erreur:                      # noqa: BLE001
+        logger.warning("tentative d'alerte non journalisee : %s", erreur)
+    return resultat
+
+
+def journal(limite=20):
+    """Les dernieres tentatives, la plus recente d'abord."""
+    with connexion() as conn:
+        return [dict(l) for l in conn.execute(
+            "SELECT quand, sujet, envoye, raison, biens, destinataire, message"
+            " FROM journal_alerte ORDER BY quand DESC, id DESC LIMIT ?",
+            (int(limite),))]

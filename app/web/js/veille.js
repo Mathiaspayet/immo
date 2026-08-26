@@ -611,6 +611,50 @@ async function sauvegarderMaintenant() {
   }
 }
 
+// ---------------------------------------------------------------------
+//  Journal des passages de l'alerte
+// ---------------------------------------------------------------------
+
+// Ce que chaque raison veut dire, en clair. Le code interne ne se lit pas,
+// et c'est justement cette ligne qu'on vient chercher.
+const RAISONS = {
+  envoyee: ["succes", "Message envoyé"],
+  rien_de_neuf: ["neutre", "Rien de neuf — aucun bien ne répondait aux critères"],
+  desactivee: ["attention", "Alerte désactivée dans les réglages"],
+  ventes_desactivees: ["attention", "Alerte sur les ventes désactivée"],
+  sans_destinataire: ["attention", "Aucun destinataire enregistré"],
+  echec_envoi: ["erreur", "Envoi refusé par le serveur"],
+};
+
+async function chargerJournalAlerte() {
+  const boite = $("#journal-alerte");
+  if (!boite) return;
+  try {
+    const { tentatives } = await api.journalAlerte();
+    if (!tentatives.length) {
+      boite.innerHTML = `<p class="message">Aucun passage enregistré pour
+        l'instant. Le premier aura lieu au prochain import automatique.</p>`;
+      return;
+    }
+    boite.innerHTML = `<table class="tableau-journal">
+      <tr><th>Quand</th><th>Sujet</th><th>Résultat</th></tr>
+      ${tentatives.map((t) => {
+        const [etat, libelle] = RAISONS[t.raison] || ["neutre", t.raison];
+        const detail = t.envoye && t.biens
+          ? ` — ${entierFr.format(t.biens)} bien(s)`
+          : (t.message ? ` — ${echapper(t.message)}` : "");
+        return `<tr>
+          <td style="white-space:nowrap">${echapper(dateFr(t.quand))}</td>
+          <td>${t.sujet === "ventes" ? "ventes" : "DPE"}</td>
+          <td class="etat-${etat}">${echapper(libelle)}${detail}</td>
+        </tr>`;
+      }).join("")}
+    </table>`;
+  } catch (erreur) {
+    boite.innerHTML = `<p class="message">Journal des alertes indisponible.</p>`;
+  }
+}
+
 async function afficherVersion() {
   try {
     const sante = await api.sante();
@@ -800,8 +844,10 @@ async function demarrer() {
   // par défaut et l'état de l'alerte en dépendent.
   initialiserReglages(() => {
     chargerEtatAlerte(); chargerJournal(); chargerProfondeurVentes();
+    chargerJournalAlerte();
   });
   chargerProfondeurVentes();
+  chargerJournalAlerte();
   chargerEtatSauvegardes();
   $("#reprendre-archive")?.addEventListener("click", reprendreArchiveVentes);
   $("#archive-portee")?.addEventListener("change", ajusterPorteeArchive);
