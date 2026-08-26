@@ -21,6 +21,15 @@ import { $, afficherErreur, afficherSucces, echapper, entierFr,
  * `cles` sert à deux choses : n'enregistrer que cette zone, et remplir ses
  * champs depuis les valeurs en base au moment de les ouvrir.
  */
+// Les jours d'un cron, en clair. La liste de l'écran ne propose que ces
+// valeurs-là ; une valeur venue d'ailleurs s'affiche telle quelle.
+const JOURS_IMPORT = {
+  "*": "tous les jours", "mon-fri": "du lundi au vendredi",
+  mon: "chaque lundi", tue: "chaque mardi", wed: "chaque mercredi",
+  thu: "chaque jeudi", fri: "chaque vendredi", sat: "chaque samedi",
+  sun: "chaque dimanche",
+};
+
 const ZONES = {
   secteurs: {
     cles: ["zones", "zones_code_insee"],
@@ -47,6 +56,15 @@ const ZONES = {
       ["Purge", r.purge_mois
         ? `au-delà de ${entierFr.format(r.purge_mois)} mois sans être revu`
         : "jamais — tout l'historique est conservé"],
+    ],
+  },
+
+  import: {
+    cles: ["import_jour", "import_heure"],
+    resume: (r) => [
+      ["Passage", `${JOURS_IMPORT[r.import_jour] || r.import_jour}`
+        + ` à ${r.import_heure}h00`],
+      ["Ce qu'il déclenche", "import des DPE, alertes, guet des ventes, sauvegarde"],
     ],
   },
 
@@ -97,6 +115,8 @@ const CHAMPS = {
   surface_min: { champ: "#r-surface-min", nombre: true },
   surface_max: { champ: "#r-surface-max", nombre: true },
   purge_mois: { champ: "#r-purge", nombre: true },
+  import_jour: { champ: "#r-import-jour" },
+  import_heure: { champ: "#r-import-heure", nombre: true },
   alerte_active: { champ: "#r-alerte-active", booleen: true },
   alerte_destinataire: { champ: "#r-alerte-destinataire" },
   alerte_code_insee: { champ: "#r-alerte-commune" },

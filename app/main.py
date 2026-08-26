@@ -75,6 +75,7 @@ application.include_router(api_alertes.routeur)
 @application.get("/api/sante", tags=["technique"])
 def sante():
     """Sonde de sante : utilisee par Docker, et par l'interface au demarrage."""
+    _jour, _heure = planificateur.horaire()
     return {
         "statut": "ok",
         "version": config.VERSION,
@@ -86,8 +87,11 @@ def sante():
         # hasard sur un deploiement hebdomadaire, faux sur tous les autres.
         # Et c'est precisement la ligne qu'on vient lire pour savoir
         # pourquoi aucun courriel n'est arrive.
-        "import_jours": config.IMPORT_JOUR,
-        "import_heure": config.IMPORT_HEURE,
+        # Lus dans les REGLAGES, pas dans l'environnement : c'est la que
+        # l'horaire se choisit desormais, et l'ecran doit montrer ce qui
+        # s'applique vraiment.
+        "import_jours": _jour,
+        "import_heure": _heure,
         "import_fuseau": config.FUSEAU,
     }
 

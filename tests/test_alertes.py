@@ -702,12 +702,13 @@ def test_la_sante_dit_le_rythme_reel_de_l_import(base):
     lire pour savoir pourquoi aucun courriel n'est arrive.
     """
     from fastapi.testclient import TestClient
-    from app import config
+    from app import config, planificateur
     from app.main import application
 
     with TestClient(application) as client:
         sante = client.get("/api/sante").json()
 
-    assert sante["import_jours"] == config.IMPORT_JOUR
-    assert sante["import_heure"] == config.IMPORT_HEURE
+    jour, heure = planificateur.horaire()
+    assert sante["import_jours"] == jour
+    assert sante["import_heure"] == heure
     assert sante["import_fuseau"] == config.FUSEAU

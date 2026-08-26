@@ -86,6 +86,22 @@ DEFAUTS = {
     # change dans l'ecran Reglages, sans redeploiement.
     "purge_mois": 0,
 
+    # --- Import automatique ------------------------------------------
+    # QUAND la veille tourne. C'est un choix de comportement, donc il vit
+    # ici et non dans l'environnement du conteneur.
+    #
+    # Il y etait, et cela s'est retourne : un defaut du compose est
+    # substitue par Docker A LA CREATION du conteneur, ce qui le grave
+    # dedans ; Watchtower remplace ensuite l'image mais conserve
+    # l'environnement. Le defaut « mon » d'aout a donc survecu au passage
+    # du code a « * », et le conteneur est reste hebdomadaire des semaines
+    # — sans que rien ne permette de le corriger depuis l'ecran.
+    #
+    # « * » vaut tous les jours ; sinon mon, tue, wed, thu, fri, sat, sun,
+    # une liste (« mon,thu ») ou un intervalle (« mon-fri »).
+    "import_jour": "*",
+    "import_heure": 7,
+
     # --- Alerte courriel (F6) ----------------------------------------
     # Ecart assume au CDC 9 (« aucun envoi automatique de courrier »), qui
     # prevoyait un webhook Home Assistant : le courriel a ete demande
@@ -386,6 +402,28 @@ def valider(valeurs):
     if "type_batiment" in valeurs:
         if str(valeurs["type_batiment"]).lower() not in ("", "maison", "appartement"):
             raise ValueError("type_batiment : \"maison\", \"appartement\", ou vide.")
+
+    # Un cron invalide ne se verrait qu'au demarrage suivant, quand le
+    # planificateur refuserait de partir — soit trop tard.
+    if "import_jour" in valeurs:
+        jour = str(valeurs["import_jour"] or "").strip().lower() or "*"
+        permis = {"mon", "tue", "wed", "thu", "fri", "sat", "sun",
+                  "0", "1", "2", "3", "4", "5", "6"}
+        morceaux = [m for bloc in jour.split(",") for m in bloc.split("-")]
+        if jour != "*" and not all(m.strip() in permis for m in morceaux):
+            raise ValueError(
+                "import_jour : « * », ou mon/tue/wed/thu/fri/sat/sun, "
+                "en liste (« mon,thu ») ou en intervalle (« mon-fri »).")
+        valeurs["import_jour"] = jour
+
+    if "import_heure" in valeurs:
+        try:
+            heure = int(valeurs["import_heure"])
+        except (TypeError, ValueError):
+            raise ValueError("import_heure : un nombre entre 0 et 23.") from None
+        if not 0 <= heure <= 23:
+            raise ValueError("import_heure : un nombre entre 0 et 23.")
+        valeurs["import_heure"] = heure
 
     # Une adresse mal saisie ne se voit qu'au premier bien manque : le
     # serveur SMTP accepte, puis rejette en silence. On la controle ici.

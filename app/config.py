@@ -63,8 +63,15 @@ NIVEAU_LOG = _reglage("VEILLE_LOG", "INFO").upper()
 # Le fuseau vient de TZ (Europe/Paris dans le compose) : sans lui,
 # APScheduler declencherait les taches en UTC.
 FUSEAU = _reglage("TZ", "Europe/Paris")
-IMPORT_JOUR = _reglage("VEILLE_IMPORT_JOUR", "*")     # tous les jours
-IMPORT_HEURE = int(_reglage("VEILLE_IMPORT_HEURE", "7"))
+# QUAND l'import tourne ne se regle PLUS ici : c'est un choix de
+# comportement, il vit en base (table `reglage`, ecran Reglages). Une
+# valeur posee dans l'environnement du conteneur y serait gravee a sa
+# creation et survivrait a toutes les mises a jour, sans que rien a
+# l'ecran ne permette de la corriger — c'est arrive.
+#
+# Reste ici le seul interrupteur qui releve du DEPLOIEMENT : ce conteneur
+# fait-il tourner des taches planifiees ? Un poste de developpement dit
+# non, le NAS dit oui.
 PLANIFICATEUR_ACTIF = _reglage("VEILLE_PLANIFICATEUR", "1") != "0"
 
 # --- Identite du build (injectee par GitHub Actions) -----------------

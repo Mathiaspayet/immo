@@ -15,7 +15,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app import config
-from app.base import sauvegarde
+from app.base import reglages, sauvegarde
 from app.metier import alerte_ventes, alertes, import_dpe, mutations
 
 logger = logging.getLogger(__name__)
@@ -120,6 +120,49 @@ def _ventes():
         logger.error("alerte ventes en echec : %s", erreur)
 
 
+def horaire():
+    """
+    Quand la veille tourne : (jour_cron, heure), lus dans les REGLAGES.
+
+    Ils y sont, et non dans l'environnement, parce qu'un defaut du compose
+    est substitue par Docker A LA CREATION du conteneur, ce qui le grave
+    dedans ; Watchtower remplace ensuite l'image mais conserve
+    l'environnement. Une valeur posee la survit donc a toutes les mises a
+    jour, et rien a l'ecran ne permettait de la corriger. C'est arrive :
+    un « mon » d'aout a tenu des semaines contre un code passe a « * ».
+    """
+    parametres = reglages.tous()
+    try:
+        heure = int(parametres.get("import_heure", 7))
+    except (TypeError, ValueError):
+        heure = 7
+    return (parametres.get("import_jour") or "*"), heure
+
+
+def replanifier():
+    """
+    Applique un changement d'horaire sans redemarrer le conteneur.
+
+    Sans cela, modifier l'heure a l'ecran n'aurait d'effet qu'au prochain
+    redemarrage — et l'ecran annoncerait la nouvelle heure pendant que le
+    planificateur suivrait l'ancienne, exactement le desaccord qu'on vient
+    de supprimer.
+    """
+    if _planificateur is None:
+        return None
+    jour, heure = horaire()
+    try:
+        _planificateur.reschedule_job(
+            IDENTIFIANT,
+            trigger=CronTrigger(day_of_week=jour, hour=heure, minute=0,
+                                timezone=config.FUSEAU))
+    except Exception as erreur:                      # noqa: BLE001
+        logger.error("replanification impossible : %s", erreur)
+        return None
+    logger.info("import replanifie : jours=%s heure=%dh00", jour, heure)
+    return prochaine_execution()
+
+
 def demarrer():
     """Demarre le planificateur. Sans effet si VEILLE_PLANIFICATEUR=0."""
     global _planificateur
@@ -131,12 +174,13 @@ def demarrer():
         return _planificateur
 
     _planificateur = BackgroundScheduler(timezone=config.FUSEAU)
+    jour, heure = horaire()
     _planificateur.add_job(
         _tache,
-        CronTrigger(day_of_week=config.IMPORT_JOUR, hour=config.IMPORT_HEURE,
-                    minute=0, timezone=config.FUSEAU),
+        CronTrigger(day_of_week=jour, hour=heure, minute=0,
+                    timezone=config.FUSEAU),
         id=IDENTIFIANT,
-        name="Import quotidien, alertes, guet des ventes, sauvegarde",
+        name="Import, alertes, guet des ventes, sauvegarde",
         # Si le NAS etait eteint a l'heure prevue, on rattrape au demarrage
         # dans l'heure qui suit, mais on ne cumule pas les executions ratees.
         coalesce=True,
@@ -144,11 +188,8 @@ def demarrer():
         max_instances=1,
     )
     _planificateur.start()
-    # « quotidien » etait ecrit en dur ici aussi, alors que le rythme se
-    # regle par VEILLE_IMPORT_JOUR : le journal annoncait donc un passage
-    # quotidien sur un deploiement hebdomadaire.
     logger.info("import planifie : jours=%s heure=%dh00 (%s)",
-                config.IMPORT_JOUR, config.IMPORT_HEURE, config.FUSEAU)
+                jour, heure, config.FUSEAU)
     return _planificateur
 
 

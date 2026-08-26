@@ -61,10 +61,10 @@ services:
       # hebdomadaire pendant des semaines. Vide, c'est app/config.py qui
       # tranche, et le rythme suit les mises a jour.
       #
-      # Jour et heure de l'import automatique. « * » = tous les jours ;
-      # sinon mon, tue, wed, thu, fri, sat, sun. L'alerte suit l'import.
-      VEILLE_IMPORT_JOUR: ${VEILLE_IMPORT_JOUR:-}
-      VEILLE_IMPORT_HEURE: ${VEILLE_IMPORT_HEURE:-}
+      # Le JOUR et l'HEURE de l'import ne sont plus ici : ils se reglent
+      # dans l'ecran Reglages, et vivent en base. Une valeur posee ici
+      # serait gravee dans le conteneur a sa creation et survivrait a
+      # toutes les mises a jour, sans recours depuis l'interface.
       # Mettre a 0 pour desactiver completement l'import automatique.
       VEILLE_PLANIFICATEUR: ${VEILLE_PLANIFICATEUR:-}
       # DEBUG, INFO, WARNING, ERROR.

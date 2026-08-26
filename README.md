@@ -1032,6 +1032,34 @@ configuration parfaitement valide. Le brouillon n'est donc lu que si la
 zone est ouverte, et le rappel d'enregistrer n'apparaît que dans ce cas :
 sinon il n'y a rien à enregistrer. Le contrôle n'écrit jamais en base.
 
+#### L'horaire d'import se règle à l'écran, pas dans l'environnement
+
+Le rythme de la veille est un **choix de comportement**. Il vit donc en base,
+dans la table `reglage`, comme les secteurs, les filtres et le serveur
+d'envoi — et se modifie depuis l'écran Réglages. L'environnement du
+conteneur ne porte plus que ce qui relève du **déploiement** :
+`VEILLE_PLANIFICATEUR` (ce conteneur exécute-t-il des tâches planifiées ?
+un poste de développement dit non), `TZ`, les chemins et le port.
+
+Il n'en a pas toujours été ainsi, et le prix a été payé — voir le piège
+ci-dessous. Trois conséquences valent d'être notées :
+
+**Une variable gravée dans un conteneur existant est désormais inerte.**
+Un `VEILLE_IMPORT_JOUR=mon` hérité d'un ancien déploiement n'a plus aucun
+effet ; l'horaire vient de la base. Corriger un conteneur mal configuré ne
+demande donc plus de le recréer — un test le vérifie en posant les deux
+variables et en constatant qu'elles sont ignorées.
+
+**Le changement prend effet immédiatement.** L'API replanifie le travail
+d'APScheduler à l'enregistrement. Sans cela il n'agirait qu'au prochain
+redémarrage, et l'écran annoncerait la nouvelle heure pendant que le
+planificateur suivrait l'ancienne — exactement le désaccord que tout ceci
+vient supprimer. Un test l'éprouve de bout en bout, et échoue si l'appel à
+`replanifier()` disparaît.
+
+**Un cron invalide est refusé à l'écriture.** Il ne se verrait sinon qu'au
+démarrage suivant, quand le planificateur refuserait de partir.
+
 #### Un défaut du compose survit à toutes les mises à jour
 
 Le piège qui a causé la confusion, et il n'est pas évident. Le compose

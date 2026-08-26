@@ -403,6 +403,52 @@
       </div>
     </section>
 
+    <section class="reglage" data-reglage="import">
+      <div class="reglage-tete">
+        <h2>Import automatique</h2>
+        <button type="button" class="bouton bouton-modifier">Modifier</button>
+      </div>
+      <dl class="reglage-resume"></dl>
+      <div class="reglage-edition" hidden>
+        <p class="explication">
+          Quand la veille tourne. C'est à ce passage — et à lui seul — que
+          les alertes partent&nbsp;: consulter une commune rafraîchit la
+          base, mais n'envoie rien.
+        </p>
+        <p class="explication">
+          Le changement prend effet <em>immédiatement</em>, sans redémarrer
+          le conteneur.
+        </p>
+        <div class="grille-champs">
+          <div class="champ">
+            <label for="r-import-jour">Jours</label>
+            <select id="r-import-jour" class="donnee">
+              <option value="*">tous les jours</option>
+              <option value="mon-fri">du lundi au vendredi</option>
+              <option value="mon">chaque lundi</option>
+              <option value="tue">chaque mardi</option>
+              <option value="wed">chaque mercredi</option>
+              <option value="thu">chaque jeudi</option>
+              <option value="fri">chaque vendredi</option>
+              <option value="sat">chaque samedi</option>
+              <option value="sun">chaque dimanche</option>
+            </select>
+          </div>
+          <div class="champ">
+            <label for="r-import-heure">Heure</label>
+            <input type="number" id="r-import-heure" class="donnee"
+                   min="0" max="23" step="1">
+          </div>
+        </div>
+        <div class="reglage-actions">
+          <button type="button" class="bouton bouton-principal" data-enregistrer>
+            Enregistrer
+          </button>
+          <button type="button" class="bouton" data-annuler>Annuler</button>
+        </div>
+      </div>
+    </section>
+
     <section class="reglage" data-reglage="alerte">
       <div class="reglage-tete">
         <h2>Alerte par courriel</h2>

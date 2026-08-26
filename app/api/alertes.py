@@ -50,8 +50,8 @@ def etat():
         # le passage a lieu, ni s'il a lieu du tout sur ce conteneur.
         "planificateur": {
             "actif": config.PLANIFICATEUR_ACTIF,
-            "heure": config.IMPORT_HEURE,
-            "jours": config.IMPORT_JOUR,
+            "heure": planificateur.horaire()[1],
+            "jours": planificateur.horaire()[0],
             "fuseau": config.FUSEAU,
             "prochaine": planificateur.prochaine_execution(),
         },

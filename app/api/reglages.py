@@ -11,6 +11,7 @@ import logging
 
 from fastapi import APIRouter, Body, HTTPException
 
+from app import planificateur
 from app.base import reglages as base_reglages
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,15 @@ def lire():
 def modifier(valeurs: dict = Body(...)):
     """Enregistre un lot de reglages."""
     try:
-        return {"reglages": base_reglages.ecrire(valeurs)}
+        enregistres = base_reglages.ecrire(valeurs)
     except ValueError as erreur:
         raise HTTPException(status_code=400, detail=str(erreur)) from erreur
+
+    # Un changement d'horaire prend effet TOUT DE SUITE. Sans cela il
+    # n'agirait qu'au prochain redemarrage, et l'ecran annoncerait la
+    # nouvelle heure pendant que le planificateur suivrait l'ancienne —
+    # exactement le desaccord qu'on vient de supprimer.
+    if {"import_jour", "import_heure"} & set(valeurs):
+        planificateur.replanifier()
+
+    return {"reglages": enregistres}
