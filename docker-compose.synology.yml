@@ -49,19 +49,34 @@ services:
     environment:
       # Indispensable : sans fuseau, l'import quotidien partirait en UTC.
       TZ: ${TZ:-Europe/Paris}
+      # ATTENTION : ces variables passent une chaine VIDE quand rien n'est
+      # choisi, et c'est VOULU. Y mettre un defaut le ferait GRAVER dans le
+      # conteneur a sa creation — Docker substitue a ce moment-la — et
+      # Watchtower, qui remplace l'image mais conserve l'environnement,
+      # le conserverait indefiniment. Un defaut du compose survit donc aux
+      # mises a jour et se met a diverger du code des qu'on le change.
+      #
+      # C'est arrive : le compose posait « mon » en aout, le code est passe
+      # a « * » le meme soir, et le conteneur deploye entre-temps est reste
+      # hebdomadaire pendant des semaines. Vide, c'est app/config.py qui
+      # tranche, et le rythme suit les mises a jour.
+      #
       # Jour et heure de l'import automatique. « * » = tous les jours ;
       # sinon mon, tue, wed, thu, fri, sat, sun. L'alerte suit l'import.
-      VEILLE_IMPORT_JOUR: ${VEILLE_IMPORT_JOUR:-*}
-      VEILLE_IMPORT_HEURE: ${VEILLE_IMPORT_HEURE:-7}
+      VEILLE_IMPORT_JOUR: ${VEILLE_IMPORT_JOUR:-}
+      VEILLE_IMPORT_HEURE: ${VEILLE_IMPORT_HEURE:-}
       # Mettre a 0 pour desactiver completement l'import automatique.
-      VEILLE_PLANIFICATEUR: ${VEILLE_PLANIFICATEUR:-1}
+      VEILLE_PLANIFICATEUR: ${VEILLE_PLANIFICATEUR:-}
       # DEBUG, INFO, WARNING, ERROR.
-      VEILLE_LOG: ${VEILLE_LOG:-INFO}
+      VEILLE_LOG: ${VEILLE_LOG:-}
       # Ou vont les copies datees de la base, faites apres chaque import.
       # Par defaut a cote d'elle, DANS le volume Docker — ce qui protege de
       # l'effacement et de la corruption, mais pas de la panne du disque et
       # reste malcommode a retrouver. Voir le montage ci-dessous.
       VEILLE_SAUVEGARDES: ${VEILLE_SAUVEGARDES:-/sauvegardes}
+      # Celle-ci garde son defaut : elle designe le point de MONTAGE
+      # declare plus bas, pas un choix de comportement. Le code, lui,
+      # ne connait pas les montages du compose.
 
     volumes:
       # La base SQLite. Sans ce volume, tout serait perdu a chaque mise a

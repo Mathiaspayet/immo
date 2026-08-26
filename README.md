@@ -1032,6 +1032,41 @@ configuration parfaitement valide. Le brouillon n'est donc lu que si la
 zone est ouverte, et le rappel d'enregistrer n'apparaît que dans ce cas :
 sinon il n'y a rien à enregistrer. Le contrôle n'écrit jamais en base.
 
+#### Un défaut du compose survit à toutes les mises à jour
+
+Le piège qui a causé la confusion, et il n'est pas évident. Le compose
+déclarait chaque variable avec **son propre défaut** — `${VEILLE_IMPORT_JOUR:-*}`
+— qui dupliquait celui de `config.py`. Or :
+
+1. Docker substitue la valeur **à la création du conteneur**, ce qui la
+   grave dedans comme une variable bien réelle ;
+2. Watchtower remplace l'**image** mais conserve l'**environnement** du
+   conteneur existant ;
+3. le défaut du compose survit donc à toutes les mises à jour, et se met à
+   diverger du code dès qu'on le change.
+
+C'est exactement ce qui s'est produit. Le compose posait `mon` le 20 août
+à 9 h ; le code est passé à `*` le même soir à 22 h. Le conteneur déployé
+entre-temps est resté **hebdomadaire pendant des semaines** — l'écran
+annonçant « chaque jour » d'après le code pendant que le planificateur
+suivait le `mon` gravé dans le conteneur. Aucune des deux moitiés ne
+mentait seule ; c'est leur désaccord qui trompait.
+
+Le compose passe désormais une chaîne **vide** quand rien n'est choisi, et
+`config.py` traite le vide comme une absence. Une seule source de vérité,
+qui suit les mises à jour d'image ; un `.env` posé à côté continue de
+primer. Un test relit le compose et échoue si un défaut y est réintroduit —
+la panne ne se verrait sinon qu'à l'usage, des semaines plus tard.
+
+Conséquence pratique : **changer le compose ne suffit pas** sur un
+conteneur déjà créé. Il faut le recréer (`docker compose up -d
+--force-recreate`) pour que le nouvel environnement s'applique.
+
+`TZ` garde son défaut : elle est lue par le système autant que par
+l'application, et vide elle vaudrait UTC — l'import de 7 h partirait à 9 h
+en été. `VEILLE_SAUVEGARDES` aussi : elle désigne un point de montage
+déclaré dans le compose, que le code ne peut pas connaître.
+
 **Le rythme affiché est le rythme réel.** L'écran annonçait « Import
 automatique hebdomadaire » — une chaîne écrite en dur, vraie par hasard sur
 un déploiement hebdomadaire et fausse sur tous les autres. Le journal du
