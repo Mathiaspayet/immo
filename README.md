@@ -1032,6 +1032,24 @@ configuration parfaitement valide. Le brouillon n'est donc lu que si la
 zone est ouverte, et le rappel d'enregistrer n'apparaît que dans ce cas :
 sinon il n'y a rien à enregistrer. Le contrôle n'écrit jamais en base.
 
+**Le rythme affiché est le rythme réel.** L'écran annonçait « Import
+automatique hebdomadaire » — une chaîne écrite en dur, vraie par hasard sur
+un déploiement hebdomadaire et fausse sur tous les autres. Le journal du
+conteneur disait « import quotidien » au même moment. Or le rythme se règle
+par `VEILLE_IMPORT_JOUR`, dont la valeur par défaut (`*`, chaque jour) n'est
+pas forcément celle du `.env` déployé.
+
+C'est la ligne qu'on vient lire quand aucun courriel n'est arrivé, et elle
+mentait. `/api/sante` sert donc les jours, l'heure et le fuseau ; l'écran
+traduit le cron en français — « chaque lundi », « du lundi au vendredi »,
+« les lundi, jeudi ».
+
+Elle rappelle aussi ce qui n'allait pas de soi : **les alertes ne partent
+qu'au passage planifié**. Consulter une commune rafraîchit la base — le
+journal des imports le montre — mais n'envoie rien. Un import manuel qui
+ramène cent nouveaux DPE ne déclenche donc aucun courriel ; ils attendent le
+passage suivant.
+
 **Chaque passage laisse une trace, même muet.** C'est le complément
 indispensable du précédent : savoir que le passage a lieu à 7 h ne dit pas
 ce qu'il a donné. L'issue de chaque tentative — envoyée, rien de neuf,

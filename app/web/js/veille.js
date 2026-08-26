@@ -683,6 +683,30 @@ async function afficherVersion() {
 }
 
 
+// Les jours d'un cron, en francais. `*` veut dire tous les jours ; sinon
+// APScheduler accepte « mon », « mon-fri », « 0 », « mon,thu »…
+const JOURS_FR = {
+  mon: "lundi", tue: "mardi", wed: "mercredi", thu: "jeudi",
+  fri: "vendredi", sat: "samedi", sun: "dimanche",
+  0: "lundi", 1: "mardi", 2: "mercredi", 3: "jeudi",
+  4: "vendredi", 5: "samedi", 6: "dimanche",
+};
+
+/** « chaque jour », « chaque lundi », « du lundi au vendredi »… */
+function rythmeImport(jours) {
+  const brut = String(jours ?? "*").trim().toLowerCase();
+  if (!brut || brut === "*") return "chaque jour";
+  const intervalle = brut.match(/^([a-z0-9]+)-([a-z0-9]+)$/);
+  if (intervalle && JOURS_FR[intervalle[1]] && JOURS_FR[intervalle[2]]) {
+    return `du ${JOURS_FR[intervalle[1]]} au ${JOURS_FR[intervalle[2]]}`;
+  }
+  const listes = brut.split(",").map((j) => JOURS_FR[j.trim()]).filter(Boolean);
+  if (listes.length === 1) return `chaque ${listes[0]}`;
+  if (listes.length > 1) return `les ${listes.join(", ")}`;
+  return `selon la règle « ${brut} »`;
+}
+
+
 async function chargerJournal() {
   try {
     // Ce que les codes postaux surveillés couvrent réellement : le 40200
@@ -699,10 +723,19 @@ async function chargerJournal() {
   try {
     const [{ imports }, sante] = await Promise.all([api.journalImports(), api.sante()]);
 
+    // Le rythme vient du serveur : l'écran annonçait « hebdomadaire »
+    // quelle que soit la configuration. C'est justement cette ligne
+    // qu'on vient lire quand aucun courriel n'est arrivé.
     $("#prochain-import").innerHTML = sante.prochain_import
-      ? `Import automatique hebdomadaire. Prochaine exécution :
+      ? `Import automatique <span class="donnee">${echapper(
+           rythmeImport(sante.import_jours))} à ${echapper(
+           String(sante.import_heure ?? "?"))}h00</span>
+         (${echapper(sante.import_fuseau || "")}). Prochaine exécution :
          <span class="donnee">${dateFr(sante.prochain_import)}
-         à ${echapper(sante.prochain_import.slice(11, 16))}</span>.`
+         à ${echapper(sante.prochain_import.slice(11, 16))}</span>.
+         <span class="detail">Les alertes par courriel ne partent qu'à ce
+         passage&nbsp;: consulter une commune rafraîchit la base, mais
+         n'envoie rien.</span>`
       : "Import automatique désactivé sur ce conteneur.";
 
     $("#a-propos").innerHTML =

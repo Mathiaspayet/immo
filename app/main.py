@@ -81,6 +81,14 @@ def sante():
         "date_build": config.DATE_BUILD,
         "base": str(config.CHEMIN_BASE),
         "prochain_import": planificateur.prochaine_execution(),
+        # Le rythme REEL, pas un libelle ecrit en dur. L'ecran annoncait
+        # « hebdomadaire » quelle que soit la configuration : juste par
+        # hasard sur un deploiement hebdomadaire, faux sur tous les autres.
+        # Et c'est precisement la ligne qu'on vient lire pour savoir
+        # pourquoi aucun courriel n'est arrive.
+        "import_jours": config.IMPORT_JOUR,
+        "import_heure": config.IMPORT_HEURE,
+        "import_fuseau": config.FUSEAU,
     }
 
 

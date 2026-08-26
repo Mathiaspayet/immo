@@ -692,3 +692,22 @@ def test_un_journal_illisible_ne_fait_pas_echouer_l_alerte(base, monkeypatch):
     monkeypatch.setattr("app.metier.alertes.transaction", tombe)
     resultat = alertes.envoyer_si_besoin()
     assert resultat["raison"] == "desactivee"      # l'alerte a bien repondu
+
+
+def test_la_sante_dit_le_rythme_reel_de_l_import(base):
+    """
+    L'ecran annoncait « Import automatique hebdomadaire » quelle que soit
+    la configuration : juste par hasard sur un deploiement hebdomadaire,
+    faux sur tous les autres. Or c'est precisement cette ligne qu'on vient
+    lire pour savoir pourquoi aucun courriel n'est arrive.
+    """
+    from fastapi.testclient import TestClient
+    from app import config
+    from app.main import application
+
+    with TestClient(application) as client:
+        sante = client.get("/api/sante").json()
+
+    assert sante["import_jours"] == config.IMPORT_JOUR
+    assert sante["import_heure"] == config.IMPORT_HEURE
+    assert sante["import_fuseau"] == config.FUSEAU

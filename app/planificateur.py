@@ -27,13 +27,13 @@ IDENTIFIANT = "import-quotidien"
 def _tache():
     """Lance l'import, puis l'alerte. Avale les erreurs : elles sont deja
     tracees au journal, et un planificateur qui leve s'arrete."""
-    logger.info("import quotidien declenche")
+    logger.info("import planifie declenche")
     try:
         import_dpe.importer(declencheur="planifie")
     except Exception as erreur:                     # noqa: BLE001
         # L'import a echoue : rien de neuf n'est entre en base, donc rien a
         # signaler. On ne tente pas l'alerte, qui n'aurait rien a dire.
-        logger.error("import quotidien en echec : %s", erreur)
+        logger.error("import planifie en echec : %s", erreur)
         return
 
     # L'alerte suit l'import (CDC 8). Elle ne leve pas, mais on protege
@@ -144,7 +144,10 @@ def demarrer():
         max_instances=1,
     )
     _planificateur.start()
-    logger.info("import quotidien planifie : %s %dh00 (%s)",
+    # « quotidien » etait ecrit en dur ici aussi, alors que le rythme se
+    # regle par VEILLE_IMPORT_JOUR : le journal annoncait donc un passage
+    # quotidien sur un deploiement hebdomadaire.
+    logger.info("import planifie : jours=%s heure=%dh00 (%s)",
                 config.IMPORT_JOUR, config.IMPORT_HEURE, config.FUSEAU)
     return _planificateur
 
