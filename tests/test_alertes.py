@@ -712,3 +712,45 @@ def test_la_sante_dit_le_rythme_reel_de_l_import(base):
     assert sante["import_jours"] == jour
     assert sante["import_heure"] == heure
     assert sante["import_fuseau"] == config.FUSEAU
+
+
+def test_le_courriel_annonce_ses_propres_criteres(base):
+    """
+    Sans eux, le courriel se lit mal : un appartement de 54 m² au milieu
+    d'une liste qu'on croit reservee aux maisons de 80 m² fait douter de
+    l'outil, alors que ce sont les reglages qui le veulent. La confusion
+    est arrivee — 109 biens dont des surfaces sous le plancher que je
+    citais de memoire — et elle ne se dissipait qu'en ouvrant l'ecran.
+    """
+    reglages.ecrire({"type_batiment": "", "surface_min": 50,
+                     "surface_max": 400, "fenetre_jours": 120,
+                     "alerte_zone": "plage", "alerte_code_insee": "40184"})
+    texte, corps_html = alertes._corps([{
+        "n_dpe": "X", "adresse": "1 Rue A", "zone": "plage",
+        "surface_habitable": 54, "etiquette_dpe": "C",
+        "date_etablissement": "2026-08-20"}])
+
+    for rendu in (texte, corps_html):
+        # Le HTML met une majuscule initiale ; on compare sans elle.
+        assert "ous types de biens" in rendu
+        assert "50" in rendu and "400" in rendu
+        assert "120" in rendu
+        assert "plage" in rendu
+
+    # La majuscule ne doit pas ecraser le reste de la phrase.
+    assert "Tous types de biens" in corps_html
+    assert "m²" in corps_html
+
+
+def test_les_criteres_annonces_suivent_les_reglages(base):
+    """Ils sont lus a l'envoi, pas figes : c'est ce qui evite de decrire
+    des criteres que l'utilisateur a changes depuis."""
+    reglages.ecrire({"type_batiment": "maison", "surface_min": 80,
+                     "surface_max": 400, "alerte_zone": ""})
+    texte, _ = alertes._corps([{
+        "n_dpe": "X", "adresse": "1 Rue A", "zone": "bourg",
+        "surface_habitable": 100, "etiquette_dpe": "C",
+        "date_etablissement": "2026-08-20"}])
+    assert "maison" in texte
+    assert "de 80 à 400 m²" in texte
+    assert "tous types" not in texte

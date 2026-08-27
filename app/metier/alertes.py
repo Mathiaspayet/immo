@@ -124,6 +124,37 @@ def _jour(iso):
     return texte or "?"
 
 
+def _criteres_lisibles(filtres):
+    """
+    Les criteres qui ont retenu ces biens, en clair.
+
+    Sans eux, le courriel se lit mal : un appartement de 54 m² au milieu
+    d'une liste qu'on croit reservee aux maisons de 80 m² fait douter de
+    l'outil, alors que ce sont les reglages qui le veulent. La confusion
+    est arrivee, et elle ne se dissipe qu'en ouvrant l'ecran.
+    """
+    morceaux = []
+    if filtres.get("type_batiment"):
+        morceaux.append(str(filtres["type_batiment"]))
+    else:
+        morceaux.append("tous types de biens")
+
+    bas, haut = filtres.get("surface_min"), filtres.get("surface_max")
+    if bas and haut:
+        morceaux.append(f"de {bas:.0f} à {haut:.0f} m²")
+    elif bas:
+        morceaux.append(f"à partir de {bas:.0f} m²")
+    elif haut:
+        morceaux.append(f"jusqu'à {haut:.0f} m²")
+
+    if filtres.get("fenetre_jours"):
+        morceaux.append(f"diagnostiqués dans les {int(filtres['fenetre_jours'])}"
+                        " derniers jours")
+    if filtres.get("zone"):
+        morceaux.append(f"secteur {filtres['zone']}")
+    return ", ".join(morceaux)
+
+
 def _lignes_texte(biens):
     for bien in biens[:MAX_DETAILLES]:
         surface = (f"{bien['surface_habitable']:.0f} m²"
@@ -134,12 +165,14 @@ def _lignes_texte(biens):
                f" · établi le {_jour(bien.get('date_etablissement'))}")
 
 
-def _corps(biens):
+def _corps(biens, filtres=None):
     """Le message, en texte et en HTML."""
+    criteres = _criteres_lisibles(filtres or _filtres())
     total = len(biens)
     titre = (f"{total} nouveau DPE" if total == 1 else f"{total} nouveaux DPE")
 
-    texte = [f"{titre} correspondant à vos critères.", ""]
+    texte = [f"{titre} correspondant à vos critères.",
+             f"Critères : {criteres}.", ""]
     texte.extend(_lignes_texte(biens))
     if total > MAX_DETAILLES:
         texte.append(f"\n… et {total - MAX_DETAILLES} autres. "
@@ -163,6 +196,8 @@ def _corps(biens):
              if total > MAX_DETAILLES else "")
     corps_html = f"""<html><body style="font-family:system-ui,sans-serif">
   <p>{html.escape(titre)} correspondant à vos critères.</p>
+  <p style="color:#555;font-size:13px">{html.escape(criteres[:1].upper() + criteres[1:])}.
+  Ces critères se modifient dans l'écran Réglages.</p>
   <table cellpadding="6" style="border-collapse:collapse;font-size:14px">
     <tr style="text-align:left;border-bottom:1px solid #999">
       <th>Adresse</th><th>Secteur</th><th>Surface</th><th>DPE</th><th>Établi le</th>

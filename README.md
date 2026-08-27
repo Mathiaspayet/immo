@@ -1113,6 +1113,23 @@ journal des imports le montre — mais n'envoie rien. Un import manuel qui
 ramène cent nouveaux DPE ne déclenche donc aucun courriel ; ils attendent le
 passage suivant.
 
+**Le courriel annonce ses propres critères.** Le premier envoi réel a
+listé 109 biens, dont des appartements de 54 m² — dans une liste qu'on
+croyait réservée aux maisons de 80 m² et plus. Rien n'était en défaut :
+les réglages enregistrés étaient simplement plus larges que les valeurs par
+défaut du code. Mais le courriel ne le disait pas, et la seule façon de le
+comprendre était d'ouvrir l'écran.
+
+Il porte donc maintenant une ligne de critères, lue **à l'envoi** et non
+figée : « tous types de biens, de 50 à 400 m², diagnostiqués dans les 120
+derniers jours, secteur plage ».
+
+Deux choses expliquaient par ailleurs le nombre. C'était le **premier**
+envoi : il rattrapait tout ce qui n'avait jamais été signalé dans la
+fenêtre de 120 jours, et non les seules nouveautés du jour. Et l'estimation
+que j'en avais faite ne comptait que les DPE récupérés par le géocodage —
+une fraction du retard réel.
+
 **Chaque passage laisse une trace, même muet.** C'est le complément
 indispensable du précédent : savoir que le passage a lieu à 7 h ne dit pas
 ce qu'il a donné. L'issue de chaque tentative — envoyée, rien de neuf,
