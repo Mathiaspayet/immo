@@ -10,8 +10,9 @@ import math
 
 import pytest
 
-from app.base.connexion import transaction
+from app.base.connexion import connexion, transaction
 from app.metier import parcelles
+from app.sources import ademe
 from tests.conftest import inserer_dpe
 
 LAT, LON = 43.6600, 1.4400            # Launaguet
@@ -244,3 +245,95 @@ def test_extrait_signale_un_import_sans_bati(cadastre):
     # Une fois les contours repris, l'extrait ne reclame plus rien.
     inserer_batiment("B1", indice=1, parcelle_id="P-BONNE")
     assert parcelles.extrait("D1")["batiments_manquants"] is False
+
+
+def _parcelle_a(identifiant, latitude, longitude, cote=COTE, code_insee="40184"):
+    """Une parcelle carree centree sur un point precis, pour eprouver le
+    rattachement d'un DPE dont on connait les coordonnees reelles."""
+    lat0, lon0 = latitude - cote / 2, longitude - cote / 2
+    anneau = [[lon0, lat0], [lon0 + cote, lat0], [lon0 + cote, lat0 + cote],
+              [lon0, lat0 + cote], [lon0, lat0]]
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO parcelle (id, code_insee, section, numero, contenance_m2,"
+            "  emprise_batie_m2, nb_batiments, latitude, longitude,"
+            "  lat_min, lat_max, lon_min, lon_max, geometrie_json, importe_le)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (identifiant, code_insee, "ZZ", identifiant[-4:], 800.0, 120.0, 1,
+             latitude, longitude, lat0, lat0 + cote, lon0, lon0 + cote,
+             json.dumps({"type": "Polygon", "coordinates": [anneau]}),
+             "2026-09-01T10:00:00"))
+    return identifiant
+
+
+def test_un_dpe_arrive_apres_le_cadastre_est_rattache(base, monkeypatch):
+    """
+    Le defaut le plus sournois rencontre : un DPE arrive apres le dernier
+    import du cadastre restait ORPHELIN — `parcelle_id` a NULL.
+
+    Rien n'echouait. La ligne etait bien en base, visible dans la liste et
+    sur la carte de la veille, qui travaillent sur ses coordonnees. Mais
+    elle disparaissait de la carte d'exploration, qui joint les DPE aux
+    parcelles par cette clef, et sa fiche perdait son historique de
+    ventes, qui passe par la meme parcelle.
+
+    Constate sur Mimizan le 10/09/2026 : le DPE le plus recent rattache a
+    une parcelle datait du 30 juin — deux mois et demi de moisson
+    quotidienne restee sans lien.
+    """
+    from app.metier import import_dpe, parcelles as metier_parcelles
+
+    parcelle = _parcelle_a("40184000ZZ0001", 44.2177, -1.2968)
+
+    correspondances = {c: c for c in ademe.CONCEPTS}
+    monkeypatch.setattr("app.sources.ademe.preparer",
+                        lambda jeu="existant": (correspondances, []))
+    monkeypatch.setattr("app.sources.ademe.orphelins", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "app.sources.ademe.telecharger",
+        lambda code_insee, corr, jeu="existant", progression=None, champs=None:
+            [{"numero_dpe": "NEUF-1", "code_insee": "40184",
+              "date": "2026-09-02", "adresse": "25 Avenue de la Côte d'Argent",
+              "commune": "Mimizan", "surface": 286.5, "type_batiment": "maison",
+              "etiquette_dpe": "E", "geopoint": "44.2177,-1.2968"}]
+            if jeu == "existant" else [])
+
+    import_dpe.importer_commune("40184", declencheur="test", avec_cadastre=False)
+
+    with connexion() as conn:
+        ligne = conn.execute(
+            "SELECT parcelle_id, latitude FROM dpe WHERE n_dpe = 'NEUF-1'").fetchone()
+    assert ligne is not None, "le DPE n'est pas entre en base"
+    assert ligne["latitude"] is not None
+    assert ligne["parcelle_id"] == "40184000ZZ0001", (
+        "le DPE est orphelin : il manquera a la carte d'exploration et son "
+        "historique de ventes sera vide")
+
+
+def test_la_carte_d_exploration_montre_le_dpe_du_jour(base, monkeypatch):
+    """Le symptome tel que l'utilisateur le voit : la parcelle doit
+    s'allumer sur la carte d'exploration."""
+    from app.metier import import_dpe, parcelles as metier_parcelles
+
+    _parcelle_a("40184000ZZ0002", 44.2177, -1.2968)
+    correspondances = {c: c for c in ademe.CONCEPTS}
+    monkeypatch.setattr("app.sources.ademe.preparer",
+                        lambda jeu="existant": (correspondances, []))
+    monkeypatch.setattr("app.sources.ademe.orphelins", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "app.sources.ademe.telecharger",
+        lambda code_insee, corr, jeu="existant", progression=None, champs=None:
+            [{"numero_dpe": "NEUF-2", "code_insee": "40184",
+              "date": "2026-09-02", "adresse": "25 Avenue de la Côte d'Argent",
+              "commune": "Mimizan", "surface": 286.5, "type_batiment": "maison",
+              "etiquette_dpe": "E", "geopoint": "44.2177,-1.2968"}]
+            if jeu == "existant" else [])
+
+    import_dpe.importer_commune("40184", declencheur="test", avec_cadastre=False)
+
+    carte = metier_parcelles.pour_carte(
+        "40184", (-1.2988, 44.2157, -1.2948, 44.2197))
+    visees = [p for p in carte["parcelles"] if p["id"] == "40184000ZZ0002"]
+    assert visees, "la parcelle n'est pas dans le cadre"
+    assert visees[0]["dpe"] >= 1, (
+        "la parcelle reste eteinte sur la carte d'exploration")

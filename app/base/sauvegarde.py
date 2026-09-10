@@ -184,7 +184,7 @@ def sauvegarder(horodatage=None):
     partiel.replace(cible)
     _balayer(cible)
 
-    retirees = _rotation()
+    retirees = _rotation(garder=cible.name)
     taille = cible.stat().st_size
     logger.info("sauvegarde %s (%.1f Mo), %d ancienne(s) retiree(s)",
                 cible.name, taille / 1e6, len(retirees))
@@ -262,11 +262,19 @@ def _a_garder(presentes, maintenant):
     return gardees
 
 
-def _rotation(maintenant=None):
+def _rotation(maintenant=None, garder=None):
     """Retire ce qui n'est plus a garder. Renvoie les noms retires."""
     maintenant = maintenant or datetime.datetime.now()
     presentes = copies()
     gardees = _a_garder(presentes, maintenant)
+    # La copie qu'on vient d'ecrire ne se retire JAMAIS, quelle que soit
+    # la regle. Sans cette garde, une copie demandee a la main portant une
+    # date deja couverte par la retention mensuelle etait effacee dans la
+    # foulee : l'utilisateur croyait avoir une sauvegarde, il n'en avait
+    # pas. Sauvegarder ne doit jamais avoir pour effet net de ne rien
+    # sauvegarder.
+    if garder:
+        gardees.add(garder)
 
     retirees = []
     for copie in presentes:

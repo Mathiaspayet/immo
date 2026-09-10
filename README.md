@@ -1113,6 +1113,42 @@ journal des imports le montre — mais n'envoie rien. Un import manuel qui
 ramène cent nouveaux DPE ne déclenche donc aucun courriel ; ils attendent le
 passage suivant.
 
+**Un DPE tout neuf était invisible sur la carte d'exploration.** Le défaut
+le plus sournois rencontré, parce que rien n'échouait. Un DPE arrivé après
+le dernier import du **cadastre** restait orphelin : son `parcelle_id`
+valait `NULL`.
+
+La conséquence dépendait de l'écran, ce qui rendait le symptôme
+déroutant :
+
+| Écran | Ce qu'il joint | Le DPE neuf y est-il ? |
+|---|---|---|
+| Les DPE récents — liste et carte | ses **coordonnées** | oui |
+| Explorer la carte | la **parcelle** | non |
+| Fiche — historique des ventes | la **parcelle** | non |
+
+Le rattachement n'était appelé que depuis l'import du cadastre. Sa propre
+docstring annonçait pourtant l'inverse — « c'est ce qu'on veut après une
+moisson de DPE, quand le cadastre est déjà posé » — mais l'appel manquait.
+
+Constaté sur Mimizan le 10 septembre 2026, en interrogeant l'instance :
+autour d'un bien signalé la veille, le DPE le plus récent rattaché à une
+parcelle datait du **30 juin**. Deux mois et demi de moisson quotidienne
+sans lien, et une carte d'exploration qui vieillissait sans le dire.
+
+La moisson rattache donc désormais ses orphelins. Le coût est nul quand il
+n'y a rien à faire : mesuré à 0,06 s sur 4 304 parcelles, et 0,17 s pour
+rattacher 2 560 DPE d'un coup. Un test échoue si l'appel disparaît.
+
+**Une sauvegarde pouvait s'effacer elle-même.** Trouvé en passant, et plus
+grave que son apparence. La rotation tournait après chaque copie, sans
+savoir laquelle venait d'être écrite : une copie demandée à la main, portant
+une date déjà couverte par la rétention mensuelle, était supprimée dans la
+foulée. L'utilisateur croyait avoir une sauvegarde, il n'en avait pas.
+Sauvegarder ne doit jamais avoir pour effet net de ne rien sauvegarder — la
+copie fraîche est maintenant exclue de la rotation, quelle que soit la
+règle.
+
 **Le courriel annonce ses propres critères.** Le premier envoi réel a
 listé 109 biens, dont des appartements de 54 m² — dans une liste qu'on
 croyait réservée aux maisons de 80 m² et plus. Rien n'était en défaut :

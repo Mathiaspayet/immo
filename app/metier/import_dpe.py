@@ -591,8 +591,36 @@ def _moissonner(communes, jeux=None):
 
         purges = _purger(conn, parametres["purge_mois"])
 
+    # --- Rattachement a la parcelle ------------------------------------
+    # Sans cela, un DPE arrive apres le dernier import du cadastre reste
+    # ORPHELIN : `parcelle_id` a NULL. Il se voit dans la liste et sur la
+    # carte de la veille — qui travaillent sur ses coordonnees — mais
+    # disparait de la carte d'exploration, qui joint les DPE aux parcelles
+    # par cette clef, et sa fiche perd son historique de ventes, qui passe
+    # par la meme parcelle.
+    #
+    # Le defaut etait invisible : rien n'echoue, la ligne est bien en base,
+    # et seul le croisement manque. Constate sur Mimizan le 10/09/2026 — le
+    # DPE le plus recent rattache a une parcelle datait du 30 juin, deux
+    # mois et demi de moisson quotidienne restee sans lien.
+    #
+    # `rattacher_dpe` ne traite que les orphelins, et ne fait rien si la
+    # commune n'a pas de cadastre : le cout est nul quand il n'y a rien a
+    # faire.
+    rattaches = 0
+    for commune in communes:
+        try:
+            rattaches += metier_parcelles.rattacher_dpe(commune["code_insee"])
+        except Exception as erreur:                  # noqa: BLE001
+            # Un rattachement manque ne doit pas annuler une moisson
+            # reussie : les DPE sont en base, seul le croisement attendra.
+            logger.warning("rattachement des DPE de %s : %s",
+                           commune.get("nom") or commune["code_insee"], erreur)
+
     noms = ", ".join(c.get("nom") or c["code_insee"] for c in communes)
     message = f"{noms} — {len(enregistrements)} DPE, {ajouts} nouveau(x)"
+    if rattaches:
+        message += f", {rattaches} rattache(s) au cadastre"
     if purges:
         message += f", {purges} purge(s)"
     if premier_import:
