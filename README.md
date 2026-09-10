@@ -1149,6 +1149,19 @@ Sauvegarder ne doit jamais avoir pour effet net de ne rien sauvegarder — la
 copie fraîche est maintenant exclue de la rotation, quelle que soit la
 règle.
 
+Et sous ce défaut s'en cachait un pire, une **instabilité**. Deux copies
+d'une même minute — `...-1430.db` et `...-143000.db` — se lisent à la même
+seconde. Sans le nom pour les départager, la rotation suivait l'ordre du
+système de fichiers : le même code gardait l'une ici et l'autre là. Le test
+qui l'a révélé passait en local et échouait sur le serveur d'intégration,
+ce qui est le pire des deux mondes — une instabilité se prend pour de la
+malchance, et on relance.
+
+La règle tranche donc maintenant à la place du hasard, et le test présente
+le même couple **dans les deux ordres** pour l'exiger. Le premier
+garde-fou que j'avais écrit passait aussi sans le correctif : viser
+l'ordre du disque ne gardait rien, il fallait viser la décision.
+
 **Le courriel annonce ses propres critères.** Le premier envoi réel a
 listé 109 biens, dont des appartements de 54 m² — dans une liste qu'on
 croyait réservée aux maisons de 80 m² et plus. Rien n'était en défaut :

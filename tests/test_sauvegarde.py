@@ -109,10 +109,10 @@ def test_une_copie_ratee_ne_chasse_pas_les_bonnes(dossier_copies, monkeypatch):
 #  La rotation : ce qu'on pourra encore recuperer dans six mois
 # =====================================================================
 
-def _poser(dossier_copies, quand):
-    """Une copie factice a une date donnee."""
+def _poser(dossier_copies, quand, nom=None):
+    """Une copie factice a une date donnee, ou sous un nom impose."""
     dossier_copies.mkdir(parents=True, exist_ok=True)
-    chemin = dossier_copies / f"veille-{quand:%Y-%m-%d-%H%M}.db"
+    chemin = dossier_copies / (nom or f"veille-{quand:%Y-%m-%d-%H%M}.db")
     chemin.write_bytes(b"x" * 1024)
     return chemin
 
@@ -163,12 +163,18 @@ def test_deux_sauvegardes_dans_la_meme_minute_coexistent(dossier_copies):
     meme nom, et l'ecrasait.
     """
     _peupler(5)
-    quand = datetime.datetime(2026, 8, 24, 14, 30)
+    # L'HEURE COURANTE, et non une date figee dans le passe : le geste
+    # qu'on decrit — cliquer juste apres la copie du planificateur — se
+    # fait aujourd'hui. Une date de trois semaines tombait hors de la
+    # fenetre quotidienne, ou la retention mensuelle ne garde qu'une copie
+    # par mois : le test se battait alors contre une regle legitime, et
+    # son verdict dependait de l'ordre du systeme de fichiers.
+    quand = datetime.datetime.now().replace(microsecond=0)
     une = sauvegarde.sauvegarder(quand)
     deux = sauvegarde.sauvegarder(quand)
 
     assert une["faite"] and deux["faite"]
-    assert une["fichier"] != deux["fichier"]
+    assert une["fichier"] != deux["fichier"], "la seconde copie ecrase la premiere"
     presentes = {c["fichier"] for c in sauvegarde.copies()}
     assert une["fichier"] in presentes and deux["fichier"] in presentes
 
@@ -276,3 +282,30 @@ def test_la_base_restauree_repasse_les_migrations_sans_dommage(dossier_copies):
     assert jouees == [], f"migrations rejouees sur une base a jour : {jouees}"
     with connexion() as conn:
         assert conn.execute("SELECT count(*) FROM mutation").fetchone()[0] == 30
+
+
+def test_deux_copies_de_la_meme_seconde_sont_departagees():
+    """
+    Deux copies d'une meme minute — « ...-1430.db » et « ...-143000.db » —
+    se lisent a la MEME seconde. Sans le nom pour les departager, la
+    decision suivait l'ordre d'arrivee, donc celui du systeme de fichiers :
+    le meme code gardait l'une ici et l'autre la.
+
+    Le test qui l'a revele passait en local et echouait sur le serveur
+    d'integration. Une instabilite est pire qu'un echec franc — elle se
+    prend pour de la malchance, et on relance.
+
+    On presente donc le meme couple dans les DEUX ordres : la regle doit
+    trancher, pas le hasard.
+    """
+    quand = datetime.datetime(2026, 8, 24, 14, 30)
+    maintenant = quand + datetime.timedelta(days=20)
+    a = {"fichier": "veille-2026-08-24-1430.db", "quand": quand, "octets": 1}
+    b = {"fichier": "veille-2026-08-24-143000.db", "quand": quand, "octets": 1}
+
+    un = sauvegarde._a_garder([a, b], maintenant)
+    deux = sauvegarde._a_garder([b, a], maintenant)
+    assert un == deux, (
+        "la copie conservee depend de l'ordre d'arrivee, donc du systeme "
+        "de fichiers")
+    assert len(un) == 1, "la retention mensuelle n'en garde qu'une"

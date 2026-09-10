@@ -215,14 +215,23 @@ def _datee(chemin):
 
 
 def copies():
-    """Les copies presentes, de la plus recente a la plus ancienne."""
+    """
+    Les copies presentes, de la plus recente a la plus ancienne.
+
+    Le NOM departage les dates egales. Deux copies d'une meme minute —
+    « ...-1430.db » et « ...-143000.db » — se lisent a la meme seconde, et
+    sans ce second critere leur ordre venait de celui du systeme de
+    fichiers. La rotation en supprimait alors une au hasard : le meme code
+    gardait l'une ici et l'autre la. Un test l'a montre en passant en
+    local et en echouant sur le serveur d'integration.
+    """
     trouvees = []
     for chemin in dossier().glob(f"{PREFIXE}*{SUFFIXE}"):
         quand = _datee(chemin)
         if quand is not None:
             trouvees.append({"fichier": chemin.name, "quand": quand,
                              "octets": chemin.stat().st_size})
-    return sorted(trouvees, key=lambda c: c["quand"], reverse=True)
+    return sorted(trouvees, key=lambda c: (c["quand"], c["fichier"]), reverse=True)
 
 
 def _a_garder(presentes, maintenant):
@@ -240,7 +249,16 @@ def _a_garder(presentes, maintenant):
     limite_jours = maintenant - datetime.timedelta(days=JOURS)
     par_mois, par_an = collections.OrderedDict(), collections.OrderedDict()
 
-    for copie in presentes:                          # deja triees, recent d'abord
+    # On retrie ici plutot que de faire confiance a l'appelant. Deux copies
+    # d'une meme minute — « ...-1430.db » et « ...-143000.db » — se lisent
+    # a la meme seconde : sans le nom pour les departager, la decision
+    # suivait l'ordre d'arrivee, donc celui du systeme de fichiers. Le meme
+    # code gardait alors l'une ici et l'autre la, et le test qui l'a
+    # revele passait en local en echouant sur le serveur d'integration.
+    presentes = sorted(presentes, key=lambda c: (c["quand"], c["fichier"]),
+                       reverse=True)
+
+    for copie in presentes:                          # recent d'abord
         quand = copie["quand"]
         if quand >= limite_jours:
             gardees.add(copie["fichier"])
