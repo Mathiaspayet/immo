@@ -45,8 +45,14 @@ def communes_en_cache():
     frequente.
     """
     with connexion() as conn:
+        # Un nom EGAL au code INSEE n'est pas un nom : c'est le repli
+        # inscrit quand le referentiel etait injoignable. On le tient pour
+        # inconnu, et la variante la plus frequente des DPE reprend la
+        # main — sans quoi une base deja marquee afficherait « 40184 »
+        # jusqu'a un import reussi.
         officiels = {ligne["code_insee"]: ligne["nom"]
-                     for ligne in conn.execute("SELECT code_insee, nom FROM commune")}
+                     for ligne in conn.execute("SELECT code_insee, nom FROM commune")
+                     if ligne["nom"] and ligne["nom"] != ligne["code_insee"]}
         lignes = conn.execute(
             "SELECT code_insee, commune, code_postal, count(*) AS dpe "
             "FROM dpe WHERE code_insee IS NOT NULL "

@@ -95,7 +95,14 @@ def transformer(ligne, correspondances, points_de_zone, jeu, code_postal_demande
     # « PONTENX LES FORGES », ce qui eclaterait les regroupements.
     code_insee = texte(lire("code_insee"))
     officiel = (communes_par_insee or {}).get(code_insee) or {}
-    commune = officiel.get("nom") or texte(lire("commune"))
+    # Un nom EGAL au code INSEE n'est pas un nom : c'est le repli pris
+    # quand geo.api.gouv.fr n'a pas repondu. Le laisser passer l'inscrit
+    # dans chaque ligne moissonnee — une coupure de quelques secondes
+    # baptisait 4 363 logements « 40184 » au lieu de « Mimizan ». Mieux
+    # vaut l'ecriture de l'ADEME, si rustre soit-elle.
+    nom_officiel = officiel.get("nom")
+    commune = (None if nom_officiel == code_insee else nom_officiel) \
+        or texte(lire("commune"))
 
     # Les secteurs ne valent que dans la commune ou leurs reperes ont ete
     # places : ailleurs, le « point le plus proche » n'a aucun sens.
@@ -583,7 +590,15 @@ def _moissonner(communes, jeux=None):
             conn.execute(
                 "INSERT INTO commune (code_insee, nom, code_postal, derniere_maj_dpe) "
                 "VALUES (?, ?, ?, ?) "
-                "ON CONFLICT(code_insee) DO UPDATE SET nom = excluded.nom, "
+                "ON CONFLICT(code_insee) DO UPDATE SET "
+                # Un referentiel injoignable ne doit pas EFFACER un nom
+                # connu. Faute de reponse de geo.api.gouv.fr, `nom` retombe
+                # sur le code INSEE ; l'ecrire ici remplacerait « Mimizan »
+                # par « 40184 » dans tous les ecrans, jusqu'au prochain
+                # import reussi. Une coupure reseau d'une minute laissait
+                # ainsi une trace permanente.
+                "  nom = coalesce(nullif(excluded.nom, excluded.code_insee), "
+                "                 commune.nom, excluded.nom), "
                 "  code_postal = coalesce(excluded.code_postal, commune.code_postal), "
                 "  derniere_maj_dpe = excluded.derniere_maj_dpe",
                 (commune["code_insee"], commune.get("nom") or commune["code_insee"],

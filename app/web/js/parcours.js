@@ -181,7 +181,15 @@ function afficherResultats() {
   changerVue(parcours.intention || "veille");
   dessinerContexte();
   for (const rappel of abonnes) {
-    try { rappel(parcours.commune); } catch (_) { /* un écran fautif n'en bloque pas un autre */ }
+    // Un écran fautif n'en bloque pas un autre — mais son erreur doit se
+    // VOIR. Ce catch muet a caché pendant des semaines un appel à une
+    // fonction qui n'existait pas : l'écran Veille s'ouvrait vide, sans
+    // rien dans la console pour le dire.
+    try {
+      rappel(parcours.commune);
+    } catch (erreur) {
+      console.error("un abonné au parcours a échoué :", erreur);
+    }
   }
 }
 

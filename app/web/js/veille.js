@@ -177,6 +177,34 @@ function selectionner(numero) {
   }
 }
 
+/**
+ * Rafraîchit la barre de contexte : la commune, et son nombre de DPE.
+ *
+ * Elle était APPELÉE sans jamais avoir été écrite. Les deux appels — à la
+ * sélection d'une commune et à la fin d'un import — levaient donc un
+ * `ReferenceError` que le `try/catch` de `afficherResultats` avalait, et
+ * le `charger()` posé sur la même ligne ne s'exécutait jamais.
+ *
+ * Le symptôme n'avait rien d'évident : l'écran Veille s'ouvrait vide, et
+ * ne se remplissait qu'au premier changement de filtre — celui-ci appelle
+ * `charger()` directement, sans passer par le rappel fautif. Un import qui
+ * aboutissait ne rafraîchissait pas l'écran non plus.
+ */
+async function chargerContexte() {
+  const commune = communeCourante();
+  if (!commune) return;
+  try {
+    const { communes } = await api.communes();
+    const trouvee = (communes || []).find(
+      (c) => c.code_insee === commune.code_insee);
+    dessinerContexte(trouvee ? { dpe: trouvee.dpe } : {});
+  } catch (_) {
+    // Le compte est un agrément : sans lui la barre reste juste, elle
+    // annonce seulement la commune.
+    dessinerContexte();
+  }
+}
+
 async function charger() {
   masquerErreur();
   etat.filtres = lireFiltres();

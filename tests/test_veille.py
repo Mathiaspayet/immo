@@ -218,6 +218,20 @@ def test_le_nom_officiel_prime_sur_celui_de_l_ademe(base):
     assert veille.communes_en_cache()[0]["nom"] == "Sainte-Eulalie-en-Born"
 
 
+def test_un_code_insee_stocke_comme_nom_ne_prime_sur_rien(base):
+    """
+    « 40184 » n'est pas un nom de commune : c'est le repli inscrit quand
+    geo.api.gouv.fr n'a pas repondu. L'ecran doit alors montrer la variante
+    de l'ADEME, pas un numero.
+    """
+    from app.base.connexion import transaction
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom) VALUES ('40257', '40257')")
+    inserer_dpe(n_dpe="A", adresse="1 rue", commune="STE EULALIE EN BORN",
+                code_insee="40257")
+    assert veille.communes_en_cache()[0]["nom"] == "STE EULALIE EN BORN"
+
+
 def test_filtre_par_code_insee_insensible_aux_variantes(base):
     inserer_dpe(n_dpe="A", adresse="1 rue", commune="STE EULALIE EN BORN",
                 code_insee="40257", date_etablissement="2026-08-01")
@@ -300,3 +314,106 @@ def test_reglage_commune_des_secteurs(base, valeur, valide):
     else:
         with pytest.raises(ValueError, match="Code INSEE invalide"):
             reglages.ecrire({"zones_code_insee": valeur})
+
+
+# ---------------------------------------------------------------------
+#  Le registre des communes
+# ---------------------------------------------------------------------
+
+def _moissonner_hors_ligne(monkeypatch, communes):
+    """
+    Rejoue un import sans toucher au reseau : seul le registre des communes
+    est observe ici. La moisson refusant un resultat vide, on lui rend une
+    ligne, deja transformee.
+    """
+    from app.metier import import_dpe
+    from app.sources import ademe
+
+    def enregistrement(ligne, *args, **nommes):
+        return dict.fromkeys(import_dpe.COLONNES) | {
+            "n_dpe": ligne["num"], "code_insee": ligne["insee"],
+            "adresse": "1 rue", "commune": "peu importe",
+            "date_etablissement": "2026-08-01", "surface_habitable": 100.0,
+            "type_batiment": "maison", "etiquette_dpe": "D",
+            "jeu_de_donnees": "existant", "donnees_brutes_json": "{}",
+        }
+
+    monkeypatch.setattr(ademe, "preparer", lambda jeu: ({"numero_dpe": "num"}, []))
+    monkeypatch.setattr(ademe, "telecharger", lambda code_insee, *a, **n: iter(
+        [{"num": f"DPE-{code_insee}", "insee": code_insee}]))
+    monkeypatch.setattr(import_dpe, "transformer", enregistrement)
+    monkeypatch.setattr(import_dpe, "reparer_par_la_ban", lambda *a, **n: 0)
+    monkeypatch.setattr(import_dpe, "_reparer_orphelins", lambda *a, **n: [])
+    monkeypatch.setattr(import_dpe, "_publier", lambda **nommes: None)
+    return import_dpe._moissonner(communes, jeux=["existant"])
+
+
+def test_un_referentiel_injoignable_n_efface_pas_le_nom_connu(base, monkeypatch):
+    """
+    Quand geo.api.gouv.fr ne repond pas, l'import se rabat sur le code
+    INSEE en guise de nom. Il ne doit pas l'ECRIRE par-dessus le vrai :
+    une coupure d'une minute rebaptisait « Mimizan » en « 40184 » dans
+    tous les ecrans, jusqu'au prochain import reussi.
+    """
+    from app.base.connexion import connexion, transaction
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom, code_postal) "
+                     "VALUES ('40184', 'Mimizan', '40200')")
+
+    # Le repli : pas de nom, donc le code INSEE.
+    _moissonner_hors_ligne(monkeypatch, [{"code_insee": "40184", "nom": "40184",
+                                      "code_postal": None}])
+
+    with connexion() as conn:
+        ligne = conn.execute(
+            "SELECT nom, code_postal FROM commune WHERE code_insee = '40184'").fetchone()
+    assert ligne["nom"] == "Mimizan"
+    assert ligne["code_postal"] == "40200"
+
+
+def test_le_referentiel_joignable_corrige_le_nom(base, monkeypatch):
+    """L'inverse doit rester vrai : un vrai nom remplace bien l'ancien."""
+    from app.base.connexion import connexion, transaction
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom) VALUES ('40184', '40184')")
+
+    _moissonner_hors_ligne(monkeypatch, [{"code_insee": "40184", "nom": "Mimizan",
+                                      "code_postal": "40200"}])
+
+    with connexion() as conn:
+        assert conn.execute(
+            "SELECT nom FROM commune WHERE code_insee = '40184'").fetchone()["nom"] == "Mimizan"
+
+
+def test_une_commune_inconnue_s_inscrit_meme_sans_referentiel(base, monkeypatch):
+    """Premier import sans reseau : le code vaut mieux que rien."""
+    from app.base.connexion import connexion
+    _moissonner_hors_ligne(monkeypatch, [{"code_insee": "40184", "nom": "40184",
+                                      "code_postal": None}])
+    with connexion() as conn:
+        assert conn.execute(
+            "SELECT nom FROM commune WHERE code_insee = '40184'").fetchone()["nom"] == "40184"
+
+
+def test_le_nom_de_repli_ne_s_inscrit_pas_dans_les_lignes(base):
+    """
+    Le referentiel muet, `importer_commune` se rabat sur le code INSEE en
+    guise de nom. Ce repli ne doit pas descendre jusqu'aux lignes : il
+    baptisait chaque logement moissonne « 40184 ». L'ecriture de l'ADEME,
+    si rustre soit-elle, vaut mieux qu'un numero.
+    """
+    from app.metier.import_dpe import transformer
+
+    correspondances = {"numero_dpe": "n", "code_insee": "i", "commune": "c",
+                       "adresse": "a"}
+    ligne = {"n": "A", "i": "40184", "c": "MIMIZAN", "a": "1 rue"}
+
+    repli = transformer(ligne, correspondances, {}, "existant", "40200",
+                        {"40184": {"nom": "40184"}}, "")
+    assert repli["commune"] == "MIMIZAN"
+
+    # Un vrai nom officiel continue de primer : c'est lui qui reunit
+    # « MIMIZAN » et « Mimizan » sous une seule entree.
+    officiel = transformer(ligne, correspondances, {}, "existant", "40200",
+                           {"40184": {"nom": "Mimizan"}}, "")
+    assert officiel["commune"] == "Mimizan"
