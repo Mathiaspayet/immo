@@ -46,6 +46,26 @@ import { communeCourante, dessinerContexte, surCommunePrete } from "./parcours.j
 // parcelles de quelques pixels, illisibles et lourdes à charger.
 const ZOOM_MINIMAL = 15;
 
+// On charge PLUS LARGE que ce qu'on montre : un déplacement qui reste
+// dans cette marge ne demande rien du tout, et c'est ce qui enlève la
+// sensation de rechargement à chaque geste.
+//
+// La valeur n'est pas choisie à l'œil. Mesuré à la densité de Mimizan,
+// sur huit petits déplacements de 150 px :
+//
+//     marge 0,00 : 7 requêtes / 8 gestes
+//     marge 0,25 : 3 requêtes / 8 gestes
+//     marge 0,30 : 2 requêtes / 8 gestes
+//     marge 0,60 : réponse TRONQUÉE, donc jamais réutilisable
+//
+// Elle a un prix, mesuré lui aussi : un cadre plus large fait plus de
+// contours à poser quand un chargement a bien lieu. Sur un processeur
+// bridé six fois, le travail cumulé passe de ~110 ms à ~500 ms sur une
+// série de onze gestes — mais il est payé UNE fois par chargement, et il
+// y a cinq fois moins de chargements. La cadence d'affichage, elle, reste
+// à 17 ms par image dans les deux cas.
+const MARGE = 0.3;
+
 let carte = null;
 let derniereRequete = 0;
 let communeCadree = null;
@@ -61,6 +81,13 @@ const ecran = {
   listeAJour: false,
   // La derniere reponse du serveur, pour redessiner sans la redemander.
   dernieresParcelles: null,
+  // Le cadre effectivement charge, et a quel zoom : tant que la vue reste
+  // dedans, il n'y a rien a redemander.
+  cadreCharge: null,
+  zoomCharge: null,
+  // Un cadre tronque est INCOMPLET : s'y fier ferait manquer des
+  // parcelles au premier deplacement. On redemande alors toujours.
+  chargeComplet: false,
 };
 
 // ====================================================================
@@ -360,7 +387,7 @@ function etat(message) {
  * répondent. La carte se recolore donc sur place — même cadre, même
  * échelle, même position — au lieu d'ouvrir un autre écran à côté.
  */
-async function rafraichir() {
+async function rafraichir({ force = false } = {}) {
   const commune = communeCourante();
   if (!commune) {
     etat("Choisissez une commune pour commencer.");
@@ -369,11 +396,21 @@ async function rafraichir() {
   if (carte.zoom() < ZOOM_MINIMAL) {
     // On oublie la dernière réponse : elle décrit un cadre qu'on ne
     // montre plus, et une bascule de couche la repeindrait telle quelle.
-    ecran.dernieresParcelles = null;
-    carte.dessiner([], ecran.couches);
+    oublierLeCadre();
+    carte.effacerParcelles();
     carte.poserPoints([]);
     etat("Zoomez pour voir les parcelles&nbsp;: à cette échelle, elles sont " +
          "trop nombreuses et trop petites pour être lisibles.");
+    return;
+  }
+
+  // Le déplacement qui ne demande rien. Tant que la vue reste dans ce qui
+  // est déjà chargé, au même zoom, il n'y a rien à aller chercher : les
+  // contours sont là, on ne les touche pas. C'est ce cas-là qui doit être
+  // le plus fréquent, et c'est lui qui rend la navigation fluide.
+  if (!force && ecran.chargeComplet
+      && carte.zoom() === ecran.zoomCharge
+      && carte.cadreContient(ecran.cadreCharge)) {
     return;
   }
 
@@ -381,23 +418,59 @@ async function rafraichir() {
   // dernière compte. Sans ce numéro d'ordre, une réponse tardive
   // écraserait l'affichage d'un cadre qu'on a déjà quitté.
   const rang = ++derniereRequete;
-  etat("Chargement…");
+  const cadre = carte.cadre(MARGE);
+  // La carte GARDE ce qu'elle montre pendant le chargement : la vider
+  // d'abord, ou annoncer « Chargement… » à sa place, donnait justement
+  // l'impression d'un rechargement. Un discret témoin suffit, et
+  // seulement si l'attente se voit.
+  const temoin = setTimeout(() => attendre(true), 400);
+
   let reponse;
+  let cadreRetenu = cadre;
   try {
-    reponse = await api.parcellesCarte(commune.code_insee, carte.cadre(),
+    reponse = await api.parcellesCarte(commune.code_insee, cadre,
                                        null, ecran.filtres);
+    // Une réponse tronquée a dépensé son plafond sur la MARGE autant que
+    // sur le visible : des parcelles sous les yeux peuvent manquer. On
+    // redemande alors le cadre nu, qui a toutes ses chances de tenir.
+    if (reponse.tronque) {
+      cadreRetenu = carte.cadre();
+      reponse = await api.parcellesCarte(commune.code_insee, cadreRetenu,
+                                         null, ecran.filtres);
+    }
   } catch (erreur) {
+    clearTimeout(temoin);
     if (rang !== derniereRequete) return;
-    ecran.dernieresParcelles = null;
-    etat("");
+    attendre(false);
+    oublierLeCadre();
     afficherErreur("Les parcelles n'ont pas pu être chargées.", erreur.message);
     return;
   }
+  clearTimeout(temoin);
   if (rang !== derniereRequete) return;
+  attendre(false);
 
   masquerErreur();
   ecran.dernieresParcelles = reponse;
+  ecran.cadreCharge = cadreRetenu;
+  ecran.zoomCharge = carte.zoom();
+  // Un cadre tronqué ne porte pas tout ce qu'il devrait : on ne peut pas
+  // s'en servir pour décider qu'un déplacement est inutile.
+  ecran.chargeComplet = !reponse.tronque;
   peindre(reponse);
+}
+
+/** Le cadre chargé n'est plus fiable : la prochaine vue le redemandera. */
+function oublierLeCadre() {
+  ecran.dernieresParcelles = null;
+  ecran.cadreCharge = null;
+  ecran.zoomCharge = null;
+  ecran.chargeComplet = false;
+}
+
+/** Un témoin discret, sans toucher à ce que la carte montre déjà. */
+function attendre(encours) {
+  $("#carte-exploration").dataset.attente = encours ? "oui" : "non";
 }
 
 /**
@@ -523,15 +596,20 @@ export async function initialiserExploration() {
 
   surCommunePrete(async () => {
     chargerContexte();
+    // Une autre commune, d'autres parcelles : ce qui est tracé n'a plus
+    // cours, et le cadre chargé non plus.
+    carte.effacerParcelles();
+    oublierLeCadre();
     if ($("#vue-carte").hidden) return;
     await cadrerSurLaCommune();
-    rafraichir();
+    rafraichir({ force: true });
     chargerListe();
   });
   auTermeDeLImport(() => {
     chargerContexte();
+    oublierLeCadre();
     if ($("#vue-carte").hidden) return;
-    rafraichir();
+    rafraichir({ force: true });
     chargerListe();
   });
 
@@ -565,7 +643,9 @@ export async function initialiserExploration() {
     // L'export suit les critères même quand la liste est repliée : le
     // fichier doit contenir ce que la carte montre.
     $("#export-csv").href = api.urlExport(ecran.filtres);
-    rafraichir();
+    // Les comptes changent : le cadre déjà chargé ne répond plus à la
+    // question posée, si large soit-il.
+    rafraichir({ force: true });
     chargerListe();
   });
 

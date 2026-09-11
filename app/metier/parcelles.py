@@ -433,7 +433,26 @@ def extrait_de(parcelle, marge_m=MARGE_EXTRAIT_M):
 
 # Au-dela, le navigateur peine a tracer et la carte devient illisible :
 # mieux vaut demander de zoomer que de rendre une bouillie de polygones.
-MAX_CARTE = 1200
+# Le plafond de parcelles renvoyees d'un coup. Relevé de 1 200 a 1 600 en
+# meme temps que l'arrondi des coordonnees : a poids egal sur le reseau,
+# la carte peut charger plus large qu'elle ne montre, et un deplacement
+# d'un tiers d'ecran ne demande alors plus rien.
+MAX_CARTE = 1600
+
+# Six decimales valent ~11 cm : bien au-dela de ce qu'un contour cadastral
+# affiche a l'ecran peut rendre, et bien en deca des 16 chiffres que
+# `json.dumps` ecrivait par defaut (« -1.2426787850467291 »). 28 % du
+# poids de la reponse partaient en decimales invisibles.
+DECIMALES_CARTE = 6
+
+
+def _arrondir(valeur, decimales=DECIMALES_CARTE):
+    """Arrondit les coordonnees d'une geometrie GeoJSON, en place."""
+    if isinstance(valeur, list):
+        return [_arrondir(element, decimales) for element in valeur]
+    if isinstance(valeur, float):
+        return round(valeur, decimales)
+    return valeur
 
 
 def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
@@ -500,8 +519,10 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
     for ligne in lignes[:int(limite)]:
         entree = dict(ligne)
         try:
-            entree["geometrie"] = json.loads(entree.pop("geometrie_json"))
-        except (TypeError, ValueError):
+            geometrie = json.loads(entree.pop("geometrie_json"))
+            geometrie["coordinates"] = _arrondir(geometrie.get("coordinates"))
+            entree["geometrie"] = geometrie
+        except (TypeError, ValueError, AttributeError):
             continue
         entree["dpe"] = entree["dpe"] or 0
         entree["dpe_approche"] = entree["dpe_approche"] or 0

@@ -253,6 +253,9 @@ export function creerCarteExploration(identifiant,
   // les effacer, et ils doivent rester au-dessus des contours.
   const coucheBiens = L.layerGroup().addTo(carte);
   const marqueurs = new Map();
+  // Les contours déjà posés, par identifiant de parcelle. C'est la clef de
+  // la fluidité : on ne rebâtit pas, on ajuste.
+  const contours = new Map();
   let dernierTrace = null;
 
   // Le déplacement est continu, le rechargement ne doit pas l'être : on
@@ -261,20 +264,66 @@ export function creerCarteExploration(identifiant,
   let minuterie = null;
   carte.on("moveend", () => {
     clearTimeout(minuterie);
-    minuterie = setTimeout(() => surDeplacement && surDeplacement(), 250);
+    minuterie = setTimeout(() => surDeplacement && surDeplacement(), 160);
   });
 
+  function styleDe(parcelle, couches) {
+    const etat = ETATS_PARCELLE[etatParcelle(parcelle, couches)];
+    const approchee = parcelleApprochee(parcelle)
+      && etatParcelle(parcelle, couches) !== "rien";
+    return {
+      color: "#FFFFFF",
+      weight: approchee ? 2.5 : 1.5,
+      opacity: 1,
+      dashArray: approchee ? "4 3" : null,
+      fillColor: etat.couleur,
+      fillOpacity: etat.remplissage,
+      lineJoin: "round",
+    };
+  }
+
+  /** Deux styles se valent-ils ? Restyler coûte ; ne rien faire, non. */
+  function memeStyle(a, b) {
+    return a && b && a.fillColor === b.fillColor && a.weight === b.weight
+      && a.fillOpacity === b.fillOpacity && a.dashArray === b.dashArray;
+  }
+
   return {
-    /** Le cadre affiché, dans l'ordre attendu par l'API. */
-    cadre() {
-      const b = carte.getBounds();
+    /**
+     * Le cadre affiché, dans l'ordre attendu par l'API.
+     *
+     * `marge` l'ÉLARGIT : on charge plus large que ce qu'on montre, de
+     * sorte qu'un petit déplacement retombe dans ce qui est déjà là et ne
+     * demande rien. 0,6 veut dire 60 % de la largeur de part et d'autre.
+     */
+    cadre(marge = 0) {
+      const b = carte.getBounds().pad(marge);
       return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(",");
+    },
+
+    /** Le cadre visible est-il entièrement compris dans celui-ci ? */
+    cadreContient(bbox) {
+      if (!bbox) return false;
+      const [o, s, e, n] = String(bbox).split(",").map(Number);
+      if ([o, s, e, n].some(Number.isNaN)) return false;
+      return L.latLngBounds([s, o], [n, e]).contains(carte.getBounds());
     },
 
     zoom() { return carte.getZoom(); },
 
     /**
-     * Trace les parcelles reçues, chacune selon son état.
+     * Met la carte À JOUR — elle ne la refait pas.
+     *
+     * C'est toute la différence entre un déplacement fluide et une
+     * sensation de rechargement. L'ancienne version vidait la couche puis
+     * reconstruisait mille contours : l'écran se vidait un instant, et
+     * chaque parcelle encore à l'écran était jetée puis recréée à
+     * l'identique.
+     *
+     * Ici, trois gestes seulement : on ajoute ce qui arrive, on retire ce
+     * qui est parti, et on ne restyle que ce qui a changé de couleur. Une
+     * parcelle qui reste à l'écran n'est jamais touchée — et rien ne
+     * clignote.
      *
      * `couches` dit ce qu'on regarde — les DPE, les ventes, ou les deux.
      * Une parcelle dont tous les diagnostics sont situés PAR APPROCHE
@@ -282,27 +331,45 @@ export function creerCarteExploration(identifiant,
      * dit à quel point on en est sûr.
      */
     dessiner(parcelles, couches = {}) {
-      couche.clearLayers();
+      const vues = new Set();
+
       for (const parcelle of parcelles) {
         if (!parcelle.geometrie) continue;
-        const etat = ETATS_PARCELLE[etatParcelle(parcelle, couches)];
-        const approchee = parcelleApprochee(parcelle)
-          && etatParcelle(parcelle, couches) !== "rien";
-        const forme = L.geoJSON(parcelle.geometrie, {
-          style: {
-            color: "#FFFFFF",
-            weight: approchee ? 2.5 : 1.5,
-            opacity: 1,
-            dashArray: approchee ? "4 3" : null,
-            fillColor: etat.couleur,
-            fillOpacity: etat.remplissage,
-            lineJoin: "round",
-          },
-        });
-        forme.on("click", () => surParcelle && surParcelle(parcelle));
+        vues.add(parcelle.id);
+        const style = styleDe(parcelle, couches);
+        const connu = contours.get(parcelle.id);
+
+        if (connu) {
+          // Déjà à l'écran : on ne la retrace pas. Au plus, on la repeint.
+          if (!memeStyle(connu.style, style)) {
+            connu.forme.setStyle(style);
+            connu.style = style;
+          }
+          connu.parcelle = parcelle;
+          continue;
+        }
+
+        const forme = L.geoJSON(parcelle.geometrie, { style });
+        const entree = { forme, style, parcelle };
+        // Le clic lit l'entrée, jamais la parcelle capturée à la création :
+        // les comptes changent avec les filtres, la forme non.
+        forme.on("click", () => surParcelle && surParcelle(entree.parcelle));
         forme.addTo(couche);
+        contours.set(parcelle.id, entree);
+      }
+
+      for (const [identifiant, entree] of contours) {
+        if (vues.has(identifiant)) continue;
+        couche.removeLayer(entree.forme);
+        contours.delete(identifiant);
       }
       return parcelles.length;
+    },
+
+    /** Tout retirer — au changement de commune, ou sous le seuil de zoom. */
+    effacerParcelles() {
+      couche.clearLayers();
+      contours.clear();
     },
 
     /**

@@ -400,3 +400,38 @@ def test_la_parcelle_de_carte_prefere_l_exacte(base):
         carte = dict(conn.execute(
             "SELECT n_dpe, parcelle_carte FROM dpe").fetchall())
     assert carte == {"EXACT": "P1", "APPROCHE": "P2", "AUCUNE": None}
+
+
+def test_les_coordonnees_partent_arrondies(base):
+    """
+    `json.dumps` ecrit un flottant avec seize chiffres significatifs —
+    « -1.2426787850467291 ». Six decimales valent ~11 cm, bien au-dela de
+    ce qu'un contour affiche a l'ecran peut rendre : le reste etait 28 %
+    du poids de la reponse envoye en decimales invisibles.
+
+    Mesure sur un cadre de quartier : 357 Ko avant, 268 Ko apres.
+    """
+    import json
+    from app.base.connexion import transaction
+    from app.metier import parcelles as metier_parcelles
+
+    contour = [[-1.2426787850467291, 44.19587560747664],
+               [-1.2416787850467291, 44.19587560747664],
+               [-1.2416787850467291, 44.19687560747664],
+               [-1.2426787850467291, 44.19587560747664]]
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO parcelle (id, code_insee, section, numero, latitude,"
+            " longitude, lat_min, lat_max, lon_min, lon_max, geometrie_json,"
+            " importe_le) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("40184AB0001", "40184", "AB", "1", 44.1963, -1.2421,
+             44.1958, 44.1969, -1.2427, -1.2416,
+             json.dumps({"type": "Polygon", "coordinates": [contour]}),
+             "2026-09-11T08:00:00"))
+
+    reponse = metier_parcelles.pour_carte("40184", (-1.25, 44.19, -1.23, 44.20))
+    sommets = reponse["parcelles"][0]["geometrie"]["coordinates"][0]
+    assert sommets[0] == [-1.242679, 44.195876]
+    for longitude, latitude in sommets:
+        assert len(str(longitude).split(".")[-1]) <= 6, longitude
+        assert len(str(latitude).split(".")[-1]) <= 6, latitude

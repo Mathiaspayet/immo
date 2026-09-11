@@ -111,6 +111,11 @@
 
 /* La ligne d'etat de la carte : une seule ligne, sans etiquette, collee
    au-dessus du plan. */
+/* Le temoin d'attente : un lisere, pas un ecran vide. La carte GARDE ce
+   qu'elle montre pendant qu'elle charge — c'est la vider qui donnait la
+   sensation de rechargement. */
+.carte[data-attente="oui"] { box-shadow: inset 0 3px 0 0 var(--atlantique); }
+
 .carte-etat {
   margin: 0 0 calc(var(--pas));
   padding: 0 calc(var(--pas) * 4);
