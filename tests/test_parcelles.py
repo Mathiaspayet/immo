@@ -435,3 +435,87 @@ def test_les_coordonnees_partent_arrondies(base):
     for longitude, latitude in sommets:
         assert len(str(longitude).split(".")[-1]) <= 6, longitude
         assert len(str(latitude).split(".")[-1]) <= 6, latitude
+
+
+def _poser_parcelle(conn, numero, lat, lon):
+    import json
+    cote = 0.0002
+    anneau = [[lon, lat], [lon + cote, lat], [lon + cote, lat + cote],
+              [lon, lat + cote], [lon, lat]]
+    conn.execute(
+        "INSERT INTO parcelle (id, code_insee, section, numero, latitude,"
+        " longitude, lat_min, lat_max, lon_min, lon_max, geometrie_json,"
+        " importe_le) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (f"40184AB{numero:04d}", "40184", "AB", str(numero), lat, lon,
+         lat, lat + cote, lon, lon + cote,
+         json.dumps({"type": "Polygon", "coordinates": [anneau]}),
+         "2026-09-11T08:00:00"))
+
+
+def test_le_plafond_mord_sur_le_voile_avant_les_renseignees(base):
+    """
+    Le plafond de parcelles ne doit pas faire disparaitre de
+    l'INFORMATION. Les renseignees passent en tete de tri, donc il ne mord
+    que sur les parcelles dont on ne sait rien — et c'est une troncature
+    sans consequence, qu'il serait faux d'annoncer comme un manque.
+
+    La distinction n'est pas cosmetique : la carte s'en sert pour decider
+    si le cadre charge reste utilisable. Les confondre revenait, sur un
+    ecran large — 1 549 parcelles pour un plafond de 1 600 — a redemander
+    deux fois a chaque geste et a desactiver tout le cache.
+    """
+    from app.base.connexion import transaction
+    from app.metier import parcelles as metier_parcelles
+
+    with transaction() as conn:
+        for numero in range(8):
+            _poser_parcelle(conn, numero, 44.2010 + numero * 0.0003, -1.2286)
+        # Deux seulement portent un diagnostic.
+        conn.execute("UPDATE dpe SET parcelle_id = NULL")
+    inserer_dpe(n_dpe="A", adresse="1 rue", code_insee="40184")
+    inserer_dpe(n_dpe="B", adresse="2 rue", code_insee="40184")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = '40184AB0000' WHERE n_dpe = 'A'")
+        conn.execute("UPDATE dpe SET parcelle_id = '40184AB0001' WHERE n_dpe = 'B'")
+
+    cadre = (-1.30, 44.19, -1.20, 44.21)
+
+    # Plafond de 4 : il coupe, mais dans le voile — les deux renseignees
+    # sont la, et la troncature n'est pas « utile ».
+    serre = metier_parcelles.pour_carte("40184", cadre, limite=4)
+    assert serre["tronque"] is True
+    assert serre["tronque_utile"] is False
+    rendues = {p["id"] for p in serre["parcelles"] if p["dpe"]}
+    assert rendues == {"40184AB0000", "40184AB0001"}
+
+    # Plafond de 1 : cette fois on coupe dans le vif.
+    minuscule = metier_parcelles.pour_carte("40184", cadre, limite=1)
+    assert minuscule["tronque"] is True
+    assert minuscule["tronque_utile"] is True
+
+    # Large : rien ne manque.
+    large = metier_parcelles.pour_carte("40184", cadre, limite=100)
+    assert large["tronque"] is False and large["tronque_utile"] is False
+    assert len(large["parcelles"]) == 8
+
+
+def test_le_voile_peut_etre_ecarte(base):
+    """
+    Les parcelles dont on ne sait rien sont les trois quarts du poids de
+    la reponse sur un ecran large — 710 Ko sur 942, mesure sur Mimizan.
+    Qui n'en veut pas doit pouvoir s'en passer.
+    """
+    from app.base.connexion import transaction
+    from app.metier import parcelles as metier_parcelles
+
+    with transaction() as conn:
+        for numero in range(5):
+            _poser_parcelle(conn, numero, 44.2010 + numero * 0.0003, -1.2286)
+    inserer_dpe(n_dpe="A", adresse="1 rue", code_insee="40184")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = '40184AB0000' WHERE n_dpe = 'A'")
+
+    cadre = (-1.30, 44.19, -1.20, 44.21)
+    assert len(metier_parcelles.pour_carte("40184", cadre)["parcelles"]) == 5
+    sans = metier_parcelles.pour_carte("40184", cadre, sans_info=False)["parcelles"]
+    assert [p["id"] for p in sans] == ["40184AB0000"]

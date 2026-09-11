@@ -209,6 +209,8 @@
         <legend>Afficher</legend>
         <label class="case"><input type="checkbox" id="c-dpe" checked> DPE</label>
         <label class="case"><input type="checkbox" id="c-ventes" checked> Ventes</label>
+        <label class="case" title="Les parcelles dont on ne sait rien, en voile blanc. Elles sont les trois quarts du poids de la carte : les retirer l'allège d'autant.">
+          <input type="checkbox" id="c-vides" checked> Le reste</label>
       </fieldset>
 
       <div class="champ">
@@ -272,7 +274,8 @@
       <li><span class="pastille-legende legende-deux"></span> DPE et vente connus</li>
       <li><span class="pastille-legende legende-dpe"></span> DPE seul</li>
       <li><span class="pastille-legende legende-vente"></span> Vente seule</li>
-      <li><span class="pastille-legende legende-rien"></span> Rien de connu</li>
+      <li><span class="pastille-legende legende-rien"></span> Rien de connu
+          <span class="donnee">(case « Le reste »)</span></li>
       <li><span class="pastille-legende legende-approche"></span> position approchée</li>
       <li><span class="losange losange-legende"></span> DPE sans parcelle</li>
     </ul>

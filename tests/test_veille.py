@@ -478,6 +478,7 @@ def test_la_carte_et_la_liste_comptent_pareil(base):
 
     # Aucune parcelle en base : les trois sont « sans parcelle », et seul
     # celui qui repond aux criteres doit ressortir.
-    points = metier_parcelles._dpe_sans_parcelle(
+    points, tronques = metier_parcelles._dpe_sans_parcelle(
         "40184", (-2.0, 44.0, -1.0, 45.0), criteres)
     assert {p["n_dpe"] for p in points} == attendus
+    assert tronques is False

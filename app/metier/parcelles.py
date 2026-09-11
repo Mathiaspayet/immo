@@ -445,6 +445,10 @@ MAX_CARTE = 1600
 # poids de la reponse partaient en decimales invisibles.
 DECIMALES_CARTE = 6
 
+# Les diagnostics qu'aucune parcelle ne porte, poses en losange. Ils ne
+# coutent pas de geometrie : le plafond peut etre large.
+MAX_POINTS = 1000
+
 
 def _arrondir(valeur, decimales=DECIMALES_CARTE):
     """Arrondit les coordonnees d'une geometrie GeoJSON, en place."""
@@ -455,7 +459,8 @@ def _arrondir(valeur, decimales=DECIMALES_CARTE):
     return valeur
 
 
-def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
+def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None,
+               sans_info=True):
     """
     Les parcelles visibles dans un cadre, avec ce qu'on sait d'elles.
 
@@ -508,9 +513,12 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
             " GROUP BY p.id"
             # Les parcelles renseignees passent d'abord : si le cadre est
             # trop large pour tout envoyer, autant garder les informatives.
-            " ORDER BY (count(DISTINCT d.n_dpe) > 0) DESC,"
-            "          (count(DISTINCT mp.mutation_id) > 0) DESC, p.id"
-            " LIMIT ?",
+            + ("" if sans_info else
+               " HAVING count(DISTINCT d.n_dpe) > 0"
+               "     OR count(DISTINCT mp.mutation_id) > 0")
+            + " ORDER BY (count(DISTINCT d.n_dpe) > 0) DESC,"
+              "          (count(DISTINCT mp.mutation_id) > 0) DESC, p.id"
+              " LIMIT ?",
             parametres_dpe + [str(code_insee), lat_min, lat_max, lon_min, lon_max,
                               int(limite) + 1]).fetchall()
 
@@ -529,8 +537,16 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
         entree["ventes"] = entree["ventes"] or 0
         resultats.append(entree)
 
-    return {"parcelles": resultats, "tronque": tronque, "limite": int(limite),
-            "points": _dpe_sans_parcelle(code_insee, cadre, filtres_dpe)}
+    # Les renseignees passent en tete : le plafond ne mord donc que sur le
+    # VOILE des parcelles sans information. La distinction n'est pas un
+    # detail — c'est elle qui dit si la carte ment.
+    renseignees = sum(1 for e in resultats if e["dpe"] or e["ventes"])
+    tronque_utile = tronque and renseignees >= int(limite)
+
+    points, points_tronques = _dpe_sans_parcelle(code_insee, cadre, filtres_dpe)
+    return {"parcelles": resultats, "tronque": tronque,
+            "tronque_utile": tronque_utile, "limite": int(limite),
+            "points": points, "points_tronques": points_tronques}
 
 
 def _dpe_sans_parcelle(code_insee, cadre, filtres_dpe=None):
@@ -560,10 +576,12 @@ def _dpe_sans_parcelle(code_insee, cadre, filtres_dpe=None):
             "   AND d.longitude BETWEEN ? AND ?"
             f"   AND {ou_dpe}"
             " ORDER BY d.date_etablissement DESC"
-            " LIMIT 300",
+            " LIMIT ?",
             [str(code_insee), lat_min, lat_max, lon_min, lon_max] + parametres
-        ).fetchall()
-    return [dict(ligne) for ligne in lignes]
+            + [MAX_POINTS + 1]).fetchall()
+    # Le plafond etait atteint SANS RIEN DIRE : la carte montrait 300
+    # losanges sur un nombre inconnu. Il se signale maintenant.
+    return [dict(ligne) for ligne in lignes[:MAX_POINTS]], len(lignes) > MAX_POINTS
 
 
 def chercher_sur_carte(code_insee, texte, combien=8):
