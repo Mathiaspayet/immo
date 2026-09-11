@@ -1,228 +1,22 @@
-import { api, ErreurApi } from "./api.js";
-import { creerCarte } from "./carte.js";
-import { auTermeDeLImport, lancerImport, reprendreSuiviEventuel } from "./import.js";
+// ====================================================================
+//  veille.js — L'écran Réglages, et le démarrage de l'application.
+//
+//  La liste des DPE récents vivait ici ; elle a rejoint la carte, dans
+//  `exploration.js` : c'était deux écrans pour une même commune, et rien
+//  ne les reliait. Ne restent donc ici que les réglages — alerte, ventes,
+//  sauvegardes, journaux — et l'amorçage de tous les autres modules.
+// ====================================================================
+
+import { api } from "./api.js";
+import { lancerImport, reprendreSuiviEventuel } from "./import.js";
 import { initialiserExploration } from "./exploration.js";
 import { initialiserReglages, rafraichirReglages } from "./reglages.js";
-import {
-  communeCourante, dessinerContexte, initialiserParcours, libelleIntention,
-  surCommunePrete,
-} from "./parcours.js";
-import { ouvrirFiche } from "./fiche.js";
+import { initialiserParcours } from "./parcours.js";
 import { initialiserIdentification } from "./identifier.js";
 import { auChangement, changerVue, brancherHistorique } from "./navigation.js";
 import {
-  $, afficherErreur, afficherSucces, anciennete, dateFr, echapper, entierFr,
-  etiquetteHtml, liensExternes, masquerErreur, mesure, nombreFr,
+  $, afficherErreur, dateFr, echapper, entierFr, masquerErreur,
 } from "./format.js";
-
-const etat = {
-  filtres: {},
-  resultats: [],
-  selection: null,
-  carte: null,
-  sondage: null,      // identifiant du minuteur de suivi d'import
-};
-
-function gabaritReleve(bien) {
-  return `
-  <article class="releve" data-dpe="${echapper(bien.n_dpe)}"
-           data-nouveau="${bien.nouveau ? "oui" : "non"}" tabindex="0">
-    <div class="releve-tete">
-      <span class="date donnee">${dateFr(bien.date_etablissement)}</span>
-      <span>${anciennete(bien.anciennete_jours)}</span>
-      ${bien.nouveau ? '<span class="pastille pastille-nouveau">nouveau</span>' : ""}
-      ${bien.zone ? `<span class="secteur">${echapper(bien.zone)}</span>` : ""}
-      ${bien.type_batiment ? `<span>${echapper(bien.type_batiment)}</span>` : ""}
-    </div>
-    <h3 class="adresse">${echapper(bien.adresse || "Adresse absente de la base")}</h3>
-    <dl class="mesures">
-      ${mesure("surface", bien.surface_habitable, "m²")}
-      <div><dt>classe</dt><dd>${etiquetteHtml(bien.etiquette_dpe)}</dd></div>
-      ${mesure("énergie ép.", bien.conso_ep_m2, "kWh/m²", entierFr)}
-      ${mesure("GES", bien.ges_m2, "kg/m²", nombreFr)}
-      ${mesure("coût annuel", bien.cout_annuel, "€", entierFr)}
-      ${mesure("construit", bien.annee_construction, "", entierFr)}
-    </dl>
-    <div class="liens">
-      <button type="button" class="bouton-lien" data-fiche="${echapper(bien.n_dpe)}">Fiche du bien</button>
-      ${liensExternes(bien)}
-      <span class="reference donnee">${echapper(bien.n_dpe)}</span>
-    </div>
-  </article>`;
-}
-
-// --------------------------------------------------------------------
-//  Écran Veille
-// --------------------------------------------------------------------
-
-function lireFiltres() {
-  const formulaire = $("#filtres");
-  const etiquette = formulaire.etiquettes.value;
-  return {
-    fenetre_jours: formulaire.fenetre_jours.value,
-    // La commune vient du parcours, pas d'un filtre : on l'a choisie avant
-    // d'arriver ici. Par son code INSEE, l'ADEME écrivant le même nom de
-    // plusieurs façons.
-    code_insee: communeCourante()?.code_insee ?? "",
-    zone: formulaire.zone.value,
-    type_batiment: formulaire.type_batiment.value,
-    surface_min: formulaire.surface_min.value,
-    surface_max: formulaire.surface_max.value,
-    etiquettes: etiquette ? [etiquette] : [],
-    seulement_nouveaux: formulaire.seulement_nouveaux.checked,
-  };
-}
-
-function appliquerFiltres(filtres) {
-  const formulaire = $("#filtres");
-
-  // Les réglages autorisent n'importe quelle fenêtre (45 jours par
-  // exemple). Si elle ne figure pas dans la liste déroulante, on l'y
-  // ajoute : sans cela le sélecteur resterait vide, et l'utilisateur
-  // ne verrait pas quel filtre s'applique.
-  const fenetre = String(filtres.fenetre_jours ?? 120);
-  const choix = formulaire.fenetre_jours;
-  if (![...choix.options].some((option) => option.value === fenetre)) {
-    choix.add(new Option(`${fenetre} jours`, fenetre), 0);
-  }
-  choix.value = fenetre;
-  formulaire.type_batiment.value = filtres.type_batiment ?? "";
-  formulaire.surface_min.value = filtres.surface_min ?? "";
-  formulaire.surface_max.value = filtres.surface_max ?? "";
-  formulaire.seulement_nouveaux.checked = Boolean(filtres.seulement_nouveaux);
-}
-
-function dessinerCompteurs(resume) {
-  const secteurs = Object.entries(resume.par_zone || {})
-    .sort((a, b) => b[1] - a[1])
-    .map(([nom, n]) => `${echapper(nom)} <span class="donnee">${n}</span>`)
-    .join(" · ");
-
-  const dernier = resume.dernier_import;
-  const etatImport = dernier
-    ? `${dernier.statut === "succes" ? "dernier import" : "dernier import en échec"} ` +
-      `<span class="donnee">${dateFr(dernier.fin)}</span>`
-    : "aucun import effectué";
-
-  $("#compteurs").innerHTML = `
-    <span class="bloc"><span class="chiffre">${resume.total}</span> logement(s)</span>
-    <span class="separation"></span>
-    <span class="bloc"><span class="chiffre">${resume.nouveaux}</span> nouveauté(s)</span>
-    ${secteurs ? `<span class="separation"></span><span class="bloc">${secteurs}</span>` : ""}
-    <span class="separation"></span>
-    <span class="bloc">${etatImport}</span>
-    <span class="separation"></span>
-    <span class="bloc"><span class="donnee">${entierFr.format(resume.total_base)}</span> DPE en cache</span>`;
-}
-
-function dessinerListe(resultats, resume) {
-  const liste = $("#liste");
-
-  if (!resultats.length) {
-    // Un etat vide doit dire ce qui s'est passe et quoi faire (CDC 7).
-    const jamais = resume.total_base === 0;
-    liste.innerHTML = jamais
-      ? `<div class="vide">
-           <h3>La base est vide</h3>
-           <p>Aucun DPE n'a encore été importé. Lancez un premier import avec le
-              bouton <strong>Rafraîchir</strong> en haut à droite : il télécharge
-              les diagnostics des communes surveillées, ce qui prend une à deux
-              minutes.</p>
-         </div>`
-      : `<div class="vide">
-           <h3>Aucun logement ne correspond à ces filtres</h3>
-           <p>La base contient ${resume.total_base} DPE. Élargissez la fenêtre
-              temporelle, retirez le filtre de commune ou desserrez les bornes de
-              surface. Un secteur peut aussi n'avoir simplement aucun
-              diagnostic récent : il ne s'établit qu'environ 1,6 DPE par jour
-              sur l'ensemble du 40200, toutes communes et tous types
-              confondus.</p>
-         </div>`;
-    return;
-  }
-
-  liste.innerHTML = resultats.map(gabaritReleve).join("");
-
-  liste.querySelectorAll("[data-fiche]").forEach((bouton) => {
-    bouton.addEventListener("click", (evenement) => {
-      evenement.stopPropagation();
-      ouvrirFiche({ n_dpe: bouton.dataset.fiche });
-    });
-  });
-
-  liste.querySelectorAll(".releve").forEach((element) => {
-    const choisir = () => selectionner(element.dataset.dpe);
-    element.addEventListener("click", (evenement) => {
-      // On laisse passer les liens externes et le bouton de fiche.
-      if (evenement.target.closest("a, button")) return;
-      choisir();
-    });
-    element.addEventListener("keydown", (evenement) => {
-      if (evenement.key === "Enter" || evenement.key === " ") {
-        evenement.preventDefault();
-        choisir();
-      }
-    });
-  });
-}
-
-function selectionner(numero) {
-  etat.selection = numero;
-  document.querySelectorAll(".releve").forEach((element) => {
-    element.setAttribute("aria-current", element.dataset.dpe === numero ? "true" : "false");
-  });
-  if (etat.carte) {
-    deplierCarte();
-    etat.carte.surligner(numero);
-  }
-}
-
-/**
- * Rafraîchit la barre de contexte : la commune, et son nombre de DPE.
- *
- * Elle était APPELÉE sans jamais avoir été écrite. Les deux appels — à la
- * sélection d'une commune et à la fin d'un import — levaient donc un
- * `ReferenceError` que le `try/catch` de `afficherResultats` avalait, et
- * le `charger()` posé sur la même ligne ne s'exécutait jamais.
- *
- * Le symptôme n'avait rien d'évident : l'écran Veille s'ouvrait vide, et
- * ne se remplissait qu'au premier changement de filtre — celui-ci appelle
- * `charger()` directement, sans passer par le rappel fautif. Un import qui
- * aboutissait ne rafraîchissait pas l'écran non plus.
- */
-async function chargerContexte() {
-  const commune = communeCourante();
-  if (!commune) return;
-  try {
-    const { communes } = await api.communes();
-    const trouvee = (communes || []).find(
-      (c) => c.code_insee === commune.code_insee);
-    dessinerContexte(trouvee ? { dpe: trouvee.dpe } : {});
-  } catch (_) {
-    // Le compte est un agrément : sans lui la barre reste juste, elle
-    // annonce seulement la commune.
-    dessinerContexte();
-  }
-}
-
-async function charger() {
-  masquerErreur();
-  etat.filtres = lireFiltres();
-  $("#export-csv").href = api.urlExport(etat.filtres);
-
-  try {
-    const reponse = await api.veille(etat.filtres);
-    etat.resultats = reponse.resultats;
-    dessinerCompteurs(reponse.resume);
-    dessinerListe(reponse.resultats, reponse.resume);
-    if (etat.carte) etat.carte.afficher(reponse.resultats);
-  } catch (erreur) {
-    afficherErreur(
-      erreur instanceof ErreurApi ? erreur.message : "Impossible de charger la veille.",
-      erreur instanceof ErreurApi ? "" : String(erreur)
-    );
-  }
-}
 
 // --------------------------------------------------------------------
 //  Écran Réglages
@@ -792,73 +586,10 @@ async function chargerJournal() {
 }
 
 // --------------------------------------------------------------------
-//  Navigation et carte
-// --------------------------------------------------------------------
-
-function deplierCarte() {
-  const panneau = $("#panneau-carte");
-  if (panneau.dataset.replie === "oui") {
-    panneau.dataset.replie = "non";
-    $("#bascule-carte").setAttribute("aria-expanded", "true");
-    etat.carte.redimensionner();
-  }
-}
-
-function initialiserCarte() {
-  // Un clic sur un repère ouvre la fiche du bien, comme sur la carte
-  // d'exploration : c'est là qu'on allait de toute façon. Le sens inverse
-  // — cliquer une ligne pour la situer sur la carte — reste inchangé.
-  etat.carte = creerCarte("carte", (numero) =>
-    ouvrirFiche({ n_dpe: numero, retour: "veille" }));
-  // Sur grand écran la carte est visible d'emblée ; sur téléphone elle est
-  // repliée pour que la liste passe en premier.
-  if (window.matchMedia("(min-width: 940px)").matches) {
-    $("#panneau-carte").dataset.replie = "non";
-  }
-  setTimeout(() => etat.carte.redimensionner(), 60);
-}
-
-// --------------------------------------------------------------------
 //  Démarrage
 // --------------------------------------------------------------------
 
 async function demarrer() {
-  initialiserCarte();
-
-  $("#filtres").addEventListener("change", () => charger());
-  $("#filtres").addEventListener("submit", (e) => e.preventDefault());
-
-  $("#marquer-vus").addEventListener("click", async () => {
-    try {
-      const { marques } = await api.marquerVus(null);
-      afficherSucces(marques ? `${marques} logement(s) marqué(s) comme vus.` : "Rien à marquer.");
-      charger();
-    } catch (erreur) {
-      afficherErreur(erreur.message);
-    }
-  });
-
-  // Filtres repliables : fermes d'emblee sur telephone, pour que la
-  // premiere chose visible soit la liste des biens.
-  const surTelephone = window.matchMedia("(max-width: 700px)");
-  const replierFiltres = (replie) => {
-    $("#filtres").dataset.replie = replie ? "oui" : "non";
-    $("#bascule-filtres").setAttribute("aria-expanded", String(!replie));
-  };
-  replierFiltres(surTelephone.matches);
-  surTelephone.addEventListener("change", (e) => replierFiltres(e.matches));
-  $("#bascule-filtres").addEventListener("click", () => {
-    replierFiltres($("#filtres").dataset.replie === "non");
-  });
-
-  $("#bascule-carte").addEventListener("click", () => {
-    const panneau = $("#panneau-carte");
-    const replie = panneau.dataset.replie === "oui";
-    panneau.dataset.replie = replie ? "non" : "oui";
-    $("#bascule-carte").setAttribute("aria-expanded", String(replie));
-    if (replie) etat.carte.redimensionner();
-  });
-
   document.querySelectorAll("[data-vue]").forEach((bouton) => {
     bouton.addEventListener("click", () => changerVue(bouton.dataset.vue));
   });
@@ -873,34 +604,20 @@ async function demarrer() {
   $("#r-alerte-commune").addEventListener("change", () => peuplerZones(""));
 
   // Ce qu'il faut rafraîchir quand un écran redevient visible.
-  // Quand une moisson aboutit, l'écran se remet à jour tout seul.
-  // Une moisson qui aboutit change ce qu'il y a à montrer.
-  auTermeDeLImport(() => { chargerContexte(); charger(); });
-
-  // Le parcours nous prévient quand une commune est choisie et prête.
-  surCommunePrete(() => { chargerContexte(); charger(); });
-
   auChangement("reglages", () => {
     rafraichirReglages().catch(() => {});
     chargerEtatAlerte();
     chargerJournal();
   });
-  auChangement("veille", () => { if (etat.carte) etat.carte.redimensionner(); });
 
   initialiserIdentification();
-
-  // Les filtres par défaut viennent des réglages : on les demande une fois,
-  // puis on charge la liste avec.
-  try {
-    const reponse = await api.veille({});
-    appliquerFiltres(reponse.filtres);
-  } catch (_) { /* charger() affichera l'erreur */ }
 
   await rafraichirReglages().catch(() => {});
   afficherVersion();
 
-  // Le parcours prend la main : accueil, puis commune, puis résultats.
-  initialiserExploration();
+  // La carte et sa liste. Le parcours prend ensuite la main : accueil,
+  // puis commune, puis résultats.
+  await initialiserExploration();
   // Les réglages se rechargent après un enregistrement : les filtres
   // par défaut et l'état de l'alerte en dépendent.
   initialiserReglages(() => {

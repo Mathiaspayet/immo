@@ -2,8 +2,8 @@
 //  navigation.js — Passage d'un écran à l'autre, et retour arrière.
 //
 //  Isolé dans son propre module pour éviter un cycle d'imports : la fiche
-//  d'un bien s'ouvre depuis l'écran Veille comme depuis l'identification,
-//  et aucun des trois n'a besoin de connaître les deux autres.
+//  d'un bien s'ouvre depuis la carte comme depuis l'identification, et
+//  aucun des trois n'a besoin de connaître les deux autres.
 // ====================================================================
 
 import { $ } from "./format.js";
@@ -13,7 +13,7 @@ import { $ } from "./format.js";
 // Toute vue doit figurer ici : `changerVue` masque tout ce qu'elle
 // connait et montre le reste. Une vue absente de la liste n'est jamais
 // affichee — l'ecran reste vide, sans erreur pour le signaler.
-const VUES = ["accueil", "commune", "veille", "identifier",
+const VUES = ["accueil", "commune", "identifier",
               "carte", "reglages", "fiche"];
 
 const rappels = {};
@@ -27,7 +27,7 @@ export function auChangement(vue, rappel) {
 /**
  * Comment reconstruire un écran à partir de ce que l'historique en garde.
  *
- * L'écran Veille se recharge de lui-même ; la fiche, non — elle a besoin
+ * L'écran de la carte se recharge de lui-même ; la fiche, non — elle a besoin
  * de savoir QUEL bien afficher. Un module qui a des paramètres à retenir
  * s'enregistre donc ici, et reçoit l'état au retour arrière.
  */
@@ -71,9 +71,10 @@ function montrer(vue) {
     bouton.setAttribute("aria-pressed", String(bouton.dataset.vue === vue));
   });
 
-  // Le bouton « Filtres » n'a de sens que devant une liste de résultats.
+  // Le bouton « Filtres » n'a de sens que sur la carte, seul écran qui
+  // en porte.
   const filtres = $("#bascule-filtres");
-  if (filtres) filtres.hidden = vue !== "veille";
+  if (filtres) filtres.hidden = vue !== "carte";
   if (rappels[vue]) rappels[vue]();
   window.scrollTo({ top: 0 });
 }

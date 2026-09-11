@@ -17,7 +17,7 @@ import {
 import { auProchainTerme, suivreImport } from "./import.js";
 import { auRetourArriere, changerVue } from "./navigation.js";
 
-let dernierRetour = "veille";
+let dernierRetour = "carte";
 
 const LARGEUR = 420;
 const HAUTEUR = 240;
@@ -426,7 +426,7 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
                                     parcelle_id = null, retour = null,
                                     sansHistorique = false } = {}) {
   masquerErreur();
-  dernierRetour = retour || "veille";
+  dernierRetour = retour || "carte";
   // L'historique retient DE QUEL bien il s'agit : sans cela, un retour
   // arrière ramènerait sur une fiche vide.
   if (!sansHistorique) {

@@ -32,7 +32,6 @@ export function libelleIntention() {
 export function surCommunePrete(rappel) { abonnes.add(rappel); }
 
 const LIBELLES = {
-  veille: "Les DPE récents",
   identifier: "Identifier un bien",
   carte: "Explorer la carte",
 };
@@ -42,7 +41,6 @@ const LIBELLES = {
 const BESOIN = { carte: "cadastre" };
 
 const QUESTIONS = {
-  veille: "Les DPE récents de quelle commune&nbsp;?",
   identifier: "Identifier un bien de quelle commune&nbsp;?",
   carte: "Explorer la carte de quelle commune&nbsp;?",
 };
@@ -178,7 +176,7 @@ async function choisirCommune(commune) {
 
 function afficherResultats() {
   masquerTravail();
-  changerVue(parcours.intention || "veille");
+  changerVue(parcours.intention || "carte");
   dessinerContexte();
   for (const rappel of abonnes) {
     // Un écran fautif n'en bloque pas un autre — mais son erreur doit se
@@ -207,7 +205,7 @@ export function dessinerContexte(informations = {}) {
     <span class="contexte-commune">${echapper(commune.nom)}</span>${compte}
     <button type="button" class="bouton-lien" data-changer>Changer de commune</button>`;
 
-  for (const identifiant of ["#contexte-veille", "#contexte-identifier"]) {
+  for (const identifiant of ["#contexte-carte", "#contexte-identifier"]) {
     const boite = $(identifiant);
     if (!boite) continue;
     boite.innerHTML = contenu;

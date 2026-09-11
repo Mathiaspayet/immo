@@ -14,6 +14,42 @@ const FRANCE = [46.6, 2.4];
 const ATTRIBUTION_IGN =
   '<a href="https://geoservices.ign.fr/">IGN-F/Géoportail</a>';
 
+/** Le repère d'un diagnostic. Deux cartes s'en servent. */
+function icone(classes) {
+  return L.divIcon({
+    className: "",
+    html: `<div class="${classes}"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+  });
+}
+
+/**
+ * Le repère d'un bien, prêt à poser sur une couche.
+ *
+ * Les repères ne remplacent pas les parcelles, ils s'y ajoutent — et
+ * c'est ce qui compte : sur un an à Mimizan, 18 diagnostics sur 307 ne
+ * sont rattachés à AUCUNE parcelle, faute d'un géocodage assez fin chez
+ * l'ADEME (« Avenue des Castors », sans numéro). Une carte qui ne
+ * connaîtrait que le cadastre les perdrait en silence. Leurs coordonnées,
+ * elles, existent : un repère les montre.
+ */
+function repere(bien, surSelection) {
+  const marqueur = L.marker([bien.latitude, bien.longitude], {
+    icon: icone(bien.nouveau ? "marqueur marqueur-nouveau" : "marqueur"),
+    keyboard: true,
+    title: bien.adresse || bien.n_dpe,
+  });
+  marqueur.bindPopup(
+    `<span class="adresse-popup">${(bien.adresse || "adresse absente")
+      .replace(/</g, "&lt;")}</span>` +
+      `<span class="donnee">${bien.date_etablissement || "?"} · ` +
+      `${bien.surface_habitable ?? "?"} m² · ${bien.etiquette_dpe || "?"}</span>`
+  );
+  marqueur.on("click", () => surSelection && surSelection(bien.n_dpe));
+  return marqueur;
+}
+
 function tuilesIgn(couche, format = "image/png") {
   return L.tileLayer(
     "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
@@ -57,15 +93,6 @@ export function creerCarte(identifiant, surSelection) {
   const couche = L.layerGroup().addTo(carte);
   const marqueurs = new Map();
 
-  function icone(classes) {
-    return L.divIcon({
-      className: "",
-      html: `<div class="${classes}"></div>`,
-      iconSize: [14, 14],
-      iconAnchor: [7, 7],
-    });
-  }
-
   return {
     /** Place un marqueur par bien positionné et cadre la carte dessus. */
     afficher(resultats) {
@@ -75,18 +102,7 @@ export function creerCarte(identifiant, surSelection) {
       const points = [];
       for (const bien of resultats) {
         if (bien.latitude == null || bien.longitude == null) continue;
-        const marqueur = L.marker([bien.latitude, bien.longitude], {
-          icon: icone(bien.nouveau ? "marqueur marqueur-nouveau" : "marqueur"),
-          keyboard: true,
-          title: bien.adresse || bien.n_dpe,
-        });
-        marqueur.bindPopup(
-          `<span class="adresse-popup">${(bien.adresse || "adresse absente")
-            .replace(/</g, "&lt;")}</span>` +
-            `<span class="donnee">${bien.date_etablissement || "?"} · ` +
-            `${bien.surface_habitable ?? "?"} m² · ${bien.etiquette_dpe || "?"}</span>`
-        );
-        marqueur.on("click", () => surSelection && surSelection(bien.n_dpe));
+        const marqueur = repere(bien, surSelection);
         marqueur.addTo(couche);
         marqueurs.set(bien.n_dpe, marqueur);
         points.push([bien.latitude, bien.longitude]);
@@ -184,7 +200,8 @@ export function etatParcelle(parcelle) {
  * que les parcelles visibles — les 11 444 de Mimizan pèsent 3,8 Mo, et les
  * envoyer d'un bloc rendrait la carte inutilisable sur téléphone.
  */
-export function creerCarteExploration(identifiant, { surDeplacement, surParcelle }) {
+export function creerCarteExploration(identifiant,
+                                      { surDeplacement, surParcelle, surBien }) {
   const aerienne = tuilesIgn("ORTHOIMAGERY.ORTHOPHOTOS", "image/jpeg");
   const carte = L.map(identifiant, {
     center: FRANCE,
@@ -214,6 +231,11 @@ export function creerCarteExploration(identifiant, { surDeplacement, surParcelle
   ).addTo(carte);
 
   const couche = L.layerGroup().addTo(carte);
+  // Les repères des diagnostics vivent SUR une couche à part, ajoutée
+  // après celle des parcelles : un rechargement du cadastre ne doit pas
+  // les effacer, et ils doivent rester au-dessus des contours.
+  const coucheBiens = L.layerGroup().addTo(carte);
+  const marqueurs = new Map();
   let dernierTrace = null;
 
   // Le déplacement est continu, le rechargement ne doit pas l'être : on
@@ -264,6 +286,56 @@ export function creerCarteExploration(identifiant, { surDeplacement, surParcelle
         style: { color: "#A33A2A", weight: 3, fillOpacity: 0, lineJoin: "round" },
       }).addTo(couche);
       carte.fitBounds(dernierTrace.getBounds(), { padding: [60, 60], maxZoom: 19 });
+    },
+
+    /**
+     * Pose un repère par diagnostic filtré. NE DÉPLACE PAS la carte :
+     * on filtre souvent en regardant un quartier précis, et se faire
+     * recadrer sur la commune entière à chaque changement de critère
+     * ferait perdre l'endroit qu'on examinait.
+     */
+    marquer(resultats) {
+      coucheBiens.clearLayers();
+      marqueurs.clear();
+      let poses = 0;
+      for (const bien of resultats) {
+        if (bien.latitude == null || bien.longitude == null) continue;
+        const marqueur = repere(bien, surBien);
+        marqueur.addTo(coucheBiens);
+        marqueurs.set(bien.n_dpe, marqueur);
+        poses += 1;
+      }
+      return poses;
+    },
+
+    effacerBiens() {
+      coucheBiens.clearLayers();
+      marqueurs.clear();
+    },
+
+    /** Le recadrage, lui, se demande — au moment où l'on ouvre la liste. */
+    cadrerSurLesBiens(resultats) {
+      const points = resultats
+        .filter((b) => b.latitude != null && b.longitude != null)
+        .map((b) => [b.latitude, b.longitude]);
+      if (!points.length) return 0;
+      carte.fitBounds(L.latLngBounds(points), { padding: [30, 30], maxZoom: 16 });
+      return points.length;
+    },
+
+    /** Met en avant le bien choisi dans la liste. */
+    surlignerBien(numero) {
+      for (const [cle, marqueur] of marqueurs) {
+        const nouveau = marqueur.options.icon.options.html.includes("nouveau");
+        marqueur.setIcon(icone(
+          cle === numero ? "marqueur marqueur-actif"
+            : nouveau ? "marqueur marqueur-nouveau" : "marqueur"));
+      }
+      const cible = marqueurs.get(numero);
+      if (!cible) return false;
+      carte.panTo(cible.getLatLng());
+      cible.openPopup();
+      return true;
     },
 
     allerA(latitude, longitude, zoom = 18) {

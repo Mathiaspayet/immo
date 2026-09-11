@@ -17,7 +17,7 @@
 <header class="bandeau">
   <div class="marque">
     <h1>Veille immobilière</h1>
-    <p class="sous-titre" id="sous-titre">DPE récents</p>
+    <p class="sous-titre" id="sous-titre">Carte et DPE récents</p>
     <p class="version donnee" id="version" title="Version déployée"></p>
   </div>
   <nav class="onglets" aria-label="Navigation">
@@ -41,12 +41,14 @@
     <h2 class="question">Que voulez-vous faire&nbsp;?</h2>
 
     <div class="choix">
-      <button type="button" class="carte-choix" data-intention="veille">
-        <span class="carte-titre">Les DPE récents</span>
+      <button type="button" class="carte-choix" data-intention="carte">
+        <span class="carte-titre">Explorer la carte</span>
         <span class="carte-texte">
-          Les logements qui viennent d'être diagnostiqués. Un DPE est
-          obligatoire avant toute mise en vente&nbsp;: un diagnostic frais
-          précède souvent l'annonce de plusieurs semaines.
+          Parcourir la commune sur photo aérienne, chaque parcelle colorée
+          selon ce qu'on en sait&nbsp;: un diagnostic, une vente, les deux, ou
+          rien encore. C'est le croisement qui parle. Un filtre y fait
+          apparaître la liste des <strong>DPE récents</strong>&nbsp;: un
+          diagnostic frais précède souvent l'annonce de plusieurs semaines.
         </span>
         <span class="carte-suite">Choisir une commune →</span>
       </button>
@@ -56,15 +58,6 @@
         <span class="carte-texte">
           Retrouver l'adresse d'une maison à partir des chiffres lus sur son
           annonce&nbsp;: surface, consommations, classes énergétiques.
-        </span>
-        <span class="carte-suite">Choisir une commune →</span>
-      </button>
-      <button type="button" class="carte-choix" data-intention="carte">
-        <span class="carte-titre">Explorer la carte</span>
-        <span class="carte-texte">
-          Parcourir la commune sur photo aérienne, chaque parcelle colorée
-          selon ce qu'on en sait&nbsp;: un diagnostic, une vente, les deux, ou
-          rien encore. C'est le croisement qui parle.
         </span>
         <span class="carte-suite">Choisir une commune →</span>
       </button>
@@ -95,75 +88,6 @@
     <ul class="liste-communes" id="resultats-commune"></ul>
 
     <div id="communes-connues"></div>
-  </section>
-
-  <!-- ============================ VEILLE ============================ -->
-  <section id="vue-veille" aria-label="Veille des DPE récents" hidden>
-
-    <div class="contexte" id="contexte-veille"></div>
-
-    <form class="filtres" id="filtres" data-replie="non">
-      <div class="champ">
-        <label for="f-fenetre">Fenêtre</label>
-        <select id="f-fenetre" name="fenetre_jours">
-          <option value="30">30 jours</option>
-          <option value="60">60 jours</option>
-          <option value="120" selected>120 jours</option>
-          <option value="365">1 an</option>
-          <option value="730">2 ans</option>
-        </select>
-      </div>
-      <div class="champ">
-        <label for="f-zone">Secteur</label>
-        <select id="f-zone" name="zone"><option value="">tous</option></select>
-      </div>
-      <div class="champ">
-        <label for="f-type">Type</label>
-        <select id="f-type" name="type_batiment">
-          <option value="">tous</option>
-          <option value="maison">maison</option>
-          <option value="appartement">appartement</option>
-        </select>
-      </div>
-      <div class="champ">
-        <label for="f-surface-min">Surface min (m²)</label>
-        <input type="number" id="f-surface-min" name="surface_min" min="0" step="5" inputmode="numeric">
-      </div>
-      <div class="champ">
-        <label for="f-surface-max">Surface max (m²)</label>
-        <input type="number" id="f-surface-max" name="surface_max" min="0" step="5" inputmode="numeric">
-      </div>
-      <div class="champ">
-        <label for="f-etiquette">Classe</label>
-        <select id="f-etiquette" name="etiquettes">
-          <option value="">toutes</option>
-          <option>A</option><option>B</option><option>C</option><option>D</option>
-          <option>E</option><option>F</option><option>G</option>
-        </select>
-      </div>
-
-      <div class="actions-filtres">
-        <div class="champ case">
-          <input type="checkbox" id="f-nouveaux" name="seulement_nouveaux">
-          <label for="f-nouveaux">Seulement les nouveautés</label>
-        </div>
-        <span class="espaceur"></span>
-        <button type="button" class="bouton bouton-discret" id="marquer-vus">Tout marquer comme vu</button>
-        <a class="bouton" id="export-csv" href="/api/veille/export.csv" download>Exporter en CSV</a>
-      </div>
-    </form>
-
-    <div class="compteurs" id="compteurs"></div>
-
-    <div class="plan">
-      <div class="liste" id="liste"></div>
-      <div class="panneau-carte" id="panneau-carte" data-replie="oui">
-        <button type="button" class="bouton bascule-carte" id="bascule-carte" aria-expanded="false">
-          <span>Carte</span><span aria-hidden="true">▾</span>
-        </button>
-        <div id="carte" class="carte"></div>
-      </div>
-    </div>
   </section>
 
   <!-- ========================== IDENTIFIER ========================== -->
@@ -275,6 +199,9 @@
 
   <!-- =========================== PARCELLES =========================== -->
   <section id="vue-carte" aria-label="Exploration cartographique" hidden>
+
+    <div class="contexte" id="contexte-carte"></div>
+
     <div class="carte-barre">
       <div class="champ champ-adresse">
         <label for="carte-adresse">Aller à une adresse</label>
@@ -285,19 +212,98 @@
       <p class="explication" id="carte-etat">Choisissez une commune pour commencer.</p>
     </div>
 
-    <div id="carte-exploration" class="carte carte-plein"></div>
+    <!-- Les filtres. Tant qu'aucune fenêtre n'est choisie, la carte occupe
+         tout l'écran : c'est l'écran d'exploration, et rien d'autre. Choisir
+         une fenêtre, c'est demander la liste des DPE récents — elle apparaît
+         alors à côté de la carte, et les diagnostics se posent en repères
+         par-dessus les parcelles. -->
+    <form class="filtres" id="filtres" data-replie="non" data-liste="non">
+      <div class="champ">
+        <label for="f-fenetre">DPE récents</label>
+        <select id="f-fenetre" name="fenetre_jours">
+          <option value="" selected>ne pas afficher</option>
+          <option value="30">30 jours</option>
+          <option value="60">60 jours</option>
+          <option value="120">120 jours</option>
+          <option value="365">1 an</option>
+          <option value="730">2 ans</option>
+        </select>
+      </div>
+
+      <div id="filtres-detail" class="filtres-detail" hidden>
+        <div class="champ">
+          <label for="f-zone">Secteur</label>
+          <select id="f-zone" name="zone"><option value="">tous</option></select>
+        </div>
+        <div class="champ">
+          <label for="f-type">Type</label>
+          <select id="f-type" name="type_batiment">
+            <option value="">tous</option>
+            <option value="maison">maison</option>
+            <option value="appartement">appartement</option>
+          </select>
+        </div>
+        <div class="champ">
+          <label for="f-surface-min">Surface min (m²)</label>
+          <input type="number" id="f-surface-min" name="surface_min" min="0" step="5" inputmode="numeric">
+        </div>
+        <div class="champ">
+          <label for="f-surface-max">Surface max (m²)</label>
+          <input type="number" id="f-surface-max" name="surface_max" min="0" step="5" inputmode="numeric">
+        </div>
+        <div class="champ">
+          <label for="f-etiquette">Classe</label>
+          <select id="f-etiquette" name="etiquettes">
+            <option value="">toutes</option>
+            <option>A</option><option>B</option><option>C</option><option>D</option>
+            <option>E</option><option>F</option><option>G</option>
+          </select>
+        </div>
+
+        <div class="actions-filtres">
+          <div class="champ case">
+            <input type="checkbox" id="f-nouveaux" name="seulement_nouveaux">
+            <label for="f-nouveaux">Seulement les nouveautés</label>
+          </div>
+          <span class="espaceur"></span>
+          <button type="button" class="bouton bouton-discret" id="marquer-vus">Tout marquer comme vu</button>
+          <a class="bouton" id="export-csv" href="/api/veille/export.csv" download>Exporter en CSV</a>
+        </div>
+      </div>
+    </form>
+
+    <div class="compteurs" id="compteurs" hidden></div>
+
+    <div class="plan" id="plan-carte" data-liste="non">
+      <div class="liste" id="liste" hidden></div>
+      <div class="panneau-carte">
+        <button type="button" class="bouton bascule-carte" id="bascule-carte" aria-expanded="false">
+          <span>Carte</span><span aria-hidden="true">▾</span>
+        </button>
+        <div id="carte-exploration" class="carte"></div>
+      </div>
+    </div>
 
     <ul class="legende">
       <li><span class="pastille-legende legende-deux"></span> DPE et vente connus</li>
       <li><span class="pastille-legende legende-dpe"></span> DPE seul</li>
       <li><span class="pastille-legende legende-vente"></span> Vente seule</li>
       <li><span class="pastille-legende legende-rien"></span> Rien de connu</li>
+      <li><span class="marqueur marqueur-legende"></span> DPE récent filtré</li>
     </ul>
 
     <p class="explication">
       Les couleurs disent ce que l'application sait, pas ce qui existe&nbsp;:
       une parcelle sans DPE peut simplement n'avoir jamais été diagnostiquée.
       Les ventes ne couvrent que cinq millésimes, et jamais l'Alsace-Moselle.
+    </p>
+    <p class="explication">
+      Les repères des DPE filtrés ne sont pas posés sur les parcelles mais
+      sur les <strong>coordonnées</strong> du diagnostic. C'est voulu&nbsp;:
+      sur un an à Mimizan, 18 diagnostics sur 307 ne sont rattachés à aucune
+      parcelle — l'ADEME ne les a pas géolocalisés assez finement, souvent
+      faute de numéro de rue. Une carte qui ne connaîtrait que le cadastre
+      les perdrait sans le dire.
     </p>
   </section>
 

@@ -27,6 +27,8 @@ connus volontairement large.
 
 import pathlib
 import re
+import shutil
+import subprocess
 
 import pytest
 
@@ -269,3 +271,85 @@ def test_le_garde_ne_crie_pas_sur_du_code_sain():
         "  return `${html} ${new Carte().tracer(1)}`;\n"
         "};\n"
         "export { bouton, api };\n") == []
+
+
+# ---------------------------------------------------------------------
+#  La syntaxe, verifiee dans le BON mode
+# ---------------------------------------------------------------------
+
+def test_chaque_module_est_syntaxiquement_valide(chemin):
+    """
+    `node --check FICHIER` analyse le fichier comme un script CommonJS.
+    Nos fichiers sont des MODULES, et les deux grammaires different : une
+    redeclaration que le mode module refuse passe sans un mot en mode
+    script.
+
+    Cas vecu : `const ecran = {...}` ajoute a un module qui portait deja
+    `function etat(...)`. `node --check` a rendu 0 ; le navigateur, lui, a
+    refuse le module entier — « Identifier 'etat' has already been
+    declared » — et l'application ne demarrait plus du tout. Un module qui
+    ne s'analyse pas ne s'execute pas : rien n'en sort, pas meme une
+    moitie d'ecran.
+
+    Rien dans la suite ne verifiait la syntaxe jusqu'ici. C'est fait, et
+    dans le mode ou ces fichiers sont reellement charges.
+    """
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node absent de cette machine")
+
+    verdict = subprocess.run(
+        [node, "--input-type=module", "--check"],
+        input=chemin.read_text(encoding="utf-8"),
+        capture_output=True, text=True)
+    assert verdict.returncode == 0, (
+        f"{chemin.name} n'est pas un module valide :\n{verdict.stderr}")
+
+
+# La meme liste de fichiers pour les deux gardes.
+test_chaque_module_est_syntaxiquement_valide = pytest.mark.parametrize(
+    "chemin", sorted(DOSSIER.glob("*.js")), ids=lambda p: p.name
+)(test_chaque_module_est_syntaxiquement_valide)
+
+
+# ---------------------------------------------------------------------
+#  Les elements vises existent vraiment
+# ---------------------------------------------------------------------
+
+PAGE = DOSSIER.parent / "index.html"
+CIBLE = re.compile(r'\$\(\s*"#([A-Za-z][\w-]*)"\s*\)')
+POSE = re.compile(r'id="([^"]+)"')
+
+
+def test_chaque_element_vise_existe(chemin):
+    """
+    `$("#quelque-chose")` sur un identifiant absent rend `null`, et la
+    ligne suivante — `.addEventListener`, `.innerHTML` — leve un
+    TypeError qui interrompt tout ce qui suit dans la meme fonction.
+
+    C'est le meme accident que l'appel a une fonction jamais ecrite, par
+    une autre porte : un bouton cesse de repondre, un ecran reste vide, et
+    rien ne le dit. Renommer `#panneau-carte` en classe, deplacer un
+    formulaire d'un ecran a l'autre, retirer une section : chaque fois le
+    risque est le meme.
+
+    Les identifiants poses PAR le script comptent : une fiche construit sa
+    propre barre de retour avant de s'y accrocher.
+    """
+    poses = set(POSE.findall(PAGE.read_text(encoding="utf-8")))
+    for module in DOSSIER.glob("*.js"):
+        poses.update(POSE.findall(module.read_text(encoding="utf-8")))
+
+    # Le texte BRUT, non blanchi : la cible est justement une chaine.
+    vises = set(CIBLE.findall(chemin.read_text(encoding="utf-8")))
+    absents = sorted(vises - poses)
+    assert not absents, (
+        f"{chemin.name} interroge des elements que la page ne porte pas : "
+        + ", ".join(absents)
+        + ". `$()` rend null, et le premier appel de methode qui suit "
+          "interrompt la fonction sans un mot.")
+
+
+test_chaque_element_vise_existe = pytest.mark.parametrize(
+    "chemin", sorted(DOSSIER.glob("*.js")), ids=lambda p: p.name
+)(test_chaque_element_vise_existe)
