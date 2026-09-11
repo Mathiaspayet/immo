@@ -27,23 +27,28 @@
    des 320 px, et `span 2` se ramene tout seul a une piste en dessous. */
 .filtres .champ-large { grid-column: span 2; }
 
-/* Les criteres de detail ne servent qu'a RESSERRER une liste : sans
-   fenetre choisie, il n'y a pas de liste, et ils n'ont rien a filtrer.
-   `display: contents` les laisse participer a la grille des filtres au
-   lieu de s'entasser dans une seule cellule. Le masquage vient du
-   `[hidden] { display: none !important }` du socle, pose la pour cette
-   raison meme : sans le `!important`, `contents` l'emporterait. */
-.filtres-detail { display: contents; }
-
-/* Sans liste, « DPE recents » est le seul champ de la grille : `1fr` le
-   faisait courir sur toute la largeur, ce qui donnait a un simple choix
-   l'allure d'un formulaire. On le borne — la grille reprend ses pistes
-   egales des que les autres champs reviennent.
-
-   L'etat vient d'un attribut pose par le script, et non d'un `:has()` :
-   la regle doit s'appliquer partout, y compris sur un navigateur qui ne
-   connait pas encore le selecteur. */
-.filtres[data-liste="non"] { grid-template-columns: minmax(160px, 260px); }
+/* Les couches — ce qu'on AFFICHE — passent en tete, avant les criteres
+   qui resserrent. Un fieldset pour que le lien entre les deux cases et
+   leur intitule soit porte par le balisage, pas par la seule mise en
+   page. */
+.couches {
+  border: 1px solid var(--trait-fort);
+  border-radius: var(--rayon);
+  padding: calc(var(--pas)) calc(var(--pas) * 2) calc(var(--pas) * 2);
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pas) * 3);
+  align-items: center;
+}
+.couches legend {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--encre-douce);
+  padding: 0 calc(var(--pas));
+}
+.couches .case { display: flex; align-items: center; gap: var(--pas); cursor: pointer; }
 
 .filtres .actions-filtres {
   grid-column: 1 / -1;
@@ -90,62 +95,21 @@
   align-self: center;
 }
 
-/* --- Plan general : la carte, et la liste quand on la demande -------
-   Un seul ecran porte les deux. Sans fenetre choisie, la liste n'existe
-   pas et la carte prend toute la largeur : c'est l'ecran d'exploration,
-   et rien d'autre. Des qu'une fenetre est demandee, la liste s'installe
-   a cote — a gauche sur grand ecran, au-dessus sur telephone. */
-.plan {
-  display: grid;
-  grid-template-columns: 1fr;
-}
-
-/* Carte seule : elle occupe la hauteur utile, comme avant la fusion. */
-.plan[data-liste="non"] .carte {
-  height: clamp(380px, calc(100vh - 360px), 760px);
-  border: 1px solid var(--encre);
-}
-
-@media (min-width: 940px) {
-  .plan[data-liste="oui"] {
-    grid-template-columns: minmax(420px, 1fr) minmax(380px, 42%);
-    align-items: start;
-  }
-  .plan[data-liste="oui"] .panneau-carte {
-    position: sticky;
-    top: calc(var(--bandeau-reel) + 1px);
-    height: calc(100vh - var(--bandeau-reel) - 1px);
-    border-left: 1px solid var(--trait);
-  }
-}
-
-.panneau-carte { background: var(--papier-creux); }
-
-/* Une CLASSE, pas un identifiant : il y a deux cartes — celle de la veille
-   et celle du cadastre — et un sélecteur d'identifiant n'en habillait
-   qu'une. La seconde se retrouvait avec une hauteur nulle, Leaflet mesurant
-   son conteneur à la création. */
-.carte { width: 100%; height: 100%; min-height: 320px; }
-
-/* Sur telephone, quand la liste est la, la carte se replie : la liste
-   passe d'abord. Sans liste, il n'y a rien a replier. */
-@media (max-width: 939px) {
-  .plan[data-liste="oui"] .panneau-carte { border-top: 1px solid var(--trait); }
-  .plan[data-liste="oui"] .panneau-carte[data-replie="oui"] .carte { display: none; }
-  .plan[data-liste="oui"] .carte { height: 300px; }
-}
-.bascule-carte {
-  display: none;
-  width: 100%;
-  border: 0;
-  border-radius: 0;
-  border-bottom: 1px solid var(--trait);
+/* --- La liste de detail, rangee sous la carte ----------------------
+   Elle ne commande plus la mise en page : la carte garde sa taille et sa
+   position quel que soit le filtre. Un ecran qui se reorganise a chaque
+   case cochee fait perdre l'endroit qu'on regardait. */
+.detail-liste {
+  border-top: 1px solid var(--trait);
   background: var(--papier-carte);
-  justify-content: space-between;
 }
-@media (max-width: 939px) {
-  .plan[data-liste="oui"] .bascule-carte { display: flex; }
+.detail-liste > summary {
+  padding: calc(var(--pas) * 3) calc(var(--pas) * 4);
+  cursor: pointer;
+  font-family: var(--titres);
+  font-size: 0.9rem;
 }
+.detail-liste > summary:hover { background: var(--papier-creux); }
 
 /* --- Un releve ----------------------------------------------------
    Chaque bien est presente comme une ligne de releve : la date et la
@@ -289,9 +253,19 @@
 }
 .marqueur-nouveau { background: var(--ambre); }
 .marqueur-actif { background: var(--atlantique); transform: scale(1.45); }
-/* Le meme rond dans la legende : elle ne vaut que si l'oeil reconnait ce
-   qu'il vient de voir sur la carte. */
-.marqueur-legende { flex: none; }
+/* Le losange : une FORME, pas une couleur de plus. Ce qui separe ces
+   diagnostics des autres n'est pas ce qu'on en sait, c'est qu'on ignore
+   ou ils sont exactement — et une forme se lit comme telle, meme pour un
+   oeil qui distingue mal les teintes. */
+.losange {
+  width: 12px; height: 12px;
+  margin: 2px;
+  transform: rotate(45deg);
+  background: var(--papier-carte);
+  border: 2px solid var(--encre);
+  box-shadow: 0 0 0 1px var(--papier-carte);
+}
+.losange-legende { flex: none; display: inline-block; }
 
 .leaflet-container { font-family: var(--courant); background: var(--papier-creux); }
 .leaflet-popup-content { font-size: 0.82rem; margin: 10px 12px; }

@@ -20,7 +20,7 @@ import re
 import math
 
 from app.base.connexion import connexion, transaction
-from app.metier import geometrie
+from app.metier import geometrie, veille
 from app.sources import cadastre
 
 logger = logging.getLogger(__name__)
@@ -174,6 +174,17 @@ def _nombre(valeur):
 #  Recoupement DPE x parcelle
 # ---------------------------------------------------------------------
 
+def index_spatial(code_insee):
+    """
+    L'index des parcelles d'une commune, construit une fois.
+
+    Public : les deux passes de rattachement — stricte puis approchee — le
+    partagent. Le reconstruire deux fois coute 11 444 geometries relues
+    pour rien.
+    """
+    return _index_depuis_la_base(code_insee)
+
+
 def _index_depuis_la_base(code_insee):
     """Reconstruit l'index spatial depuis les geometries enregistrees."""
     index = geometrie.IndexSpatial()
@@ -219,6 +230,68 @@ def rattacher_dpe(code_insee, index=None, tous=False):
         with transaction() as conn:
             conn.executemany("UPDATE dpe SET parcelle_id = ? WHERE n_dpe = ?", couples)
     return len(couples)
+
+
+# Un diagnostic geocode sur la chaussee est a quelques metres de sa
+# parcelle. Au-dela, ce n'est plus « devant » : c'est ailleurs.
+RAYON_APPROCHE_M = 10.0
+# ... et il faut que la gagnante le soit NETTEMENT. Sans ce garde, une
+# adresse sans numero de rue — geocodee au milieu de la voie, a egale
+# distance des deux cotes — serait attribuee a pile ou face.
+ECART_MINIMAL_M = 2.0
+
+
+def rattacher_approche(code_insee, index=None,
+                       rayon=RAYON_APPROCHE_M, ecart=ECART_MINIMAL_M):
+    """
+    Rapproche d'une parcelle les diagnostics qu'aucune ne contient.
+
+    C'est une ESTIMATION, et elle est rangee a part de `parcelle_id` :
+    l'ecran doit pouvoir dire « position approchee », et la fiche continuer
+    a lire l'historique des ventes sur la seule parcelle certaine.
+
+    Deux conditions, toutes deux necessaires :
+
+      - la parcelle est a moins de `rayon` metres. Sur Mimizan, les
+        diagnostics concernes sont a 0,5 - 4 m de leur parcelle : ils sont
+        poses sur la chaussee, devant. A 36 m on n'est plus devant ;
+      - aucune autre ne la suit a moins de `ecart` metres. Les adresses
+        SANS NUMERO de rue sont geocodees au milieu de la voie, a egale
+        distance des parcelles des deux cotes : les departager serait
+        inventer. Elles restent sans parcelle, et la carte les montre pour
+        ce qu'elles sont — un point, pas une parcelle.
+    """
+    code_insee = str(code_insee).strip()
+    if index is None:
+        index = _index_depuis_la_base(code_insee)
+    if not len(index):
+        return {"rattaches": 0, "ecartes": 0}
+
+    with connexion() as conn:
+        candidats = conn.execute(
+            "SELECT n_dpe, latitude, longitude FROM dpe "
+            " WHERE code_insee = ? AND latitude IS NOT NULL"
+            "   AND parcelle_id IS NULL",
+            (code_insee,)).fetchall()
+
+    couples, ecartes = [], 0
+    for ligne in candidats:
+        proches = index.voisines(ligne["longitude"], ligne["latitude"], rayon)
+        if not proches:
+            ecartes += 1
+            continue
+        distance, identifiant = proches[0]
+        if len(proches) > 1 and proches[1][0] - distance < ecart:
+            ecartes += 1
+            continue
+        couples.append((identifiant, round(distance, 1), ligne["n_dpe"]))
+
+    if couples:
+        with transaction() as conn:
+            conn.executemany(
+                "UPDATE dpe SET parcelle_approchee = ?, distance_parcelle_m = ? "
+                " WHERE n_dpe = ?", couples)
+    return {"rattaches": len(couples), "ecartes": ecartes}
 
 
 def age_cadastre(code_insee):
@@ -363,7 +436,7 @@ def extrait_de(parcelle, marge_m=MARGE_EXTRAIT_M):
 MAX_CARTE = 1200
 
 
-def pour_carte(code_insee, cadre, limite=MAX_CARTE):
+def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
     """
     Les parcelles visibles dans un cadre, avec ce qu'on sait d'elles.
 
@@ -372,22 +445,41 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE):
     cadre affiche, en s'appuyant sur l'index des boites englobantes.
 
     Chaque parcelle porte deux drapeaux — un DPE connu, une vente connue —
-    dont le croisement fait les quatre couleurs de la carte. C'est ce
-    croisement qui informe : une parcelle vendue sans DPE recent, ou
-    diagnostiquee sans vente, ne racontent pas la meme histoire.
+    dont le croisement fait les couleurs de la carte. C'est ce croisement
+    qui informe : une parcelle vendue sans DPE recent, ou diagnostiquee
+    sans vente, ne racontent pas la meme histoire.
+
+    `filtres_dpe` RESSERRE le drapeau « DPE » sans toucher a celui des
+    ventes : la carte se colore alors selon les seuls diagnostics qui
+    repondent aux criteres de l'ecran — les trois derniers mois, les
+    maisons de plus de 120 m², les classes F et G. C'est la carte
+    elle-meme qui repond, au lieu d'une liste posee a cote.
+
+    Le rattachement APPROCHE compte ici, et seulement ici : une parcelle
+    situee a un metre d'un diagnostic geocode sur la chaussee est bien la
+    sienne pour l'oeil. `dpe_approche` dit combien le sont, pour que la
+    carte puisse le marquer au lieu de le taire.
     """
     lon_min, lat_min, lon_max, lat_max = cadre
+    ou_dpe, parametres_dpe = ("1 = 1", [])
+    if filtres_dpe:
+        ou_dpe, parametres_dpe = veille.conditions_dpe(filtres_dpe, prefixe="d.")
+
     with connexion() as conn:
         lignes = conn.execute(
             "SELECT p.id, p.section, p.numero, p.contenance_m2,"
             "       p.emprise_batie_m2, p.nb_batiments, p.latitude, p.longitude,"
             "       p.geometrie_json,"
             "       count(DISTINCT d.n_dpe) AS dpe,"
+            "       count(DISTINCT CASE WHEN d.parcelle_id IS NULL"
+            "                           THEN d.n_dpe END) AS dpe_approche,"
             "       max(d.date_etablissement) AS dpe_dernier,"
             "       min(d.n_dpe) AS n_dpe,"
             "       count(DISTINCT mp.mutation_id) AS ventes"
             "  FROM parcelle p"
-            "  LEFT JOIN dpe d ON d.parcelle_id = p.id"
+            "  LEFT JOIN dpe d"
+            "    ON coalesce(d.parcelle_id, d.parcelle_approchee) = p.id"
+            f"   AND {ou_dpe}"
             "  LEFT JOIN mutation_parcelle mp ON mp.parcelle_id = p.id"
             " WHERE p.code_insee = ?"
             "   AND p.lat_max >= ? AND p.lat_min <= ?"
@@ -398,8 +490,8 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE):
             " ORDER BY (count(DISTINCT d.n_dpe) > 0) DESC,"
             "          (count(DISTINCT mp.mutation_id) > 0) DESC, p.id"
             " LIMIT ?",
-            (str(code_insee), lat_min, lat_max, lon_min, lon_max,
-             int(limite) + 1)).fetchall()
+            parametres_dpe + [str(code_insee), lat_min, lat_max, lon_min, lon_max,
+                              int(limite) + 1]).fetchall()
 
     tronque = len(lignes) > int(limite)
     resultats = []
@@ -410,10 +502,45 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE):
         except (TypeError, ValueError):
             continue
         entree["dpe"] = entree["dpe"] or 0
+        entree["dpe_approche"] = entree["dpe_approche"] or 0
         entree["ventes"] = entree["ventes"] or 0
         resultats.append(entree)
 
-    return {"parcelles": resultats, "tronque": tronque, "limite": int(limite)}
+    return {"parcelles": resultats, "tronque": tronque, "limite": int(limite),
+            "points": _dpe_sans_parcelle(code_insee, cadre, filtres_dpe)}
+
+
+def _dpe_sans_parcelle(code_insee, cadre, filtres_dpe=None):
+    """
+    Les diagnostics qu'AUCUNE parcelle ne porte, meme par approche.
+
+    Ce sont les adresses sans numero de rue — « Rue de la Poste » — que
+    l'ADEME geocode au milieu de la voie, a egale distance des parcelles
+    des deux cotes. Les departager serait inventer ; les taire serait pire.
+    La carte leur pose un point, et la legende dit ce qu'il vaut.
+    """
+    lon_min, lat_min, lon_max, lat_max = cadre
+    ou_dpe, parametres = ("1 = 1", [])
+    if filtres_dpe:
+        ou_dpe, parametres = veille.conditions_dpe(filtres_dpe, prefixe="d.")
+
+    with connexion() as conn:
+        lignes = conn.execute(
+            "SELECT d.n_dpe, d.adresse, d.latitude, d.longitude,"
+            "       d.date_etablissement, d.surface_habitable, d.etiquette_dpe,"
+            "       d.type_batiment, (d.vu_le IS NULL) AS nouveau"
+            "  FROM dpe d"
+            " WHERE d.code_insee = ?"
+            "   AND d.parcelle_id IS NULL AND d.parcelle_approchee IS NULL"
+            "   AND d.latitude IS NOT NULL"
+            "   AND d.latitude BETWEEN ? AND ?"
+            "   AND d.longitude BETWEEN ? AND ?"
+            f"   AND {ou_dpe}"
+            " ORDER BY d.date_etablissement DESC"
+            " LIMIT 300",
+            [str(code_insee), lat_min, lat_max, lon_min, lon_max] + parametres
+        ).fetchall()
+    return [dict(ligne) for ligne in lignes]
 
 
 def chercher_sur_carte(code_insee, texte, combien=8):

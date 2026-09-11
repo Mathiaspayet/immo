@@ -622,10 +622,18 @@ def _moissonner(communes, jeux=None):
     # `rattacher_dpe` ne traite que les orphelins, et ne fait rien si la
     # commune n'a pas de cadastre : le cout est nul quand il n'y a rien a
     # faire.
-    rattaches = 0
+    rattaches, approches = 0, 0
     for commune in communes:
         try:
-            rattaches += metier_parcelles.rattacher_dpe(commune["code_insee"])
+            index = metier_parcelles.index_spatial(commune["code_insee"])
+            rattaches += metier_parcelles.rattacher_dpe(commune["code_insee"], index)
+            # Puis ceux qu'aucune parcelle ne CONTIENT : l'ADEME les
+            # geocode sur la chaussee, devant la maison. On les rapproche
+            # de la parcelle voisine quand elle est proche et sans rivale,
+            # dans une colonne a part — c'est une estimation, et l'ecran
+            # la presente comme telle.
+            approches += metier_parcelles.rattacher_approche(
+                commune["code_insee"], index)["rattaches"]
         except Exception as erreur:                  # noqa: BLE001
             # Un rattachement manque ne doit pas annuler une moisson
             # reussie : les DPE sont en base, seul le croisement attendra.
@@ -636,6 +644,8 @@ def _moissonner(communes, jeux=None):
     message = f"{noms} — {len(enregistrements)} DPE, {ajouts} nouveau(x)"
     if rattaches:
         message += f", {rattaches} rattache(s) au cadastre"
+    if approches:
+        message += f", {approches} situe(s) par approche"
     if purges:
         message += f", {purges} purge(s)"
     if premier_import:

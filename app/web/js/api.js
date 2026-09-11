@@ -33,7 +33,16 @@ async function demander(url, options = {}) {
   return reponse.json();
 }
 
-/** Transforme un objet de filtres en paramètres d'URL. */
+/**
+ * Transforme un objet de filtres en paramètres d'URL.
+ *
+ * Un booléen FAUX s'écrit, il ne s'omet pas. L'omettre revenait à laisser
+ * le serveur décider, ce qui va très bien tant que sa valeur par défaut
+ * est « faux » — et casse dès qu'elle ne l'est pas. `defauts: false` dit
+ * « prends mes critères au pied de la lettre » : omis, il valait son
+ * contraire, et la liste se remettait à appliquer les réglages que la
+ * carte ignorait.
+ */
 export function versParametres(filtres) {
   const parametres = new URLSearchParams();
   for (const [cle, valeur] of Object.entries(filtres)) {
@@ -41,7 +50,7 @@ export function versParametres(filtres) {
     if (Array.isArray(valeur)) {
       valeur.filter(Boolean).forEach((v) => parametres.append(cle, v));
     } else if (typeof valeur === "boolean") {
-      if (valeur) parametres.set(cle, "true");
+      parametres.set(cle, valeur ? "true" : "false");
     } else {
       parametres.set(cle, valeur);
     }
@@ -108,10 +117,25 @@ export const api = {
       body: JSON.stringify(valeurs),
     }),
 
-  parcellesCarte: (code_insee, bbox, limite) =>
-    demander(`/api/parcelles/carte?code_insee=${encodeURIComponent(code_insee)}`
-      + `&bbox=${encodeURIComponent(bbox)}`
-      + (limite ? `&limite=${limite}` : "")),
+  // Les critères voyagent avec le cadre : c'est le serveur qui décide ce
+  // qui compte comme « DPE », afin que la carte et la liste répondent à
+  // la même question. `etiquettes` part en une seule valeur séparée par
+  // des virgules, comme l'attend la route.
+  parcellesCarte: (code_insee, bbox, limite, filtres) => {
+    const parametres = new URLSearchParams({ code_insee, bbox });
+    if (limite) parametres.set("limite", limite);
+    for (const cle of ["fenetre_jours", "zone", "type_batiment",
+                       "surface_min", "surface_max"]) {
+      const valeur = filtres?.[cle];
+      if (valeur !== "" && valeur !== null && valeur !== undefined) {
+        parametres.set(cle, valeur);
+      }
+    }
+    const etiquettes = (filtres?.etiquettes || []).filter(Boolean);
+    if (etiquettes.length) parametres.set("etiquettes", etiquettes.join(","));
+    if (filtres?.seulement_nouveaux) parametres.set("seulement_nouveaux", "true");
+    return demander(`/api/parcelles/carte?${parametres}`);
+  },
 
   chercherSurCarte: (code_insee, q) =>
     demander(`/api/parcelles/chercher?code_insee=${encodeURIComponent(code_insee)}`

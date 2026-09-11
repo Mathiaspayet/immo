@@ -124,14 +124,31 @@ def filtres_par_defaut():
     }
 
 
-def _conditions(filtres):
+def conditions_dpe(filtres, prefixe=""):
+    """
+    Les memes criteres, utilisables dans une AUTRE requete.
+
+    La carte colore ses parcelles selon les diagnostics qui repondent aux
+    criteres de l'ecran : il faut donc que « repondre aux criteres » ait
+    exactement le meme sens ici et dans la liste. Une seconde ecriture de
+    ces conditions aurait diverge des le premier ajout de filtre.
+
+    `prefixe` qualifie les colonnes (« d. ») : jointe a `parcelle`, la
+    requete porte deux fois `code_insee`, et SQLite refuse l'ambiguite.
+    """
+    ou, parametres = _conditions(filtres, prefixe=prefixe)
+    return ou, parametres
+
+
+def _conditions(filtres, prefixe=""):
     """Construit la clause WHERE et ses parametres."""
     clauses, parametres = [], []
+    c = lambda nom: f"{prefixe}{nom}"
 
     jours = filtres.get("fenetre_jours")
     if jours:
         depuis = datetime.date.today() - datetime.timedelta(days=int(jours))
-        clauses.append("date_etablissement >= ?")
+        clauses.append(f"{c('date_etablissement')} >= ?")
         parametres.append(depuis.isoformat())
 
     # Le code INSEE prime sur le nom : l'ADEME ecrit la meme commune
@@ -139,41 +156,41 @@ def _conditions(filtres):
     # « SAINTE-EULALIE-EN-BORN » selon les lignes, et aucun LIKE ne les
     # rattrape toutes. Toutes les lignes portent un code INSEE.
     if filtres.get("code_insee"):
-        clauses.append("code_insee = ?")
+        clauses.append(f"{c('code_insee')} = ?")
         parametres.append(str(filtres["code_insee"]))
     elif filtres.get("commune"):
-        clauses.append("lower(commune) LIKE ?")
+        clauses.append(f"lower({c('commune')}) LIKE ?")
         parametres.append(f"%{str(filtres['commune']).lower()}%")
 
     if filtres.get("code_postal"):
-        clauses.append("code_postal = ?")
+        clauses.append(f"{c('code_postal')} = ?")
         parametres.append(str(filtres["code_postal"]))
 
     if filtres.get("zone"):
-        clauses.append("zone = ?")
+        clauses.append(f"{c('zone')} = ?")
         parametres.append(filtres["zone"])
 
     if filtres.get("type_batiment"):
-        clauses.append("lower(type_batiment) LIKE ?")
+        clauses.append(f"lower({c('type_batiment')}) LIKE ?")
         parametres.append(f"%{str(filtres['type_batiment']).lower()}%")
 
     # Les bornes de surface ne s'appliquent qu'aux lignes qui portent une
     # surface : ecarter les valeurs manquantes ferait disparaitre des biens
     # sans que rien ne l'explique.
     if filtres.get("surface_min") not in (None, ""):
-        clauses.append("(surface_habitable IS NULL OR surface_habitable >= ?)")
+        clauses.append(f"({c('surface_habitable')} IS NULL OR {c('surface_habitable')} >= ?)")
         parametres.append(float(filtres["surface_min"]))
     if filtres.get("surface_max") not in (None, ""):
-        clauses.append("(surface_habitable IS NULL OR surface_habitable <= ?)")
+        clauses.append(f"({c('surface_habitable')} IS NULL OR {c('surface_habitable')} <= ?)")
         parametres.append(float(filtres["surface_max"]))
 
     etiquettes = [str(e).upper() for e in (filtres.get("etiquettes") or []) if e]
     if etiquettes:
-        clauses.append(f"etiquette_dpe IN ({', '.join('?' * len(etiquettes))})")
+        clauses.append(f"{c('etiquette_dpe')} IN ({', '.join('?' * len(etiquettes))})")
         parametres.extend(etiquettes)
 
     if filtres.get("seulement_nouveaux"):
-        clauses.append("vu_le IS NULL")
+        clauses.append(f"{c('vu_le')} IS NULL")
 
     return (" AND ".join(clauses) or "1 = 1"), parametres
 

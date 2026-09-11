@@ -181,13 +181,30 @@ export const ETATS_PARCELLE = {
   rien:  { libelle: "Rien de connu", couleur: "#FFFFFF", remplissage: 0.12 },
 };
 
-export function etatParcelle(parcelle) {
-  const dpe = Number(parcelle.dpe) > 0;
-  const vente = Number(parcelle.ventes) > 0;
+/**
+ * L'état d'une parcelle, selon les couches DEMANDÉES.
+ *
+ * Décocher « Ventes » ne masque pas seulement les parcelles bleues : une
+ * parcelle « les deux » redevient « DPE seul », car c'est bien ce qu'on
+ * en sait une fois les ventes mises de côté. Sans cela, la couleur la
+ * plus visible de la carte — celle du croisement — répondrait encore à
+ * une question qu'on vient de retirer.
+ */
+export function etatParcelle(parcelle, couches = {}) {
+  const avecDpe = couches.dpe !== false;
+  const avecVentes = couches.ventes !== false;
+  const dpe = avecDpe && Number(parcelle.dpe) > 0;
+  const vente = avecVentes && Number(parcelle.ventes) > 0;
   if (dpe && vente) return "deux";
   if (dpe) return "dpe";
   if (vente) return "vente";
   return "rien";
+}
+
+/** Tous ses diagnostics sont-ils situés par approche, et non par appartenance ? */
+export function parcelleApprochee(parcelle) {
+  const total = Number(parcelle.dpe) || 0;
+  return total > 0 && (Number(parcelle.dpe_approche) || 0) >= total;
 }
 
 
@@ -256,17 +273,27 @@ export function creerCarteExploration(identifiant,
 
     zoom() { return carte.getZoom(); },
 
-    /** Trace les parcelles reçues, chacune selon son état. */
-    dessiner(parcelles) {
+    /**
+     * Trace les parcelles reçues, chacune selon son état.
+     *
+     * `couches` dit ce qu'on regarde — les DPE, les ventes, ou les deux.
+     * Une parcelle dont tous les diagnostics sont situés PAR APPROCHE
+     * porte un contour tireté : la couleur dit ce qu'on sait, le tireté
+     * dit à quel point on en est sûr.
+     */
+    dessiner(parcelles, couches = {}) {
       couche.clearLayers();
       for (const parcelle of parcelles) {
         if (!parcelle.geometrie) continue;
-        const etat = ETATS_PARCELLE[etatParcelle(parcelle)];
+        const etat = ETATS_PARCELLE[etatParcelle(parcelle, couches)];
+        const approchee = parcelleApprochee(parcelle)
+          && etatParcelle(parcelle, couches) !== "rien";
         const forme = L.geoJSON(parcelle.geometrie, {
           style: {
             color: "#FFFFFF",
-            weight: 1.5,
+            weight: approchee ? 2.5 : 1.5,
             opacity: 1,
+            dashArray: approchee ? "4 3" : null,
             fillColor: etat.couleur,
             fillOpacity: etat.remplissage,
             lineJoin: "round",
@@ -278,6 +305,44 @@ export function creerCarteExploration(identifiant,
       return parcelles.length;
     },
 
+    /**
+     * Les diagnostics qu'aucune parcelle ne porte, posés en losange.
+     *
+     * Une forme DIFFÉRENTE, pas une couleur de plus : ce qui les sépare
+     * des autres n'est pas ce qu'on en sait, c'est qu'on ne sait pas OÙ
+     * ils sont exactement. Les adresses sans numéro de rue sont géocodées
+     * au milieu de la voie ; les attribuer à l'une des parcelles qui la
+     * bordent serait inventer.
+     */
+    poserPoints(points, surBienChoisi) {
+      coucheBiens.clearLayers();
+      marqueurs.clear();
+      for (const bien of points || []) {
+        if (bien.latitude == null || bien.longitude == null) continue;
+        const marqueur = L.marker([bien.latitude, bien.longitude], {
+          icon: L.divIcon({
+            className: "",
+            html: '<div class="losange" title="diagnostic sans parcelle"></div>',
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+          }),
+          keyboard: true,
+          title: `${bien.adresse || bien.n_dpe} — sans parcelle`,
+        });
+        marqueur.bindPopup(
+          `<span class="adresse-popup">${(bien.adresse || "adresse absente")
+            .replace(/</g, "&lt;")}</span>` +
+          `<span class="donnee">${bien.date_etablissement || "?"} · ` +
+          `${bien.surface_habitable ?? "?"} m² · ${bien.etiquette_dpe || "?"}</span>` +
+          '<span class="donnee">aucune parcelle : adresse trop imprécise</span>');
+        marqueur.on("click", () =>
+          (surBienChoisi || surBien) && (surBienChoisi || surBien)(bien.n_dpe));
+        marqueur.addTo(coucheBiens);
+        marqueurs.set(bien.n_dpe, marqueur);
+      }
+      return (points || []).length;
+    },
+
     /** Met une parcelle en avant, et l'amène à l'écran. */
     surligner(parcelle) {
       if (dernierTrace) { couche.removeLayer(dernierTrace); dernierTrace = null; }
@@ -286,41 +351,6 @@ export function creerCarteExploration(identifiant,
         style: { color: "#A33A2A", weight: 3, fillOpacity: 0, lineJoin: "round" },
       }).addTo(couche);
       carte.fitBounds(dernierTrace.getBounds(), { padding: [60, 60], maxZoom: 19 });
-    },
-
-    /**
-     * Pose un repère par diagnostic filtré. NE DÉPLACE PAS la carte :
-     * on filtre souvent en regardant un quartier précis, et se faire
-     * recadrer sur la commune entière à chaque changement de critère
-     * ferait perdre l'endroit qu'on examinait.
-     */
-    marquer(resultats) {
-      coucheBiens.clearLayers();
-      marqueurs.clear();
-      let poses = 0;
-      for (const bien of resultats) {
-        if (bien.latitude == null || bien.longitude == null) continue;
-        const marqueur = repere(bien, surBien);
-        marqueur.addTo(coucheBiens);
-        marqueurs.set(bien.n_dpe, marqueur);
-        poses += 1;
-      }
-      return poses;
-    },
-
-    effacerBiens() {
-      coucheBiens.clearLayers();
-      marqueurs.clear();
-    },
-
-    /** Le recadrage, lui, se demande — au moment où l'on ouvre la liste. */
-    cadrerSurLesBiens(resultats) {
-      const points = resultats
-        .filter((b) => b.latitude != null && b.longitude != null)
-        .map((b) => [b.latitude, b.longitude]);
-      if (!points.length) return 0;
-      carte.fitBounds(L.latLngBounds(points), { padding: [30, 30], maxZoom: 16 });
-      return points.length;
     },
 
     /** Met en avant le bien choisi dans la liste. */

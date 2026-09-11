@@ -20,13 +20,25 @@ routeur = APIRouter(prefix="/api/parcelles", tags=["parcelles"])
 @routeur.get("/carte")
 def carte(code_insee: str = Query(...),
           bbox: str = Query(..., description="lon_min,lat_min,lon_max,lat_max"),
-          limite: int = Query(parcelles.MAX_CARTE, ge=1, le=3000)):
+          limite: int = Query(parcelles.MAX_CARTE, ge=1, le=3000),
+          fenetre_jours: int = Query(None, ge=1, le=36500,
+                                     description="ne garder que les DPE de moins de N jours"),
+          zone: str = Query(""),
+          type_batiment: str = Query(""),
+          surface_min: float = Query(None, ge=0),
+          surface_max: float = Query(None, ge=0),
+          etiquettes: str = Query("", description="classes separees par une virgule"),
+          seulement_nouveaux: bool = Query(False)):
     """
     Les parcelles visibles dans un cadre, avec leurs drapeaux.
 
     Le filtrage par cadre n'est pas un confort : les geometries d'une
     commune comme Mimizan pesent 3,8 Mo pour 11 444 parcelles, et les
     envoyer d'un bloc rendrait la carte inutilisable sur telephone.
+
+    Les criteres optionnels ne changent QUE le drapeau « DPE » : c'est la
+    carte qui repond a la question posee, en se recolorant, plutot qu'une
+    liste ouverte a cote d'elle.
     """
     try:
         lon_min, lat_min, lon_max, lat_max = (float(v) for v in bbox.split(","))
@@ -37,8 +49,22 @@ def carte(code_insee: str = Query(...),
     if lon_min > lon_max or lat_min > lat_max:
         raise HTTPException(status_code=400, detail="bbox incoherent.")
 
+    criteres = {
+        "fenetre_jours": fenetre_jours,
+        "zone": zone,
+        "type_batiment": type_batiment,
+        "surface_min": surface_min,
+        "surface_max": surface_max,
+        "etiquettes": [e for e in etiquettes.split(",") if e.strip()],
+        "seulement_nouveaux": seulement_nouveaux,
+    }
+    # Aucun critere : le drapeau reste « un DPE, quel qu'il soit ». C'est
+    # l'affichage standard, et il ne doit rien couter de plus.
+    filtres = criteres if any(
+        v not in (None, "", [], False) for v in criteres.values()) else None
+
     return parcelles.pour_carte(code_insee, (lon_min, lat_min, lon_max, lat_max),
-                                limite=limite)
+                                limite=limite, filtres_dpe=filtres)
 
 
 @routeur.get("/chercher")

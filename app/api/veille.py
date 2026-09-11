@@ -22,9 +22,24 @@ routeur = APIRouter(prefix="/api/veille", tags=["veille"])
 
 def _filtres(fenetre_jours, commune, code_postal, zone, type_batiment,
              surface_min, surface_max, etiquettes, seulement_nouveaux,
-             code_insee=""):
-    """Assemble les filtres, en completant par les valeurs des reglages."""
-    defauts = veille.filtres_par_defaut()
+             code_insee="", avec_defauts=True):
+    """
+    Assemble les filtres, en completant par les valeurs des reglages.
+
+    `avec_defauts=False` les prend au PIED DE LA LETTRE : un critere
+    absent est un critere absent, et non « celui des reglages ».
+
+    La distinction n'est pas theorique. La carte colore ses parcelles
+    selon les criteres de l'ecran ; sans ce choix, la liste posee sous
+    elle recevait EN PLUS les defauts enregistres — une fenetre de 120
+    jours, des bornes de surface — et annoncait 57 diagnostics la ou la
+    carte en montrait tout autre chose. Deux reponses differentes a la
+    meme question, sur le meme ecran.
+    """
+    defauts = veille.filtres_par_defaut() if avec_defauts else {
+        "fenetre_jours": None, "type_batiment": "",
+        "surface_min": "", "surface_max": "",
+    }
     return {
         "fenetre_jours": defauts["fenetre_jours"] if fenetre_jours is None else fenetre_jours,
         # Pas de commune par defaut : l'ecran propose desormais toutes
@@ -53,6 +68,7 @@ PARAMETRES = dict(
     surface_max=Query(None, ge=0),
     etiquettes=Query(None, description="Classes energetiques retenues"),
     seulement_nouveaux=Query(False),
+    defauts=Query(True, description="completer les criteres absents par les reglages"),
 )
 
 
@@ -67,11 +83,12 @@ def lister(fenetre_jours: int = PARAMETRES["fenetre_jours"],
            surface_max: float = PARAMETRES["surface_max"],
            etiquettes: list[str] = PARAMETRES["etiquettes"],
            seulement_nouveaux: bool = PARAMETRES["seulement_nouveaux"],
+           defauts: bool = PARAMETRES["defauts"],
            limite: int = Query(500, ge=1, le=5000)):
     """Les DPE retenus, une ligne par adresse, du plus recent au plus ancien."""
     filtres = _filtres(fenetre_jours, commune, code_postal, zone, type_batiment,
                        surface_min, surface_max, etiquettes, seulement_nouveaux,
-                       code_insee)
+                       code_insee, avec_defauts=defauts)
     return {
         "filtres": filtres,
         "resume": veille.resume(filtres),
@@ -89,11 +106,12 @@ def exporter(fenetre_jours: int = PARAMETRES["fenetre_jours"],
              surface_min: float = PARAMETRES["surface_min"],
              surface_max: float = PARAMETRES["surface_max"],
              etiquettes: list[str] = PARAMETRES["etiquettes"],
-             seulement_nouveaux: bool = PARAMETRES["seulement_nouveaux"]):
+             seulement_nouveaux: bool = PARAMETRES["seulement_nouveaux"],
+             defauts: bool = PARAMETRES["defauts"]):
     """Le meme tableau, en CSV ouvrable directement dans Excel."""
     filtres = _filtres(fenetre_jours, commune, code_postal, zone, type_batiment,
                        surface_min, surface_max, etiquettes, seulement_nouveaux,
-                       code_insee)
+                       code_insee, avec_defauts=defauts)
     contenu = veille.exporter_csv(filtres)
     nom = f"veille-dpe-{datetime.date.today():%Y-%m-%d}.csv"
     return Response(

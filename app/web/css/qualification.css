@@ -336,6 +336,14 @@
 .champ-adresse input { width: 100%; }
 .carte-barre .explication { margin: 0; flex: 1 1 18rem; }
 
+/* La carte occupe la hauteur utile, et GARDE cette taille quoi qu'on
+   filtre : c'est l'objet de l'ecran. */
+.carte-plein {
+  height: clamp(380px, calc(100vh - 320px), 760px);
+  border: 1px solid var(--encre);
+  background: var(--papier-creux);
+}
+
 .suggestions {
   position: absolute;
   z-index: 500;
@@ -407,8 +415,16 @@
 .legende-dpe   { box-shadow: inset 0 0 0 999px rgba(0, 131, 0, 0.70); }
 .legende-vente { box-shadow: inset 0 0 0 999px rgba(42, 120, 214, 0.70); }
 .legende-rien  { box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.12); }
+/* Le tirete de la legende reprend celui de la carte : c'est le meme
+   signe, il doit avoir le meme air. */
+.legende-approche {
+  box-shadow: inset 0 0 0 999px rgba(0, 131, 0, 0.70);
+  border: 2px dashed var(--papier-carte);
+  outline: 1px solid var(--encre);
+}
 
 @media (max-width: 640px) {
+  .carte-plein { height: clamp(320px, 60vh, 520px); }
   .legende { gap: calc(var(--pas) * 3); font-size: 0.78rem; }
 }
 

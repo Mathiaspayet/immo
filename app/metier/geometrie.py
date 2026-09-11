@@ -90,6 +90,43 @@ def dans_geometrie(longitude, latitude, anneaux):
     return any(point_dans_anneau(longitude, latitude, anneau) for anneau in anneaux)
 
 
+def _en_metres(longitude, latitude, reference):
+    """Projection locale : des degres vers des metres, autour d'un point."""
+    metres_par_degre_lon = METRES_PAR_DEGRE_LAT * math.cos(math.radians(reference))
+    return longitude * metres_par_degre_lon, latitude * METRES_PAR_DEGRE_LAT
+
+
+def _distance_au_segment(px, py, ax, ay, bx, by):
+    """Distance d'un point a un segment, le tout deja en metres."""
+    vx, vy = bx - ax, by - ay
+    longueur2 = vx * vx + vy * vy
+    if longueur2 == 0:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * vx + (py - ay) * vy) / longueur2))
+    return math.hypot(px - (ax + t * vx), py - (ay + t * vy))
+
+
+def distance_au_contour(longitude, latitude, anneaux):
+    """
+    Distance en METRES du point au bord le plus proche, 0 s'il est dedans.
+
+    La distance au SOMMET le plus proche ne suffirait pas : un point pose
+    devant le milieu d'une longue facade en est loin au sens des sommets,
+    et a un metre au sens du bord.
+    """
+    if dans_geometrie(longitude, latitude, anneaux):
+        return 0.0
+    px, py = _en_metres(longitude, latitude, latitude)
+    meilleure = float("inf")
+    for anneau in anneaux:
+        points = [_en_metres(p[0], p[1], latitude) for p in anneau]
+        for i in range(len(points) - 1):
+            distance = _distance_au_segment(px, py, *points[i], *points[i + 1])
+            if distance < meilleure:
+                meilleure = distance
+    return meilleure
+
+
 def boite_englobante(anneaux):
     """Rectangle minimal : (lon_min, lat_min, lon_max, lat_max), ou None."""
     longitudes = [p[0] for anneau in anneaux for p in anneau]
@@ -152,6 +189,34 @@ class IndexSpatial:
             if dans_geometrie(longitude, latitude, self.geometries[identifiant]):
                 return identifiant
         return None
+
+    def voisines(self, longitude, latitude, rayon_m=20.0):
+        """
+        Les parcelles a moins de `rayon_m` du point, de la plus proche a la
+        plus lointaine, sous forme de couples (distance, identifiant).
+
+        Sert aux diagnostics qu'aucune parcelle ne contient : l'ADEME les
+        geocode souvent sur la CHAUSSEE, devant la maison. Ils ne sont pas
+        perdus pour autant — simplement a cote.
+
+        Les cases voisines sont visitees, pas seulement la sienne : un
+        point pose au bord d'une case a sa parcelle dans la case d'a cote,
+        et ne rien regarder au-dela le declarerait isole a tort.
+        """
+        ix, iy = case_de(longitude, latitude)
+        candidats = set()
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                candidats.update(self.grille.get((ix + dx, iy + dy), ()))
+
+        proches = []
+        for identifiant in candidats:
+            distance = distance_au_contour(longitude, latitude,
+                                           self.geometries[identifiant])
+            if distance <= rayon_m:
+                proches.append((distance, identifiant))
+        proches.sort()
+        return proches
 
     def __len__(self):
         return len(self.geometries)

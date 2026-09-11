@@ -417,3 +417,67 @@ def test_le_nom_de_repli_ne_s_inscrit_pas_dans_les_lignes(base):
     officiel = transformer(ligne, correspondances, {}, "existant", "40200",
                            {"40184": {"nom": "Mimizan"}}, "")
     assert officiel["commune"] == "Mimizan"
+
+
+# ---------------------------------------------------------------------
+#  Carte et liste doivent repondre a la MEME question
+# ---------------------------------------------------------------------
+
+def test_sans_defauts_les_criteres_absents_le_restent(base):
+    """
+    La carte colore ses parcelles selon les criteres de l'ecran ; la liste
+    posee sous elle doit en faire autant. Sans `defauts=false`, le serveur
+    completait ce qui manquait par les reglages enregistres — une fenetre
+    de 120 jours, des bornes de surface — et la liste annoncait un nombre
+    que la carte ne montrait pas. Deux reponses a la meme question, sur le
+    meme ecran.
+    """
+    from fastapi.testclient import TestClient
+    from app.main import application
+
+    reglages.ecrire({"fenetre_jours": 30, "surface_min": 200, "surface_max": 300,
+                     "type_batiment": "appartement"})
+    # Une maison de 90 m², diagnostiquee il y a 200 jours : AUCUN des
+    # reglages ci-dessus ne la retient.
+    inserer_dpe(n_dpe="A", adresse="1 rue", code_insee="40184",
+                type_batiment="maison", surface_habitable=90.0,
+                date_etablissement=jours(200))
+
+    client = TestClient(application)
+
+    avec = client.get("/api/veille", params={"code_insee": "40184"}).json()
+    assert avec["resultats"] == [], "les reglages doivent s'appliquer par defaut"
+    assert avec["filtres"]["fenetre_jours"] == 30
+
+    sans = client.get("/api/veille",
+                      params={"code_insee": "40184", "defauts": "false"}).json()
+    assert [r["n_dpe"] for r in sans["resultats"]] == ["A"]
+    assert sans["filtres"]["fenetre_jours"] is None
+    assert sans["filtres"]["type_batiment"] == ""
+
+
+def test_la_carte_et_la_liste_comptent_pareil(base):
+    """
+    Les memes criteres, deux chemins : le drapeau « DPE » des parcelles et
+    la liste. Ils doivent designer les memes diagnostics — c'est tout
+    l'interet d'avoir une seule ecriture des conditions.
+    """
+    from app.metier import parcelles as metier_parcelles
+
+    for numero, quand, surface in [("VIEUX", jours(300), 100.0),
+                                   ("RECENT", jours(10), 100.0),
+                                   ("PETIT", jours(10), 40.0)]:
+        inserer_dpe(n_dpe=numero, adresse=f"{numero} rue", code_insee="40184",
+                    type_batiment="maison", surface_habitable=surface,
+                    date_etablissement=quand,
+                    latitude=44.2011, longitude=-1.2286)
+
+    criteres = {"fenetre_jours": 60, "surface_min": 80, "code_insee": "40184"}
+    attendus = {r["n_dpe"] for r in veille.lister(criteres)}
+    assert attendus == {"RECENT"}
+
+    # Aucune parcelle en base : les trois sont « sans parcelle », et seul
+    # celui qui repond aux criteres doit ressortir.
+    points = metier_parcelles._dpe_sans_parcelle(
+        "40184", (-2.0, 44.0, -1.0, 45.0), criteres)
+    assert {p["n_dpe"] for p in points} == attendus

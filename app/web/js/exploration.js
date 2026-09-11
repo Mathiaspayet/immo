@@ -56,7 +56,7 @@ const ecran = {
   filtres: {},
   resultats: [],
   selection: null,
-  listeVisible: false,
+  couches: { dpe: true, ventes: true },
 };
 
 // ====================================================================
@@ -95,15 +95,22 @@ function gabaritReleve(bien) {
   </article>`;
 }
 
-/** La fenêtre est l'interrupteur : vide, pas de liste. */
-function fenetreChoisie() {
-  return $("#filtres").fenetre_jours.value !== "";
+/** Un critère est-il posé ? Sert à dire à l'écran ce qu'il montre. */
+function filtreActif() {
+  const f = ecran.filtres;
+  return Boolean(f.fenetre_jours || f.zone || f.type_batiment
+                 || f.surface_min || f.surface_max
+                 || (f.etiquettes || []).length || f.seulement_nouveaux);
 }
 
 function lireFiltres() {
   const formulaire = $("#filtres");
   const etiquette = formulaire.etiquettes.value;
   return {
+    // Les critères de l'écran, et EUX SEULS : sans ce drapeau, le serveur
+    // complète ce qui manque par les réglages enregistrés, et la liste se
+    // met à répondre à une autre question que la carte.
+    defauts: false,
     fenetre_jours: formulaire.fenetre_jours.value,
     // La commune vient du parcours, pas d'un filtre : on l'a choisie avant
     // d'arriver ici. Par son code INSEE, l'ADEME écrivant le même nom de
@@ -119,13 +126,13 @@ function lireFiltres() {
 }
 
 /**
- * Installe les critères enregistrés, SAUF la fenêtre.
+ * Rend disponible la fenêtre exacte des réglages, sans la choisir.
  *
- * La fenêtre reste vide au démarrage : c'est elle qui ouvre la liste, et
- * l'écran doit s'ouvrir sur la carte. Les autres critères — surface, type,
- * classe — sont ceux des réglages, donc ceux du courriel d'alerte : à la
- * première fenêtre demandée, la liste montre exactement ce que l'alerte
- * surveille, sans rien avoir à ressaisir.
+ * L'écran s'ouvre sur la carte STANDARD — toutes dates, DPE et ventes :
+ * c'est la vue d'ensemble, et elle ne doit rien présumer. Mais les
+ * réglages autorisent n'importe quelle fenêtre (45 jours par exemple) ;
+ * si elle manque au menu, on l'y ajoute, pour que le périmètre exact du
+ * courriel d'alerte soit à un clic.
  */
 function appliquerFiltres(filtres) {
   const formulaire = $("#filtres");
@@ -139,10 +146,6 @@ function appliquerFiltres(filtres) {
   if (![...choix.options].some((option) => option.value === fenetre)) {
     choix.add(new Option(`${fenetre} jours`, fenetre));
   }
-  formulaire.type_batiment.value = filtres.type_batiment ?? "";
-  formulaire.surface_min.value = filtres.surface_min ?? "";
-  formulaire.surface_max.value = filtres.surface_max ?? "";
-  formulaire.seulement_nouveaux.checked = Boolean(filtres.seulement_nouveaux);
 }
 
 function dessinerCompteurs(resume) {
@@ -218,15 +221,24 @@ function dessinerListe(resultats, resume) {
   });
 }
 
-/** Une ligne choisie s'allume, et la carte va la chercher. */
+/**
+ * Une ligne choisie s'allume, et la carte va la chercher.
+ *
+ * Elle s'y rend par les COORDONNÉES du diagnostic : qu'il soit porté par
+ * une parcelle, rapproché de l'une d'elles ou posé seul en losange, le
+ * point existe toujours. Un surlignage de losange, quand c'en est un.
+ */
 function selectionner(numero) {
   ecran.selection = numero;
   document.querySelectorAll(".releve").forEach((element) => {
     element.setAttribute("aria-current",
                          element.dataset.dpe === numero ? "true" : "false");
   });
-  deplierCarte();
-  carte?.surlignerBien(numero);
+  const bien = ecran.resultats.find((b) => b.n_dpe === numero);
+  if (!bien) return;
+  if (!carte?.surlignerBien(numero)) {
+    carte?.allerA(bien.latitude, bien.longitude);
+  }
 }
 
 /**
@@ -266,50 +278,15 @@ async function chargerContexte() {
 }
 
 /**
- * Montre ou cache la liste, et tout ce qui l'accompagne.
+ * Charge la liste de détail, rangée sous la carte.
  *
- * `data-liste` sur le plan commande la mise en page : une colonne et une
- * carte haute quand il n'y a pas de liste, deux colonnes sinon.
- */
-function afficherLaListe(visible) {
-  const ouverture = visible && !ecran.listeVisible;
-  ecran.listeVisible = visible;
-  const marque = visible ? "oui" : "non";
-  $("#plan-carte").dataset.liste = marque;
-  $("#filtres").dataset.liste = marque;
-  $("#liste").hidden = !visible;
-  $("#compteurs").hidden = !visible;
-  $("#filtres-detail").hidden = !visible;
-
-  if (!visible) {
-    // On VIDE, on ne se contente pas de masquer : `selectionner` cherche
-    // les relevés dans toute la page, et des lignes d'une recherche
-    // abandonnée continueraient d'y répondre. Elles réapparaîtraient
-    // aussi le temps d'un battement à la fenêtre suivante.
-    $("#liste").innerHTML = "";
-    $("#compteurs").innerHTML = "";
-    ecran.selection = null;
-  }
-
-  // Leaflet mesure son conteneur : la colonne vient de changer de largeur.
-  setTimeout(() => carte?.redimensionner(), 60);
-  return ouverture;
-}
-
-/**
- * Charge la liste si une fenêtre est demandée, la retire sinon.
- *
- * `cadrer` n'est vrai qu'à l'ouverture : on recadre sur les résultats la
- * fois où on les demande, puis on laisse la carte où l'utilisateur la met.
+ * Elle ne commande plus rien : la carte garde sa taille et sa position,
+ * quel que soit le filtre. Un écran qui se réorganise à chaque case
+ * cochée fait perdre l'endroit qu'on regardait — c'était le défaut de la
+ * première version, et il rendait la carte standard inatteignable une
+ * fois un filtre posé.
  */
 async function chargerListe() {
-  if (!fenetreChoisie()) {
-    afficherLaListe(false);
-    carte?.effacerBiens();
-    ecran.resultats = [];
-    return;
-  }
-
   masquerErreur();
   ecran.filtres = lireFiltres();
   $("#export-csv").href = api.urlExport(ecran.filtres);
@@ -324,22 +301,13 @@ async function chargerListe() {
     return;
   }
 
-  const ouverture = afficherLaListe(true);
   ecran.resultats = reponse.resultats;
   dessinerCompteurs(reponse.resume);
   dessinerListe(reponse.resultats, reponse.resume);
-  carte?.marquer(reponse.resultats);
-  if (ouverture) carte?.cadrerSurLesBiens(reponse.resultats);
-}
-
-/** Sur téléphone la carte est repliée : la liste passe d'abord. */
-function deplierCarte() {
-  const panneau = $(".panneau-carte");
-  if (panneau?.dataset.replie === "oui") {
-    panneau.dataset.replie = "non";
-    $("#bascule-carte").setAttribute("aria-expanded", "true");
-    carte?.redimensionner();
-  }
+  $("#resume-liste").textContent = filtreActif()
+    ? `Voir le détail des ${entierFr.format(reponse.resume.total)} diagnostic(s) retenu(s)`
+    : `Voir le détail des diagnostics de la commune `
+      + `(${entierFr.format(reponse.resume.total)})`;
 }
 
 /**
@@ -370,7 +338,14 @@ function etat(message) {
   $("#carte-etat").innerHTML = message;
 }
 
-/** Charge et trace les parcelles du cadre courant. */
+/**
+ * Charge et trace les parcelles du cadre courant, selon les critères.
+ *
+ * C'est ICI que les filtres agissent : la requête emporte les critères,
+ * et le serveur ne compte comme « DPE » que les diagnostics qui y
+ * répondent. La carte se recolore donc sur place — même cadre, même
+ * échelle, même position — au lieu d'ouvrir un autre écran à côté.
+ */
 async function rafraichir() {
   const commune = communeCourante();
   if (!commune) {
@@ -378,15 +353,10 @@ async function rafraichir() {
     return;
   }
   if (carte.zoom() < ZOOM_MINIMAL) {
-    carte.dessiner([]);
-    // Les repères des DPE, eux, tiennent à toute échelle : le dire évite
-    // de lire ce message comme une panne quand on vient d'ouvrir la liste
-    // et que le cadrage sur les résultats a fait reculer la carte.
+    carte.dessiner([], ecran.couches);
+    carte.poserPoints([]);
     etat("Zoomez pour voir les parcelles&nbsp;: à cette échelle, elles sont " +
-         "trop nombreuses et trop petites pour être lisibles." +
-         (ecran.listeVisible
-           ? " Les repères des DPE filtrés, eux, restent affichés."
-           : ""));
+         "trop nombreuses et trop petites pour être lisibles.");
     return;
   }
 
@@ -397,7 +367,8 @@ async function rafraichir() {
   etat("Chargement…");
   let reponse;
   try {
-    reponse = await api.parcellesCarte(commune.code_insee, carte.cadre());
+    reponse = await api.parcellesCarte(commune.code_insee, carte.cadre(),
+                                       null, ecran.filtres);
   } catch (erreur) {
     if (rang !== derniereRequete) return;
     etat("");
@@ -408,13 +379,27 @@ async function rafraichir() {
 
   masquerErreur();
   const parcelles = reponse.parcelles || [];
-  carte.dessiner(parcelles);
+  carte.dessiner(parcelles, ecran.couches);
+  // Les losanges ne concernent que les diagnostics : décocher « DPE » les
+  // retire avec le reste.
+  carte.poserPoints(ecran.couches.dpe ? reponse.points : []);
 
-  const compte = (cle) => parcelles.filter((p) => etatParcelle(p) === cle).length;
-  const resume = `${entierFr.format(parcelles.length)} parcelle(s)` +
-    ` · ${entierFr.format(compte("deux"))} avec DPE et vente` +
-    ` · ${entierFr.format(compte("dpe"))} DPE seul` +
-    ` · ${entierFr.format(compte("vente"))} vente seule`;
+  const compte = (cle) =>
+    parcelles.filter((p) => etatParcelle(p, ecran.couches) === cle).length;
+  const morceaux = [`${entierFr.format(parcelles.length)} parcelle(s)`];
+  if (ecran.couches.dpe && ecran.couches.ventes) {
+    morceaux.push(`${entierFr.format(compte("deux"))} avec DPE et vente`);
+  }
+  if (ecran.couches.dpe) {
+    morceaux.push(`${entierFr.format(compte("dpe"))} DPE seul`);
+    const orphelins = (reponse.points || []).length;
+    if (orphelins) morceaux.push(`${entierFr.format(orphelins)} sans parcelle`);
+  }
+  if (ecran.couches.ventes) {
+    morceaux.push(`${entierFr.format(compte("vente"))} vente seule`);
+  }
+  const resume = morceaux.join(" · ")
+    + (filtreActif() ? " — <strong>filtré</strong>" : "");
   etat(reponse.tronque
     ? `${resume}. <strong>Il y en a davantage hors de ce compte</strong>&nbsp;: ` +
       "zoomez pour toutes les voir."
@@ -524,8 +509,26 @@ export async function initialiserExploration() {
     minuterieRecherche = setTimeout(suggerer, 220);
   });
 
-  $("#filtres").addEventListener("change", () => chargerListe());
+  // Le geste central : un critère change, la CARTE se recolore. La liste
+  // de détail suit, mais c'est la carte qui répond.
+  $("#filtres").addEventListener("change", () => {
+    ecran.couches = { dpe: $("#c-dpe").checked, ventes: $("#c-ventes").checked };
+    ecran.filtres = lireFiltres();
+    rafraichir();
+    chargerListe();
+  });
   $("#filtres").addEventListener("submit", (e) => e.preventDefault());
+
+  // Revenir à la carte standard doit tenir en un geste — c'est ce qui
+  // manquait le plus : une fois un filtre posé, plus rien ne ramenait à
+  // la vue d'ensemble.
+  $("#tout-effacer").addEventListener("click", () => {
+    const formulaire = $("#filtres");
+    formulaire.reset();
+    $("#c-dpe").checked = true;
+    $("#c-ventes").checked = true;
+    formulaire.dispatchEvent(new Event("change", { bubbles: true }));
+  });
 
   $("#marquer-vus").addEventListener("click", async () => {
     try {
@@ -551,24 +554,11 @@ export async function initialiserExploration() {
     replierFiltres($("#filtres").dataset.replie === "non");
   });
 
-  $("#bascule-carte").addEventListener("click", () => {
-    const panneau = $(".panneau-carte");
-    const replie = panneau.dataset.replie === "oui";
-    panneau.dataset.replie = replie ? "non" : "oui";
-    $("#bascule-carte").setAttribute("aria-expanded", String(replie));
-    if (replie) carte.redimensionner();
-  });
-
-  // Sur grand écran la carte reste visible quand la liste s'ouvre ; sur
-  // téléphone elle se replie pour que la liste passe en premier.
-  if (window.matchMedia("(min-width: 940px)").matches) {
-    $(".panneau-carte").dataset.replie = "non";
-  }
-
-  // Les critères par défaut viennent des réglages — donc du courriel
-  // d'alerte. On les demande une fois, sans rien afficher : la fenêtre
-  // reste vide, et la carte s'ouvre seule.
+  // Les réglages autorisent n'importe quelle fenêtre (45 jours par
+  // exemple) : on l'ajoute au menu si elle y manque, pour que le
+  // périmètre exact du courriel d'alerte soit à un clic. Rien n'est
+  // sélectionné pour autant — l'écran s'ouvre sur la carte standard.
   try {
     appliquerFiltres((await api.veille({})).filtres);
-  } catch (_) { /* les critères restent ceux de la page */ }
+  } catch (_) { /* le menu reste celui de la page */ }
 }
