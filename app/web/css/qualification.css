@@ -327,10 +327,19 @@
 .champ-adresse { position: relative; }
 .champ-adresse input { width: 100%; }
 
-/* La carte occupe la hauteur utile, et GARDE cette taille quoi qu'on
-   filtre : c'est l'objet de l'ecran. */
+/* La carte occupe TOUTE la hauteur restante de la fenetre, et garde sa
+   taille quoi qu'on filtre : c'est l'objet de l'ecran.
+
+   La hauteur reelle est posee par le script, qui la MESURE (voir
+   `ajusterHauteurCarte`). Ce qui suit n'est qu'un repli, le temps que le
+   script s'execute. L'ancienne regle etait un calcul a l'aveugle —
+   `clamp(380px, 100vh - 320px, 760px)` — avec deux defauts : les 320 px
+   de bandeau et de filtres etaient devines et non mesures, et surtout le
+   plafond de 760 px arretait la carte en pleine fenetre sur un grand
+   ecran. */
 .carte-plein {
-  height: clamp(380px, calc(100vh - 320px), 760px);
+  height: calc(100vh - 320px);
+  min-height: 320px;
   border: 1px solid var(--encre);
   background: var(--papier-creux);
 }
@@ -415,7 +424,6 @@
 }
 
 @media (max-width: 640px) {
-  .carte-plein { height: clamp(320px, 60vh, 520px); }
   .legende { gap: calc(var(--pas) * 3); font-size: 0.78rem; }
 }
 

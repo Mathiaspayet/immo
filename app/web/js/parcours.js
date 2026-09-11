@@ -216,6 +216,12 @@ export function dessinerContexte(informations = {}) {
     ? ` · <span class="donnee">${entierFr.format(informations.dpe)}</span> DPE`
     : "";
 
+  // Le sous-titre annonce l'écran ; la ligne de commune dit la même chose
+  // en plus précis. Dès qu'une commune est choisie, la première n'apprend
+  // plus rien et ne fait que pousser la carte vers le bas.
+  const sousTitre = $("#sous-titre");
+  if (sousTitre) sousTitre.hidden = true;
+
   const entete = $("#commune-entete");
   if (entete) {
     entete.innerHTML =

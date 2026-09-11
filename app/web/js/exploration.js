@@ -478,6 +478,39 @@ function oublierLeCadre() {
   ecran.chargeComplet = false;
 }
 
+// Ce qu'on laisse voir sous la carte : de quoi comprendre qu'il y a
+// quelque chose en dessous, sans amputer la carte pour autant.
+const GOUTTIERE = 10;
+const HAUTEUR_MINIMALE = 320;
+
+/**
+ * Donne à la carte toute la hauteur restante de la fenêtre.
+ *
+ * La hauteur était calculée à l'aveugle en CSS —
+ * `clamp(380px, 100vh - 320px, 760px)` — avec deux défauts. Les 320 px
+ * de bandeau et de filtres étaient DEVINÉS : la rangée de filtres passe
+ * à la ligne selon la largeur, et le compte tombait faux dès qu'elle le
+ * faisait. Et le plafond de 760 px arrêtait la carte en pleine fenêtre
+ * sur un grand écran, laissant du vide sous elle.
+ *
+ * On mesure donc, et on remesure à chaque changement de largeur : la
+ * hauteur des filtres dépend de leur repli, qu'aucune constante ne peut
+ * prévoir.
+ */
+function ajusterHauteurCarte() {
+  const boite = $("#carte-exploration");
+  if (!boite || $("#vue-carte").hidden) return;
+  // Position dans le DOCUMENT, et non dans la fenêtre : la mesure reste
+  // juste même si la page est défilée au moment où on la prend.
+  const haut = boite.getBoundingClientRect().top + window.scrollY;
+  const hauteur = Math.max(HAUTEUR_MINIMALE,
+                           window.innerHeight - haut - GOUTTIERE);
+  const pose = `${Math.round(hauteur)}px`;
+  if (boite.style.height === pose) return;   // rien à faire, rien à agiter
+  boite.style.height = pose;
+  carte?.redimensionner();
+}
+
 /** Un témoin discret, sans toucher à ce que la carte montre déjà. */
 function attendre(encours) {
   $("#carte-exploration").dataset.attente = encours ? "oui" : "non";
@@ -613,10 +646,21 @@ export async function initialiserExploration() {
   // Leaflet mesure son conteneur à la création : l'écran étant masqué à ce
   // moment-là, il calcule une taille nulle. Il faut le prévenir.
   auChangement("carte", async () => {
+    ajusterHauteurCarte();
     carte.redimensionner();
     await cadrerSurLaCommune();
     rafraichir();
   });
+
+  // La hauteur se remesure quand la fenêtre change, et quand la rangée de
+  // filtres se replie ou se déplie — c'est elle qui décale la carte.
+  window.addEventListener("resize", ajusterHauteurCarte);
+  if (typeof ResizeObserver === "function") {
+    const observateur = new ResizeObserver(ajusterHauteurCarte);
+    observateur.observe($("#filtres"));
+    observateur.observe($("#carte-etat"));
+  }
+  ajusterHauteurCarte();
 
   surCommunePrete(async () => {
     chargerContexte();
@@ -711,6 +755,7 @@ export async function initialiserExploration() {
   const replierFiltres = (replie) => {
     $("#filtres").dataset.replie = replie ? "oui" : "non";
     $("#bascule-filtres").setAttribute("aria-expanded", String(!replie));
+    ajusterHauteurCarte();
   };
   replierFiltres(surTelephone.matches);
   surTelephone.addEventListener("change", (e) => replierFiltres(e.matches));

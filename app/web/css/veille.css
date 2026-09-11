@@ -32,6 +32,12 @@
    leur intitule soit porte par le balisage, pas par la seule mise en
    page. */
 .couches {
+  /* Trois pistes, pour que les cases tiennent sur UNE ligne. Dans une
+     seule piste de 128 px elles s'empilaient, et le bloc des filtres
+     montait a 211 px dont 126 pour elles seules — autant de hauteur
+     prise a la carte, qui est l'objet de l'ecran. Sous deux pistes, la
+     grille ramene d'elle-meme le bloc a la largeur disponible. */
+  grid-column: span 3;
   border: 1px solid var(--trait-fort);
   border-radius: var(--rayon);
   padding: calc(var(--pas)) calc(var(--pas) * 2) calc(var(--pas) * 2);
