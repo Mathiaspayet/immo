@@ -99,6 +99,24 @@
    Elle ne commande plus la mise en page : la carte garde sa taille et sa
    position quel que soit le filtre. Un ecran qui se reorganise a chaque
    case cochee fait perdre l'endroit qu'on regardait. */
+/* La commune, dans l'en-tete : une ligne qui existait deja, au lieu d'un
+   bandeau entier sur l'ecran de la carte. */
+.commune-entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--pas));
+}
+.commune-entete .contexte-commune { font-weight: 600; color: var(--encre); }
+
+/* La ligne d'etat de la carte : une seule ligne, sans etiquette, collee
+   au-dessus du plan. */
+.carte-etat {
+  margin: 0 0 calc(var(--pas));
+  padding: 0 calc(var(--pas) * 4);
+  font-size: 0.8rem;
+}
+
 .detail-liste {
   border-top: 1px solid var(--trait);
   background: var(--papier-carte);

@@ -477,8 +477,10 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
             "       min(d.n_dpe) AS n_dpe,"
             "       count(DISTINCT mp.mutation_id) AS ventes"
             "  FROM parcelle p"
-            "  LEFT JOIN dpe d"
-            "    ON coalesce(d.parcelle_id, d.parcelle_approchee) = p.id"
+            # `parcelle_carte` est une colonne GENEREE, et indexee :
+            # le meme calcul ecrit en clair dans la jointure privait la
+            # requete de tous ses index (migration 011).
+            "  LEFT JOIN dpe d ON d.parcelle_carte = p.id"
             f"   AND {ou_dpe}"
             "  LEFT JOIN mutation_parcelle mp ON mp.parcelle_id = p.id"
             " WHERE p.code_insee = ?"

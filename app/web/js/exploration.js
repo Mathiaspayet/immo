@@ -57,6 +57,10 @@ const ecran = {
   resultats: [],
   selection: null,
   couches: { dpe: true, ventes: true },
+  // La liste repliee ne se recharge pas ; on note qu'elle a vieilli.
+  listeAJour: false,
+  // La derniere reponse du serveur, pour redessiner sans la redemander.
+  dernieresParcelles: null,
 };
 
 // ====================================================================
@@ -287,10 +291,20 @@ async function chargerContexte() {
  * fois un filtre posé.
  */
 async function chargerListe() {
-  masquerErreur();
-  ecran.filtres = lireFiltres();
-  $("#export-csv").href = api.urlExport(ecran.filtres);
+  // Repliée, elle ne coûte rien : ni requête, ni cinq cents articles
+  // construits dans le vide. C'est ce qui rendait chaque changement de
+  // filtre lent — la carte se recolorait en quelques millisecondes, puis
+  // attendait une liste que personne ne regardait.
+  if (!$("#detail-liste").open) {
+    ecran.listeAJour = false;
+    // Le titre ne doit pas garder le compte d'un filtre abandonné : il
+    // redevient une invitation, pas une affirmation.
+    $("#resume-liste").textContent = "Voir le détail des diagnostics affichés";
+    return;
+  }
+  ecran.listeAJour = true;
 
+  masquerErreur();
   let reponse;
   try {
     reponse = await api.veille(ecran.filtres);
@@ -353,6 +367,9 @@ async function rafraichir() {
     return;
   }
   if (carte.zoom() < ZOOM_MINIMAL) {
+    // On oublie la dernière réponse : elle décrit un cadre qu'on ne
+    // montre plus, et une bascule de couche la repeindrait telle quelle.
+    ecran.dernieresParcelles = null;
     carte.dessiner([], ecran.couches);
     carte.poserPoints([]);
     etat("Zoomez pour voir les parcelles&nbsp;: à cette échelle, elles sont " +
@@ -371,6 +388,7 @@ async function rafraichir() {
                                        null, ecran.filtres);
   } catch (erreur) {
     if (rang !== derniereRequete) return;
+    ecran.dernieresParcelles = null;
     etat("");
     afficherErreur("Les parcelles n'ont pas pu être chargées.", erreur.message);
     return;
@@ -378,6 +396,18 @@ async function rafraichir() {
   if (rang !== derniereRequete) return;
 
   masquerErreur();
+  ecran.dernieresParcelles = reponse;
+  peindre(reponse);
+}
+
+/**
+ * Redessine à partir de la dernière réponse, sans rien redemander.
+ *
+ * Cocher ou décocher une couche ne change pas les DONNÉES : les mêmes
+ * parcelles, les mêmes comptes, lus autrement. Repasser par le serveur
+ * pour cela ajoutait un aller-retour à un geste qui doit être instantané.
+ */
+function peindre(reponse) {
   const parcelles = reponse.parcelles || [];
   carte.dessiner(parcelles, ecran.couches);
   // Les losanges ne concernent que les diagnostics : décocher « DPE » les
@@ -468,6 +498,7 @@ async function suggerer() {
       const choix = resultats[Number(bouton.dataset.suggestion)];
       boite.hidden = true;
       $("#carte-adresse").value = choix.libelle;
+      $("#dialogue-adresse").close();
       carte.allerA(choix.latitude, choix.longitude);
     });
   });
@@ -504,6 +535,13 @@ export async function initialiserExploration() {
     chargerListe();
   });
 
+  // La recherche d'adresse tenait une rangée entière en permanence, pour
+  // un usage occasionnel. Elle est derrière un bouton.
+  $("#ouvrir-adresse").addEventListener("click", () => {
+    $("#dialogue-adresse").showModal();
+    $("#carte-adresse").focus();
+  });
+  $("#adresse-fermer").addEventListener("click", () => $("#dialogue-adresse").close());
   $("#carte-adresse").addEventListener("input", () => {
     clearTimeout(minuterieRecherche);
     minuterieRecherche = setTimeout(suggerer, 220);
@@ -511,11 +549,30 @@ export async function initialiserExploration() {
 
   // Le geste central : un critère change, la CARTE se recolore. La liste
   // de détail suit, mais c'est la carte qui répond.
-  $("#filtres").addEventListener("change", () => {
-    ecran.couches = { dpe: $("#c-dpe").checked, ventes: $("#c-ventes").checked };
+  $("#filtres").addEventListener("change", (evenement) => {
+    const couches = { dpe: $("#c-dpe").checked, ventes: $("#c-ventes").checked };
+    const seulementLesCouches =
+      evenement.target === $("#c-dpe") || evenement.target === $("#c-ventes");
+    ecran.couches = couches;
+
+    // Une couche seule : on repeint ce qu'on a déjà. Rien à redemander.
+    if (seulementLesCouches && ecran.dernieresParcelles) {
+      peindre(ecran.dernieresParcelles);
+      return;
+    }
+
     ecran.filtres = lireFiltres();
+    // L'export suit les critères même quand la liste est repliée : le
+    // fichier doit contenir ce que la carte montre.
+    $("#export-csv").href = api.urlExport(ecran.filtres);
     rafraichir();
     chargerListe();
+  });
+
+  // Ouvrir le détail, c'est demander la liste. On ne la recharge que si
+  // les critères ont bougé depuis la dernière fois.
+  $("#detail-liste").addEventListener("toggle", () => {
+    if ($("#detail-liste").open && !ecran.listeAJour) chargerListe();
   });
   $("#filtres").addEventListener("submit", (e) => e.preventDefault());
 

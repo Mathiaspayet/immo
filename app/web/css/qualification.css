@@ -324,17 +324,8 @@
 /*  Carte d'exploration                                                */
 /* ------------------------------------------------------------------ */
 
-.carte-barre {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: calc(var(--pas) * 4);
-  margin-bottom: calc(var(--pas) * 3);
-}
-
-.champ-adresse { position: relative; flex: 1 1 22rem; }
+.champ-adresse { position: relative; }
 .champ-adresse input { width: 100%; }
-.carte-barre .explication { margin: 0; flex: 1 1 18rem; }
 
 /* La carte occupe la hauteur utile, et GARDE cette taille quoi qu'on
    filtre : c'est l'objet de l'ecran. */
@@ -461,6 +452,11 @@
 }
 
 .dialogue::backdrop { background: rgba(18, 38, 43, 0.45); }
+
+/* La liste des suggestions est posee en absolu sous le champ : le
+   `overflow: auto` que le navigateur donne d'office a un <dialog> la
+   coupait net au bas de la boite. */
+#dialogue-adresse { overflow: visible; }
 
 .dialogue-tete {
   display: flex;

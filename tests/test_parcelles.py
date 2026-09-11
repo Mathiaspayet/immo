@@ -337,3 +337,66 @@ def test_la_carte_d_exploration_montre_le_dpe_du_jour(base, monkeypatch):
     assert visees, "la parcelle n'est pas dans le cadre"
     assert visees[0]["dpe"] >= 1, (
         "la parcelle reste eteinte sur la carte d'exploration")
+
+
+# ---------------------------------------------------------------------
+#  Le plan de requete de la carte
+# ---------------------------------------------------------------------
+
+def test_la_carte_garde_ses_index(base):
+    """
+    Une coloration instantanee tient a DEUX index : celui du cadre, et
+    celui des diagnostics par parcelle. Ecrire le calcul en clair dans la
+    jointure — `coalesce(d.parcelle_id, d.parcelle_approchee) = p.id` —
+    rend le predicat non indexable, et SQLite abandonne alors les deux :
+
+        SEARCH p USING INDEX idx_parcelle_cadre      ->  SCAN p
+        SEARCH d USING INDEX idx_dpe_parcelle        ->  SCAN d
+
+    soit 11 444 parcelles x 4 382 diagnostics pour un rafraichissement.
+    Mesure : 8 ms avant, 266 ms apres, 8 ms une fois la colonne generee
+    `parcelle_carte` indexee en place.
+
+    Rien n'echoue quand cela se reproduit — c'est seulement lent, et la
+    lenteur ne fait pas rougir une suite de tests. D'ou ce garde, qui lit
+    le plan lui-meme.
+    """
+    from app.base.connexion import connexion
+
+    sql = ("SELECT p.id, count(DISTINCT d.n_dpe)"
+           "  FROM parcelle p"
+           "  LEFT JOIN dpe d ON d.parcelle_carte = p.id"
+           "  LEFT JOIN mutation_parcelle mp ON mp.parcelle_id = p.id"
+           " WHERE p.code_insee = ?"
+           "   AND p.lat_max >= ? AND p.lat_min <= ?"
+           "   AND p.lon_max >= ? AND p.lon_min <= ?"
+           " GROUP BY p.id")
+    with connexion() as conn:
+        plan = [ligne[-1] for ligne in conn.execute(
+            "EXPLAIN QUERY PLAN " + sql, ("40184", 0, 90, -10, 10))]
+
+    lisible = "\n".join(plan)
+    assert any("idx_parcelle_cadre" in etape for etape in plan), (
+        "le cadre de la carte doit passer par son index :\n" + lisible)
+    assert any("idx_dpe_parcelle_carte" in etape for etape in plan), (
+        "les diagnostics doivent passer par l'index de parcelle_carte :\n" + lisible)
+    assert not any(etape.startswith("SCAN d") for etape in plan), (
+        "la table des diagnostics est parcourue en entier :\n" + lisible)
+
+
+def test_la_parcelle_de_carte_prefere_l_exacte(base):
+    """La colonne generee : l'appartenance d'abord, l'approche a defaut."""
+    from app.base.connexion import connexion, transaction
+
+    inserer_dpe(n_dpe="EXACT", adresse="1 rue")
+    inserer_dpe(n_dpe="APPROCHE", adresse="2 rue")
+    inserer_dpe(n_dpe="AUCUNE", adresse="3 rue")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = 'P1', parcelle_approchee = 'P9'"
+                     " WHERE n_dpe = 'EXACT'")
+        conn.execute("UPDATE dpe SET parcelle_approchee = 'P2' WHERE n_dpe = 'APPROCHE'")
+
+    with connexion() as conn:
+        carte = dict(conn.execute(
+            "SELECT n_dpe, parcelle_carte FROM dpe").fetchall())
+    assert carte == {"EXACT": "P1", "APPROCHE": "P2", "AUCUNE": None}

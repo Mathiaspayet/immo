@@ -192,29 +192,48 @@ function afficherResultats() {
 }
 
 /** La barre qui rappelle où l'on est, et permet d'en changer. */
+/** Ramène au choix de la commune, et prépare cet écran. */
+export function choisirUneAutreCommune() {
+  changerVue("commune");
+  chargerCommunesConnues();
+  $("#recherche-commune").focus();
+}
+
+/**
+ * Affiche la commune en cours : dans l'en-tête, et sur l'écran
+ * d'identification.
+ *
+ * L'en-tête est une ligne qui EXISTE DÉJÀ, sous le titre. La carte
+ * portait en plus un bandeau entier — intention, commune, compte, bouton
+ * — qui répétait ce que l'écran disait et mangeait une rangée de haut sur
+ * un écran dont tout l'intérêt est la hauteur de la carte.
+ */
 export function dessinerContexte(informations = {}) {
   const commune = parcours.commune;
   if (!commune) return;
 
   const compte = informations.dpe != null
-    ? ` · <span class="donnee">${entierFr.format(informations.dpe)}</span> DPE en cache`
+    ? ` · <span class="donnee">${entierFr.format(informations.dpe)}</span> DPE`
     : "";
 
-  const contenu = `
+  const entete = $("#commune-entete");
+  if (entete) {
+    entete.innerHTML =
+      `<span class="contexte-commune">${echapper(commune.nom)}</span>${compte} `
+      + '<button type="button" class="bouton-lien" data-changer>changer</button>';
+    entete.hidden = false;
+    entete.querySelector("[data-changer]")
+      .addEventListener("click", choisirUneAutreCommune);
+  }
+
+  const boite = $("#contexte-identifier");
+  if (!boite) return;
+  boite.innerHTML = `
     <span class="contexte-intention">${echapper(LIBELLES[parcours.intention] || "")}</span>
     <span class="contexte-commune">${echapper(commune.nom)}</span>${compte}
     <button type="button" class="bouton-lien" data-changer>Changer de commune</button>`;
-
-  for (const identifiant of ["#contexte-carte", "#contexte-identifier"]) {
-    const boite = $(identifiant);
-    if (!boite) continue;
-    boite.innerHTML = contenu;
-    boite.querySelector("[data-changer]").addEventListener("click", () => {
-      changerVue("commune");
-      chargerCommunesConnues();
-      $("#recherche-commune").focus();
-    });
-  }
+  boite.querySelector("[data-changer]")
+    .addEventListener("click", choisirUneAutreCommune);
 }
 
 // --------------------------------------------------------------------

@@ -18,6 +18,7 @@
   <div class="marque">
     <h1>Veille immobilière</h1>
     <p class="sous-titre" id="sous-titre">Carte et DPE récents</p>
+    <p class="sous-titre commune-entete" id="commune-entete" hidden></p>
     <p class="version donnee" id="version" title="Version déployée"></p>
   </div>
   <nav class="onglets" aria-label="Navigation">
@@ -200,18 +201,6 @@
   <!-- =========================== PARCELLES =========================== -->
   <section id="vue-carte" aria-label="Exploration cartographique" hidden>
 
-    <div class="contexte" id="contexte-carte"></div>
-
-    <div class="carte-barre">
-      <div class="champ champ-adresse">
-        <label for="carte-adresse">Aller à une adresse</label>
-        <input type="search" id="carte-adresse" class="donnee" autocomplete="off"
-               placeholder="12 rue des Pins, ou une parcelle AB0123">
-        <ul id="carte-suggestions" class="suggestions" hidden></ul>
-      </div>
-      <p class="explication" id="carte-etat">Choisissez une commune pour commencer.</p>
-    </div>
-
     <!-- Les filtres agissent sur la CARTE, pas sur la mise en page.
          Elle garde sa taille et sa position quoi qu'on coche : ce sont
          les couleurs des parcelles qui répondent. -->
@@ -267,12 +256,15 @@
           <input type="checkbox" id="f-nouveaux" name="seulement_nouveaux">
           <label for="f-nouveaux">Seulement les nouveautés</label>
         </div>
+        <button type="button" class="bouton bouton-discret" id="ouvrir-adresse">Aller à une adresse…</button>
         <button type="button" class="bouton bouton-discret" id="tout-effacer">Tout effacer</button>
         <span class="espaceur"></span>
         <button type="button" class="bouton bouton-discret" id="marquer-vus">Tout marquer comme vu</button>
         <a class="bouton" id="export-csv" href="/api/veille/export.csv" download>Exporter en CSV</a>
       </div>
     </form>
+
+    <p class="carte-etat explication" id="carte-etat">Choisissez une commune pour commencer.</p>
 
     <div id="carte-exploration" class="carte carte-plein"></div>
 
@@ -304,6 +296,23 @@
       parcelles des deux côtés. Les attribuer à l'une d'elles serait
       inventer&nbsp;; les taire serait pire.
     </p>
+
+    <dialog id="dialogue-adresse" class="dialogue">
+      <div class="dialogue-tete">
+        <h3>Aller à une adresse</h3>
+      </div>
+      <div class="dialogue-corps">
+        <div class="champ champ-adresse">
+          <label for="carte-adresse">Adresse ou référence cadastrale</label>
+          <input type="search" id="carte-adresse" class="donnee" autocomplete="off"
+                 placeholder="12 rue des Pins, ou une parcelle AB0123">
+          <ul id="carte-suggestions" class="suggestions" hidden></ul>
+        </div>
+      </div>
+      <div class="dialogue-pied">
+        <button type="button" class="bouton" id="adresse-fermer">Fermer</button>
+      </div>
+    </dialog>
 
     <details class="detail-liste" id="detail-liste">
       <summary id="resume-liste">Voir le détail des diagnostics affichés</summary>
