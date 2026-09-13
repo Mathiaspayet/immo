@@ -135,6 +135,13 @@
   font-size: 0.8rem;
 }
 
+/* Le mot qui dit que la liste est coupee : au bout, pas en tete, la ou
+   l'oeil arrive quand il cherche la suite. */
+.vide-coupe {
+  border-top: 1px solid var(--trait-fort);
+  background: var(--papier-creux);
+}
+
 .detail-liste {
   border-top: 1px solid var(--trait);
   background: var(--papier-carte);

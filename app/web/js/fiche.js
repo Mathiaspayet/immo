@@ -575,6 +575,55 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
  * cliquer sur une parcelle de la carte mènerait à une impasse dans la
  * grande majorité des cas.
  */
+/**
+ * Les diagnostics portés par une parcelle.
+ *
+ * Cliquer une parcelle qui en portait plusieurs n'en montrait qu'UN —
+ * celui dont le numéro vient le premier par ordre alphabétique — et rien
+ * ne disait que les autres existaient. Ce n'est pas un cas rare :
+ * beaucoup d'adresses de l'ADEME n'ont pas de numéro de rue et sont
+ * géocodées au centre de la voie. Sur Mimizan, 2 420 diagnostics
+ * partagent leur position avec un autre, et un seul point en porte 180.
+ */
+function blocDiagnostics(diagnostics) {
+  const lignes = diagnostics.map((d) => {
+    const detail = [];
+    if (d.surface_habitable != null) {
+      detail.push(`${nombreFr.format(d.surface_habitable)} m²`);
+    }
+    if (d.type_batiment) detail.push(d.type_batiment.toLowerCase());
+    if (d.conso_ep_m2 != null) {
+      detail.push(`${entierFr.format(d.conso_ep_m2)} kWh/m²`);
+    }
+    return `
+      <li class="vente">
+        <div class="vente-date donnee">${dateFr(d.date_etablissement)}</div>
+        <div class="vente-corps">
+          <div class="vente-tete">
+            <span class="vente-prix">${echapper(d.adresse || "adresse absente")}</span>
+            ${etiquetteHtml(d.etiquette_dpe)}
+            ${d.position_approchee
+              ? '<span class="pastille pastille-lot">position approchée</span>' : ""}
+            <button type="button" class="bouton-lien"
+                    data-diagnostic="${echapper(d.n_dpe)}">Ouvrir la fiche</button>
+          </div>
+          ${detail.length
+            ? `<p class="explication">${echapper(detail.join(" · "))}</p>` : ""}
+        </div>
+      </li>`;
+  }).join("");
+
+  return `
+    <h2>Diagnostics sur cette parcelle — ${entierFr.format(diagnostics.length)}</h2>
+    <p class="explication">
+      Beaucoup d'adresses de l'ADEME n'ont pas de numéro de rue et sont
+      géocodées au centre de la voie ou de la résidence&nbsp;: une parcelle
+      peut donc en porter plusieurs qui ne s'y trouvent pas tous.
+    </p>
+    <ul class="ventes">${lignes}</ul>`;
+}
+
+
 async function ouvrirFicheParcelle(identifiant) {
   let reponse;
   try {
@@ -585,7 +634,7 @@ async function ouvrirFicheParcelle(identifiant) {
     return;
   }
 
-  const { parcelle, extrait, ventes } = reponse;
+  const { parcelle, extrait, ventes, diagnostics = [] } = reponse;
   const reference = `${parcelle.section ?? ""}${parcelle.numero ?? ""}`;
 
   $("#fiche-contenu").innerHTML = `
@@ -615,6 +664,7 @@ async function ouvrirFicheParcelle(identifiant) {
 
     ${blocVentes(ventes)}
 
+    ${diagnostics.length ? blocDiagnostics(diagnostics) : `
     <div class="vide">
       <h3>Aucun diagnostic connu sur cette parcelle</h3>
       <p>
@@ -624,8 +674,13 @@ async function ouvrirFicheParcelle(identifiant) {
           ? "La ou les ventes ci-dessus, elles, sont attestées."
           : "Aucune vente n'est connue non plus sur les cinq derniers millésimes."}
       </p>
-    </div>
+    </div>`}
 `;
+
+  $("#fiche-contenu").querySelectorAll("[data-diagnostic]").forEach((bouton) => {
+    bouton.addEventListener("click", () =>
+      ouvrirFiche({ n_dpe: bouton.dataset.diagnostic, retour: "carte" }));
+  });
 
   if (extrait) {
     requestAnimationFrame(() => {

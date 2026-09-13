@@ -519,3 +519,39 @@ def test_le_voile_peut_etre_ecarte(base):
     assert len(metier_parcelles.pour_carte("40184", cadre)["parcelles"]) == 5
     sans = metier_parcelles.pour_carte("40184", cadre, sans_info=False)["parcelles"]
     assert [p["id"] for p in sans] == ["40184AB0000"]
+
+
+def test_une_parcelle_montre_TOUS_ses_diagnostics(base):
+    """
+    Cliquer une parcelle qui en portait plusieurs n'en ouvrait qu'UN —
+    celui dont le numero vient le premier par ordre alphabetique — et rien
+    ne disait que les autres existaient.
+
+    Ce n'est pas un cas rare : beaucoup d'adresses de l'ADEME n'ont pas de
+    numero de rue et sont geocodees au centre de la voie. Sur Mimizan,
+    2 420 diagnostics partagent leur position avec un autre, et un seul
+    point en porte 180.
+    """
+    from app.base.connexion import transaction
+    from app.metier import parcelles as metier_parcelles
+
+    with transaction() as conn:
+        _poser_parcelle(conn, 1, 44.2010, -1.2286)
+
+    for numero, quand in [("ZED", "2026-01-10"), ("ABC", "2026-08-01"),
+                          ("MID", "2025-03-03")]:
+        inserer_dpe(n_dpe=numero, adresse=f"{numero} rue", code_insee="40184",
+                    date_etablissement=quand)
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = '40184AB0001'"
+                     " WHERE n_dpe IN ('ZED', 'ABC')")
+        # Le troisieme n'y est rattache que par APPROCHE : il compte aussi,
+        # c'est la meme clef que la carte.
+        conn.execute("UPDATE dpe SET parcelle_approchee = '40184AB0001'"
+                     " WHERE n_dpe = 'MID'")
+
+    portes = metier_parcelles.diagnostics_de("40184AB0001")
+    assert [d["n_dpe"] for d in portes] == ["ABC", "ZED", "MID"], (
+        "du plus recent au plus ancien")
+    approchees = {d["n_dpe"] for d in portes if d["position_approchee"]}
+    assert approchees == {"MID"}, "la position approchee doit se signaler"

@@ -80,12 +80,14 @@ def chercher(code_insee: str = Query(...),
 @routeur.get("/fiche-parcelle")
 def fiche_parcelle(parcelle_id: str = Query(...)):
     """
-    Tout ce qu'on sait d'une parcelle qui ne porte aucun DPE.
+    Tout ce qu'on sait d'une parcelle : contour, bati, ventes, et les
+    diagnostics qu'elle porte.
 
-    La carte en montre beaucoup — 468 sur 550 dans une vue courante de
-    Mimizan. Cliquer dessus doit mener quelque part : le contour, le
-    voisinage, le bati, et les ventes s'il y en a. C'est la carte
-    d'identite du terrain, a defaut de celle d'un logement.
+    La carte montre beaucoup de parcelles sans aucun DPE — 468 sur 550
+    dans une vue courante de Mimizan — et cliquer dessus doit mener
+    quelque part. Mais celles qui en portent PLUSIEURS meritent la meme
+    fiche : ouvrir l'un des diagnostics au hasard, sans dire que les
+    autres existent, etait le defaut.
     """
     parcelle = parcelles.parcelle(parcelle_id)
     if parcelle is None:
@@ -95,6 +97,7 @@ def fiche_parcelle(parcelle_id: str = Query(...)):
         "parcelle": parcelle,
         "extrait": parcelles.extrait_parcelle(parcelle_id),
         "ventes": mutations.pour_parcelle(parcelle_id),
+        "diagnostics": parcelles.diagnostics_de(parcelle_id),
     }
 
 

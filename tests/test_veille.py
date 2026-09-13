@@ -641,3 +641,22 @@ def test_l_export_dit_combien_de_logements_chaque_ligne_represente(base):
     colonnes = entete.lstrip("﻿").split(";")
     assert "logements" in colonnes
     assert ligne.split(";")[colonnes.index("logements")] == "3"
+
+
+def test_le_menu_des_secteurs_atteint_tout(base):
+    """
+    Le menu ne proposait que les secteurs REELLEMENT portes : « bourg »,
+    « plage ». Les diagnostics qu'aucun repere ne rattache — ceux sans
+    position, 85 sur Mimizan — n'etaient donc atteignables par AUCUNE
+    option, et la somme des choix ne faisait jamais le total.
+    """
+    inserer_dpe(n_dpe="PLAGE", adresse="1 rue", zone="plage", date_etablissement=jours(5))
+    inserer_dpe(n_dpe="BOURG", adresse="2 rue", zone="bourg", date_etablissement=jours(5))
+    inserer_dpe(n_dpe="NULLE_PART", adresse="3 rue", zone=None,
+                latitude=None, longitude=None, date_etablissement=jours(5))
+
+    tous = veille.lister({"fenetre_jours": 60})
+    compte = lambda z: len(veille.lister({"fenetre_jours": 60, "zone": z}))
+    assert compte("plage") + compte("bourg") + compte(veille.HORS_SECTEUR) == len(tous)
+    assert [r["n_dpe"] for r in
+            veille.lister({"fenetre_jours": 60, "zone": veille.HORS_SECTEUR})] == ["NULLE_PART"]

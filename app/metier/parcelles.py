@@ -342,6 +342,31 @@ def parcelle(identifiant):
             "SELECT * FROM parcelle WHERE id = ?", (str(identifiant),)).fetchone())
 
 
+def diagnostics_de(identifiant):
+    """
+    Les diagnostics portes par une parcelle, du plus recent au plus ancien.
+
+    Sans eux, cliquer une parcelle qui en porte plusieurs n'en montrait
+    qu'UN — celui dont le numero vient le premier dans l'ordre
+    alphabetique — et rien ne disait que les autres existaient.
+
+    Ce n'est pas un cas rare. Beaucoup d'adresses de l'ADEME n'ont pas de
+    numero de rue et sont geocodees au centre de la voie ou de la
+    residence : sur Mimizan, 2 420 diagnostics partagent leur position avec
+    un autre, et un seul point en porte 180.
+
+    `parcelle_carte` sert de clef : elle reunit l'appartenance stricte et
+    le rattachement approche, comme la carte elle-meme.
+    """
+    colonnes = ", ".join(veille.COLONNES)
+    with connexion() as conn:
+        return [dict(ligne) for ligne in conn.execute(
+            f"SELECT {colonnes}, (parcelle_id IS NULL) AS position_approchee"
+            "   FROM dpe WHERE parcelle_carte = ?"
+            "  ORDER BY date_etablissement DESC, n_dpe DESC",
+            (str(identifiant),))]
+
+
 # ---------------------------------------------------------------------
 #  Extrait cadastral d'un bien
 # ---------------------------------------------------------------------

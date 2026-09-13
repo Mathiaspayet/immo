@@ -254,7 +254,21 @@ function dessinerListe(resultats, resume) {
     return;
   }
 
-  liste.innerHTML = resultats.map(gabaritReleve).join("");
+  // La liste est plafonnee pour rester tenable a l'affichage — cinq cents
+  // releves demandent deja pres d'une seconde de construction. Mais le
+  // titre, lui, annonce le VRAI total : sans ce mot, il disait « 937 »
+  // au-dessus de cinq cents lignes, et les quatre cent trente-sept
+  // manquantes ne se signalaient nulle part.
+  const manquants = Math.max(0, (resume.total || 0) - resultats.length);
+  const coupe = manquants ? `
+    <div class="vide vide-coupe">
+      <p><strong>${entierFr.format(resultats.length)} affichés</strong>
+         sur ${entierFr.format(resume.total)}. Resserrez les critères pour
+         voir les autres, ou prenez le fichier complet par
+         <strong>Exporter en CSV</strong> — il n'est pas plafonné.</p>
+    </div>` : "";
+
+  liste.innerHTML = resultats.map(gabaritReleve).join("") + coupe;
 
   liste.querySelectorAll("[data-fiche]").forEach((bouton) => {
     bouton.addEventListener("click", (evenement) => {
@@ -313,7 +327,10 @@ function peuplerSecteurs(zones) {
   const choisi = liste.value;
   liste.innerHTML = '<option value="">tous</option>'
     + (zones || []).map((z) =>
-        `<option value="${echapper(z)}">${echapper(z)}</option>`).join("");
+        `<option value="${echapper(z)}">${echapper(z)}</option>`).join("")
+    // Les diagnostics qu'aucun repère ne rattache — ceux sans position —
+    // n'étaient atteignables par aucune option du menu.
+    + '<option value="hors-secteur">hors secteur</option>';
   liste.disabled = !(zones || []).length;
   liste.value = (zones || []).includes(choisi) ? choisi : "";
 }
@@ -604,7 +621,12 @@ function peindre(reponse) {
  * est de loin le plus fréquent sur la carte.
  */
 function ouvrir(parcelle) {
-  if (parcelle.n_dpe) {
+  // Un seul diagnostic : on va droit a sa fiche, c'est ce qu'on cherche.
+  // Plusieurs : on passe par la parcelle, qui les LISTE. Sans cette
+  // distinction, cliquer une parcelle qui en portait cent quatre-vingts
+  // n'en ouvrait qu'un — celui dont le numero vient le premier par ordre
+  // alphabetique — et rien ne disait que les autres existaient.
+  if (parcelle.n_dpe && Number(parcelle.dpe) <= 1) {
     ouvrirFiche({ n_dpe: parcelle.n_dpe, retour: "carte" });
   } else {
     ouvrirFiche({ parcelle_id: parcelle.id, retour: "carte" });

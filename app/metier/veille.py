@@ -166,7 +166,12 @@ def _conditions(filtres, prefixe=""):
         clauses.append(f"{c('code_postal')} = ?")
         parametres.append(str(filtres["code_postal"]))
 
-    if filtres.get("zone"):
+    # « hors secteur » est un choix comme un autre : sans lui, les
+    # diagnostics qu'aucun repere ne rattache — ceux sans position, 85 sur
+    # Mimizan — n'etaient atteignables par AUCUNE option du menu.
+    if filtres.get("zone") == HORS_SECTEUR:
+        clauses.append(f"({c('zone')} IS NULL OR trim({c('zone')}) = '')")
+    elif filtres.get("zone"):
         clauses.append(f"{c('zone')} = ?")
         parametres.append(filtres["zone"])
 
@@ -209,6 +214,9 @@ def _conditions(filtres, prefixe=""):
 
     return (" AND ".join(clauses) or "1 = 1"), parametres
 
+
+# La valeur du filtre « Secteur » qui designe l'absence de secteur.
+HORS_SECTEUR = "hors-secteur"
 
 # Ce qui fait UN LOGEMENT, et non une adresse. Voir `_requete`.
 GROUPE = "COALESCE(lower(trim(adresse)), n_dpe), COALESCE(surface_habitable, -1)"
