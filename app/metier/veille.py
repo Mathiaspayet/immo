@@ -195,11 +195,37 @@ def _conditions(filtres, prefixe=""):
     return (" AND ".join(clauses) or "1 = 1"), parametres
 
 
+# Ce qui fait UN LOGEMENT, et non une adresse. Voir `_requete`.
+GROUPE = "COALESCE(lower(trim(adresse)), n_dpe), COALESCE(surface_habitable, -1)"
+
+
 def _requete(filtres, limite=None):
     """
-    Une ligne par adresse, le DPE le plus recent.
+    Une ligne par LOGEMENT, le diagnostic le plus recent.
 
-    La fonction de fenetrage ROW_NUMBER fait le dedoublonnage en une passe,
+    Le regroupement se faisait sur la seule ADRESSE, et c'etait un trou.
+    Beaucoup de lignes de l'ADEME n'ont pas de numero de rue : « rue des
+    Hournails 40200 Mimizan » designe alors toute une rue, et « 211 rue
+    Cantegrit » toute une residence. Mesure sur Mimizan : 4 468
+    diagnostics pour 1 568 adresses distinctes, et 2 705 lignes ecartees.
+
+    Ce ne sont pas des doublons. « 211 rue Cantegrit » portait 22
+    diagnostics de 22 SURFACES differentes sur quatre-vingt-dix jours :
+    vingt-deux logements distincts, dont un seul etait montre. Sur la
+    fenetre de soixante jours, 22 diagnostics sur 64 disparaissaient ainsi.
+
+    La surface les separe. Elle n'ecarte pas pour autant le re-diagnostic
+    d'un meme logement : verifie sur la base, l'ADEME ne publie QUE le
+    diagnostic courant — 256 lignes citent un predecesseur, et aucun de ces
+    predecesseurs n'est dans le jeu de donnees.
+
+    Restent les residences ou plusieurs logements ont la meme surface au
+    metre pres : 51 appartements de 40,5 m² au 18 rue de l'Abbaye,
+    diagnostiques le meme jour. Les separer serait arbitraire ; les taire
+    serait le defaut qu'on corrige. La ligne porte donc leur NOMBRE, et
+    l'ecran comme le courriel le disent.
+
+    La fonction de fenetrage ROW_NUMBER fait le regroupement en une passe,
     la ou le script d'origine devait tout charger en memoire. Les adresses
     absentes sont regroupees par numero de DPE, faute de mieux.
     """
@@ -209,13 +235,14 @@ def _requete(filtres, limite=None):
         WITH retenus AS (
             SELECT {colonnes},
                    ROW_NUMBER() OVER (
-                       PARTITION BY COALESCE(lower(trim(adresse)), n_dpe)
+                       PARTITION BY {GROUPE}
                        ORDER BY date_etablissement DESC, n_dpe DESC
-                   ) AS rang
+                   ) AS rang,
+                   COUNT(*) OVER (PARTITION BY {GROUPE}) AS logements
             FROM dpe
             WHERE {ou}
         )
-        SELECT {colonnes} FROM retenus
+        SELECT {colonnes}, logements FROM retenus
         WHERE rang = 1
         ORDER BY date_etablissement DESC, adresse
     """

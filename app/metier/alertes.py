@@ -88,18 +88,47 @@ def candidats(limite=200):
 
     On s'appuie sur `alerte_le`, pas sur `vu_le` : consulter l'ecran Veille
     ne doit pas faire taire l'alerte, ni l'alerte effacer les badges.
+
+    Le regroupement est LE MEME que celui de l'ecran — un logement, et non
+    une adresse. Sans lui, les deux se contredisaient : sur soixante jours,
+    le courriel comptait 64 biens la ou l'ecran en montrait 42. Recevoir une
+    alerte pour un bien introuvable dans la liste fait douter de l'outil, et
+    c'est justement ce qui s'est produit.
+
+    `numeros` porte TOUS les diagnostics du groupe, pas seulement celui qui
+    le represente : ils doivent tous etre marques, faute de quoi les
+    cinquante appartements tus reviendraient au prochain passage.
     """
     filtres = _filtres()
     ou, parametres = veille._conditions(filtres)
     colonnes = ", ".join(veille.COLONNES)
     sql = f"""
-        SELECT {colonnes} FROM dpe
-        WHERE {ou} AND alerte_le IS NULL
+        WITH retenus AS (
+            SELECT {colonnes},
+                   ROW_NUMBER() OVER (
+                       PARTITION BY {veille.GROUPE}
+                       ORDER BY date_etablissement DESC, n_dpe DESC
+                   ) AS rang,
+                   COUNT(*) OVER (PARTITION BY {veille.GROUPE}) AS logements,
+                   GROUP_CONCAT(n_dpe) OVER (PARTITION BY {veille.GROUPE}) AS numeros
+            FROM dpe
+            WHERE {ou} AND alerte_le IS NULL
+        )
+        SELECT {colonnes}, logements, numeros FROM retenus
+        WHERE rang = 1
         ORDER BY date_etablissement DESC, adresse
         LIMIT ?
     """
     with connexion() as conn:
         return [dict(ligne) for ligne in conn.execute(sql, parametres + [int(limite)])]
+
+
+def numeros_du_lot(biens):
+    """Tous les diagnostics representes, et non les seuls representants."""
+    numeros = []
+    for bien in biens:
+        numeros.extend(str(bien.get("numeros") or bien["n_dpe"]).split(","))
+    return [n for n in numeros if n]
 
 
 def marquer_alertes(numeros):
@@ -155,6 +184,12 @@ def _criteres_lisibles(filtres):
     return ", ".join(morceaux)
 
 
+def _lot(bien):
+    """« ×51 » quand une ligne en represente plusieurs, rien sinon."""
+    combien = int(bien.get("logements") or 1)
+    return f" · {combien} logements identiques" if combien > 1 else ""
+
+
 def _lignes_texte(biens):
     for bien in biens[:MAX_DETAILLES]:
         surface = (f"{bien['surface_habitable']:.0f} m²"
@@ -162,16 +197,24 @@ def _lignes_texte(biens):
         yield (f"- {bien.get('adresse') or 'adresse inconnue'}"
                f" ({bien.get('zone') or 'hors secteur'})\n"
                f"  {surface} · classe {bien.get('etiquette_dpe') or '?'}"
-               f" · établi le {_jour(bien.get('date_etablissement'))}")
+               f" · établi le {_jour(bien.get('date_etablissement'))}"
+               f"{_lot(bien)}")
 
 
 def _corps(biens, filtres=None):
     """Le message, en texte et en HTML."""
     criteres = _criteres_lisibles(filtres or _filtres())
     total = len(biens)
+    diagnostics = sum(int(b.get("logements") or 1) for b in biens)
     titre = (f"{total} nouveau DPE" if total == 1 else f"{total} nouveaux DPE")
+    # Quand des logements identiques sont regroupes, le nombre de lignes
+    # n'est plus celui des diagnostics : le taire donnerait un courriel qui
+    # ne correspond a rien de verifiable.
+    precision = ("" if diagnostics == total
+                 else f" ({diagnostics} diagnostics, "
+                      "certains logements étant identiques)")
 
-    texte = [f"{titre} correspondant à vos critères.",
+    texte = [f"{titre}{precision} correspondant à vos critères.",
              f"Critères : {criteres}.", ""]
     texte.extend(_lignes_texte(biens))
     if total > MAX_DETAILLES:
@@ -184,7 +227,9 @@ def _corps(biens, filtres=None):
                    if bien.get("surface_habitable") else "—")
         rangs.append(
             "<tr>"
-            f"<td>{html.escape(str(bien.get('adresse') or 'adresse inconnue'))}</td>"
+            f"<td>{html.escape(str(bien.get('adresse') or 'adresse inconnue'))}"
+            + (f"<br><small>{html.escape(_lot(bien).lstrip(' ·'))}</small>"
+               if _lot(bien) else "") + "</td>"
             f"<td>{html.escape(str(bien.get('zone') or '—'))}</td>"
             f"<td style='text-align:right'>{surface}</td>"
             f"<td style='text-align:center'>{html.escape(str(bien.get('etiquette_dpe') or '?'))}</td>"
@@ -195,7 +240,7 @@ def _corps(biens, filtres=None):
     reste = (f"<p>… et {total - MAX_DETAILLES} autres.</p>"
              if total > MAX_DETAILLES else "")
     corps_html = f"""<html><body style="font-family:system-ui,sans-serif">
-  <p>{html.escape(titre)} correspondant à vos critères.</p>
+  <p>{html.escape(titre + precision)} correspondant à vos critères.</p>
   <p style="color:#555;font-size:13px">{html.escape(criteres[:1].upper() + criteres[1:])}.
   Ces critères se modifient dans l'écran Réglages.</p>
   <table cellpadding="6" style="border-collapse:collapse;font-size:14px">
@@ -244,7 +289,7 @@ def envoyer_si_besoin():
                              "biens": len(biens), "message": str(erreur),
                              "destinataire": destinataire})
 
-    marquer_alertes([b["n_dpe"] for b in biens])
+    marquer_alertes(numeros_du_lot(biens))
     return noter("dpe", {"envoye": True, "raison": "envoyee", "biens": len(biens),
                          "destinataire": destinataire})
 

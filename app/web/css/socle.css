@@ -270,6 +270,14 @@ input:focus-visible, select:focus-visible { border-color: var(--atlantique); }
   border-color: #B9862C;
   color: #3A2A07;
 }
+/* Une ligne qui en represente plusieurs le DIT. Discret : c'est une
+   precision sur ce qu'on montre, pas une alerte. */
+.pastille-lot {
+  background: var(--papier-creux);
+  border-style: dashed;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
 
 /* --- Telephone : l'en-tete doit tenir sur une ligne ----------------
    Le sous-titre et le libelle long disparaissent les premiers ; les

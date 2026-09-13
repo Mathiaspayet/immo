@@ -108,6 +108,11 @@ function gabaritReleve(bien) {
       ${bien.nouveau ? '<span class="pastille pastille-nouveau">nouveau</span>' : ""}
       ${bien.zone ? `<span class="secteur">${echapper(bien.zone)}</span>` : ""}
       ${bien.type_batiment ? `<span>${echapper(bien.type_batiment)}</span>` : ""}
+      ${bien.logements > 1
+        ? `<span class="pastille pastille-lot" title="Même adresse, même surface : `
+          + `l'ADEME ne permet pas de les distinguer.">`
+          + `${entierFr.format(bien.logements)} logements identiques</span>`
+        : ""}
     </div>
     <h3 class="adresse">${echapper(bien.adresse || "Adresse absente de la base")}</h3>
     <dl class="mesures">

@@ -482,3 +482,59 @@ def test_la_carte_et_la_liste_comptent_pareil(base):
         "40184", (-2.0, 44.0, -1.0, 45.0), criteres)
     assert {p["n_dpe"] for p in points} == attendus
     assert tronques is False
+
+
+# ---------------------------------------------------------------------
+#  Le regroupement : un logement, et non une adresse
+# ---------------------------------------------------------------------
+
+def test_deux_logements_a_la_meme_adresse_font_deux_lignes(base):
+    """
+    Le trou le plus large de la base, et il ne se voyait pas.
+
+    Beaucoup de lignes de l'ADEME n'ont pas de numero de rue : « rue des
+    Hournails 40200 Mimizan » designe alors toute une rue. Regroupees sur
+    la seule ADRESSE, elles se reduisaient a une ligne. Mesure sur
+    Mimizan : 4 468 diagnostics pour 1 568 adresses, et 2 705 lignes
+    ecartees — dont 22 sur les 64 de la fenetre de soixante jours.
+
+    Ce ne sont pas des doublons : « 211 rue Cantegrit » portait 22
+    diagnostics de 22 SURFACES differentes sur quatre-vingt-dix jours.
+    Vingt-deux logements, dont un seul etait montre.
+    """
+    inserer_dpe(n_dpe="PETIT", adresse="Rue des Hournails 40200 Mimizan",
+                surface_habitable=42.0, date_etablissement=jours(5))
+    inserer_dpe(n_dpe="GRAND", adresse="Rue des Hournails 40200 Mimizan",
+                surface_habitable=88.0, date_etablissement=jours(6))
+
+    resultats = veille.lister({"fenetre_jours": 60})
+    assert {r["n_dpe"] for r in resultats} == {"PETIT", "GRAND"}
+    assert all(r["logements"] == 1 for r in resultats)
+
+
+def test_des_logements_indistinguables_font_une_ligne_qui_le_dit(base):
+    """
+    Restent les residences ou plusieurs logements ont la meme surface au
+    metre pres : 51 appartements de 40,5 m² au 18 rue de l'Abbaye,
+    diagnostiques le meme jour. Les separer serait arbitraire ; les taire
+    serait le defaut qu'on corrige. La ligne porte donc leur NOMBRE.
+    """
+    for numero in range(3):
+        inserer_dpe(n_dpe=f"LOT{numero}", adresse="18 Rue de l'Abbaye 40200 Mimizan",
+                    surface_habitable=40.5, date_etablissement=jours(10))
+
+    resultats = veille.lister({"fenetre_jours": 60})
+    assert len(resultats) == 1
+    assert resultats[0]["logements"] == 3
+
+
+def test_le_meme_logement_rediagnostique_reste_une_ligne(base):
+    """La regle d'origine tient : meme adresse, meme surface, le plus recent."""
+    inserer_dpe(n_dpe="ANCIEN", adresse="12 Rue des Pins", surface_habitable=120.0,
+                date_etablissement=jours(400))
+    inserer_dpe(n_dpe="RECENT", adresse="12 RUE DES PINS ", surface_habitable=120.0,
+                date_etablissement=jours(5))
+
+    resultats = veille.lister({"fenetre_jours": 730})
+    assert [r["n_dpe"] for r in resultats] == ["RECENT"]
+    assert resultats[0]["logements"] == 2

@@ -754,3 +754,43 @@ def test_les_criteres_annonces_suivent_les_reglages(base):
     assert "maison" in texte
     assert "de 80 à 400 m²" in texte
     assert "tous types" not in texte
+
+
+def _il_y_a(n):
+    return (datetime.date.today() - datetime.timedelta(days=n)).isoformat()
+
+
+def test_le_courriel_compte_comme_l_ecran(base):
+    """
+    Les deux se contredisaient. L'ecran regroupait par adresse, le
+    courriel ne regroupait pas du tout : sur soixante jours, il annoncait
+    64 biens la ou l'ecran en montrait 42. Recevoir une alerte pour un
+    bien introuvable dans la liste fait douter de l'outil — et c'est
+    arrive.
+    """
+    reglages.ecrire({"fenetre_jours": 60, "surface_min": 0, "surface_max": 9999,
+                     "type_batiment": ""})
+    inserer_dpe(n_dpe="A", adresse="Rue des Hournails", surface_habitable=42.0,
+                date_etablissement=_il_y_a(5), alerte_le=None)
+    inserer_dpe(n_dpe="B", adresse="Rue des Hournails", surface_habitable=88.0,
+                date_etablissement=_il_y_a(6), alerte_le=None)
+    for numero in range(3):
+        inserer_dpe(n_dpe=f"LOT{numero}", adresse="18 Rue de l'Abbaye",
+                    surface_habitable=40.5, date_etablissement=_il_y_a(7),
+                    alerte_le=None)
+
+    biens = alertes.candidats()
+    par_numero = {b["n_dpe"]: b for b in biens}
+    # Deux surfaces a la meme adresse : deux lignes, chacune seule.
+    assert {"A", "B"} <= set(par_numero)
+    assert par_numero["A"]["logements"] == 1
+
+    lot = [b for b in biens if b["adresse"] == "18 Rue de l'Abbaye"]
+    assert len(lot) == 1 and lot[0]["logements"] == 3
+
+    # ... et les trois du lot sont marques, pas seulement le representant :
+    # sinon les deux autres reviendraient au prochain passage.
+    numeros = alertes.numeros_du_lot(biens)
+    assert set(numeros) == {"A", "B", "LOT0", "LOT1", "LOT2"}
+    alertes.marquer_alertes(numeros)
+    assert alertes.candidats() == []
