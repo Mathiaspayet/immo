@@ -125,7 +125,7 @@ export const api = {
   // qui compte comme « DPE », afin que la carte et la liste répondent à
   // la même question. `etiquettes` part en une seule valeur séparée par
   // des virgules, comme l'attend la route.
-  parcellesCarte: (code_insee, bbox, limite, filtres) => {
+  parcellesCarte: (code_insee, bbox, limite, filtres, geometries = true) => {
     const parametres = new URLSearchParams({ code_insee, bbox });
     if (limite) parametres.set("limite", limite);
     for (const cle of ["fenetre_jours", "zone", "type_batiment",
@@ -138,6 +138,10 @@ export const api = {
     const etiquettes = (filtres?.etiquettes || []).filter(Boolean);
     if (etiquettes.length) parametres.set("etiquettes", etiquettes.join(","));
     if (filtres?.seulement_nouveaux) parametres.set("seulement_nouveaux", "true");
+    // Aux zooms larges la carte pose des marques, pas des contours : les
+    // géométries ne servent alors à rien et pèsent les trois quarts de la
+    // réponse — 1 538 Ko contre 406 sur Mimizan entière.
+    if (!geometries) parametres.set("geometries", "false");
     return demander(`/api/parcelles/carte?${parametres}`);
   },
 

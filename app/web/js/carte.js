@@ -316,6 +316,12 @@ export function creerCarteExploration(identifiant,
     { position: "topright" }
   ).addTo(carte);
 
+  // Aux zooms larges, une parcelle ne fait que deux ou trois pixels : on
+  // ne trace plus son contour, on pose une marque. Ces marques vivent sur
+  // une TOILE et non dans le DOM — deux mille cercles en SVG, c'est deux
+  // mille noeuds à créer, styler et déplacer ; sur une toile, c'est un
+  // seul élément qu'on repeint. Mesuré sur téléphone bridé six fois.
+  const toile = L.canvas({ padding: 0.3 });
   const couche = L.layerGroup().addTo(carte);
   // Les repères des diagnostics vivent SUR une couche à part, ajoutée
   // après celle des parcelles : un rechargement du cadastre ne doit pas
@@ -340,8 +346,15 @@ export function creerCarteExploration(identifiant,
     minuterie = setTimeout(() => surDeplacement && surDeplacement(), 160);
   });
 
-  function styleDe(parcelle, couches) {
+  function styleDe(parcelle, couches, marque = false) {
     const etat = ETATS_PARCELLE[etatParcelle(parcelle, couches)];
+    // Une marque de quatre pixels n'a pas la place d'un liseré ni d'un
+    // tireté : elle ne dit que la couleur, et à pleine opacité pour
+    // qu'elle se voie sur la photo.
+    if (marque) {
+      return { stroke: false, fillColor: etat.couleur, fillOpacity: 0.95,
+               radius: 4 };
+    }
     const approchee = parcelleApprochee(parcelle)
       && etatParcelle(parcelle, couches) !== null;
     return {
@@ -360,6 +373,12 @@ export function creerCarteExploration(identifiant,
     return a && b && a.fillColor === b.fillColor && a.weight === b.weight
       && a.fillOpacity === b.fillOpacity && a.dashArray === b.dashArray;
   }
+
+  // Contours ou marques : passer de l'un à l'autre change la NATURE des
+  // formes posées, pas seulement leur style. On repart donc de zéro au
+  // changement, sinon une entrée gardée par son identifiant serait
+  // réutilisée avec la mauvaise sorte de forme.
+  let dernierMode = null;
 
   return {
     /**
@@ -403,18 +422,26 @@ export function creerCarteExploration(identifiant,
      * porte un contour tireté : la couleur dit ce qu'on sait, le tireté
      * dit à quel point on en est sûr.
      */
-    dessiner(parcelles, couches = {}) {
+    dessiner(parcelles, couches = {}, marques = false) {
+      if (dernierMode !== null && dernierMode !== marques) {
+        couche.clearLayers();
+        contours.clear();
+      }
+      dernierMode = marques;
       const vues = new Set();
 
       for (const parcelle of parcelles) {
-        if (!parcelle.geometrie) continue;
+        const placable = marques
+          ? parcelle.latitude != null && parcelle.longitude != null
+          : Boolean(parcelle.geometrie);
+        if (!placable) continue;
         // Rien à dire d'elle sous les couches demandées : on ne la dessine
         // pas. Ne pas l'inscrire dans `vues` suffit — la boucle de sortie
         // retire ensuite celle qui était à l'écran, par exemple quand on
         // décoche « Ventes » sur une parcelle qui n'avait que ça.
         if (etatParcelle(parcelle, couches) === null) continue;
         vues.add(parcelle.id);
-        const style = styleDe(parcelle, couches);
+        const style = styleDe(parcelle, couches, marques);
         const connu = contours.get(parcelle.id);
 
         if (connu) {
@@ -427,7 +454,10 @@ export function creerCarteExploration(identifiant,
           continue;
         }
 
-        const forme = L.geoJSON(parcelle.geometrie, { style });
+        const forme = marques
+          ? L.circleMarker([parcelle.latitude, parcelle.longitude],
+                           { ...style, renderer: toile })
+          : L.geoJSON(parcelle.geometrie, { style });
         const entree = { forme, style, parcelle };
         // Le clic lit l'entrée, jamais la parcelle capturée à la création :
         // les comptes changent avec les filtres, la forme non.
@@ -448,6 +478,7 @@ export function creerCarteExploration(identifiant,
     effacerParcelles() {
       couche.clearLayers();
       contours.clear();
+      dernierMode = null;
     },
 
     /**
@@ -459,11 +490,29 @@ export function creerCarteExploration(identifiant,
      * au milieu de la voie ; les attribuer à l'une des parcelles qui la
      * bordent serait inventer.
      */
-    poserPoints(points, surBienChoisi) {
+    poserPoints(points, surBienChoisi, marques = false) {
       coucheBiens.clearLayers();
       marqueurs.clear();
       for (const bien of points || []) {
         if (bien.latitude == null || bien.longitude == null) continue;
+
+        // Aux zooms larges, le losange n'a plus de sens : il y en a mille,
+        // ils se recouvrent, et leur forme — « on ne sait pas à quelle
+        // parcelle il appartient » — répond à une question qu'on ne se
+        // pose pas en regardant une commune entière. Une marque verte, de
+        // la même couleur qu'un DPE, suffit : c'en est un.
+        if (marques) {
+          const point = L.circleMarker([bien.latitude, bien.longitude], {
+            renderer: toile, stroke: false, radius: 3,
+            fillColor: ETATS_PARCELLE.dpe.couleur, fillOpacity: 0.95,
+          });
+          point.on("click", () =>
+            (surBienChoisi || surBien) && (surBienChoisi || surBien)(bien.n_dpe));
+          point.addTo(coucheBiens);
+          marqueurs.set(bien.n_dpe, point);
+          continue;
+        }
+
         const marqueur = L.marker([bien.latitude, bien.longitude], {
           icon: L.divIcon({
             className: "",
@@ -501,6 +550,9 @@ export function creerCarteExploration(identifiant,
     /** Met en avant le bien choisi dans la liste. */
     surlignerBien(numero) {
       for (const [cle, marqueur] of marqueurs) {
+        // Une marque sur toile n'a pas d'icône à changer : aux zooms
+        // larges on se contente d'amener la vue dessus.
+        if (typeof marqueur.setIcon !== "function") continue;
         const nouveau = marqueur.options.icon.options.html.includes("nouveau");
         marqueur.setIcon(icone(
           cle === numero ? "marqueur marqueur-actif"
@@ -509,7 +561,7 @@ export function creerCarteExploration(identifiant,
       const cible = marqueurs.get(numero);
       if (!cible) return false;
       carte.panTo(cible.getLatLng());
-      cible.openPopup();
+      if (typeof cible.openPopup === "function") cible.openPopup();
       return true;
     },
 

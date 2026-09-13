@@ -44,9 +44,27 @@ import {
   allerALaCommune, communeCourante, dessinerContexte, surCommunePrete,
 } from "./parcours.js";
 
-// En dessous, une commune entière tient à l'écran : des milliers de
-// parcelles de quelques pixels, illisibles et lourdes à charger.
-const ZOOM_MINIMAL = 15;
+// Le zoom 13 montre une commune entière : c'est là que la carte sert de
+// vue d'ensemble — où sont les diagnostics, où sont les ventes. En
+// dessous, Mimizan tiendrait dans un timbre-poste.
+const ZOOM_MINIMAL = 13;
+
+// À partir d'ici, on trace les CONTOURS. En dessous, des marques.
+//
+// Ce n'est pas un choix d'esthète, c'est ce que l'écran peut rendre : au
+// zoom 13 un pixel vaut 13,7 m et une parcelle en couvre deux ou trois —
+// son contour exact ne se voit pas, il se paie seulement. Mesuré sur un
+// téléphone (412 px, processeur bridé six fois), Mimizan entière :
+//
+//                        réseau    fil principal    pire blocage
+//     contours SVG      2 385 Ko        2 935 ms        1 224 ms
+//     marques/toile       403 Ko          602 ms          143 ms
+//
+// Et un glissement à ce zoom passe de 2 079 Ko à ZÉRO : le cadre n'est
+// plus tronqué, donc le cache tient.
+//
+// Au zoom 15, 198 parcelles et 177 ms : les contours y sont chez eux.
+const ZOOM_CONTOURS = 15;
 
 // On charge PLUS LARGE que ce qu'on montre : un déplacement qui reste
 // dans cette marge ne demande rien du tout, et c'est ce qui enlève la
@@ -93,6 +111,9 @@ const ecran = {
   // Un cadre tronque est INCOMPLET : s'y fier ferait manquer des
   // parcelles au premier deplacement. On redemande alors toujours.
   chargeComplet: false,
+  // La derniere reponse porte-t-elle des contours ou des positions ? Il
+  // faut le savoir pour la redessiner sans la redemander.
+  marques: false,
 };
 
 // ====================================================================
@@ -481,6 +502,9 @@ async function rafraichir({ force = false } = {}) {
   // écraserait l'affichage d'un cadre qu'on a déjà quitté.
   const rang = ++derniereRequete;
   const cadre = carte.cadre(MARGE);
+  // Contours ou marques : c'est le zoom qui tranche, et la réponse du
+  // serveur n'emporte les géométries que si elles vont être tracées.
+  const marques = carte.zoom() < ZOOM_CONTOURS;
   // La carte GARDE ce qu'elle montre pendant le chargement : la vider
   // d'abord, ou annoncer « Chargement… » à sa place, donnait justement
   // l'impression d'un rechargement. Un discret témoin suffit, et
@@ -491,7 +515,7 @@ async function rafraichir({ force = false } = {}) {
   let cadreRetenu = cadre;
   try {
     reponse = await api.parcellesCarte(commune.code_insee, cadre,
-                                       null, ecran.filtres);
+                                       null, ecran.filtres, !marques);
     // Une réponse tronquée a dépensé son plafond sur la marge autant que
     // sur le visible : de l'information manque sous les yeux. On redemande
     // alors le cadre nu, sans marge.
@@ -504,7 +528,7 @@ async function rafraichir({ force = false } = {}) {
     if (reponse.tronque) {
       cadreRetenu = carte.cadre();
       reponse = await api.parcellesCarte(commune.code_insee, cadreRetenu,
-                                         null, ecran.filtres);
+                                         null, ecran.filtres, !marques);
     }
   } catch (erreur) {
     clearTimeout(temoin);
@@ -520,6 +544,7 @@ async function rafraichir({ force = false } = {}) {
 
   masquerErreur();
   ecran.dernieresParcelles = reponse;
+  ecran.marques = marques;
   ecran.cadreCharge = cadreRetenu;
   ecran.zoomCharge = carte.zoom();
   // Un cadre amputé ne peut pas servir à décider qu'un déplacement est
@@ -583,10 +608,10 @@ function attendre(encours) {
  */
 function peindre(reponse) {
   const parcelles = reponse.parcelles || [];
-  carte.dessiner(parcelles, ecran.couches);
+  carte.dessiner(parcelles, ecran.couches, ecran.marques);
   // Les losanges ne concernent que les diagnostics : décocher « DPE » les
   // retire avec le reste.
-  carte.poserPoints(ecran.couches.dpe ? reponse.points : []);
+  carte.poserPoints(ecran.couches.dpe ? reponse.points : [], null, ecran.marques);
 
   const compte = (cle) =>
     parcelles.filter((p) => etatParcelle(p, ecran.couches) === cle).length;

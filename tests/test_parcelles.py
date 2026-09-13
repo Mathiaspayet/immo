@@ -577,3 +577,52 @@ def test_une_parcelle_montre_TOUS_ses_diagnostics(base):
         "du plus recent au plus ancien")
     approchees = {d["n_dpe"] for d in portes if d["position_approchee"]}
     assert approchees == {"MID"}, "la position approchee doit se signaler"
+
+
+def test_une_vue_large_rend_des_positions_et_non_des_contours(base):
+    """
+    Au zoom 13, une commune entiere tient a l'ecran et un pixel vaut
+    13,7 m : une parcelle en couvre deux ou trois. Son contour exact ne se
+    VOIT pas, il se paie seulement.
+
+    Mesure sur Mimizan entiere : 1 538 Ko avec les contours, 406 Ko sans —
+    et sur un telephone bride six fois, le fil principal passe de 2 935 ms
+    a 602 ms. Ce n'est pas un raffinement, c'est ce qui rend le zoom 13
+    tenable.
+
+    Ce qui reste doit suffire a POSER et a CLIQUER une marque : une
+    position, les deux drapeaux, et de quoi ouvrir la fiche.
+    """
+    from app.base.connexion import transaction
+    from app.metier import parcelles as metier_parcelles
+
+    with transaction() as conn:
+        _poser_parcelle(conn, 0, 44.2010, -1.2286)
+    inserer_dpe(n_dpe="A", adresse="1 rue", code_insee="40184")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = '40184AB0000' WHERE n_dpe = 'A'")
+
+    cadre = (-1.30, 44.19, -1.20, 44.21)
+    legere = metier_parcelles.pour_carte("40184", cadre, avec_geometrie=False)
+    marque = legere["parcelles"][0]
+
+    assert "geometrie" not in marque
+    assert marque["latitude"] is not None and marque["longitude"] is not None
+    # De quoi colorer, et de quoi ouvrir.
+    for clef in ("id", "dpe", "ventes", "dpe_approche", "n_dpe"):
+        assert clef in marque, clef
+    # Ce qui ne se lit pas a cette echelle ne part pas.
+    for clef in ("contenance_m2", "emprise_batie_m2", "nb_batiments", "section"):
+        assert clef not in marque, clef
+
+    # Les diagnostics sans parcelle sont allegés de la meme facon : il y
+    # en a mille, et aucune bulle ne s'ouvre a ce zoom.
+    inserer_dpe(n_dpe="B", adresse="2 rue", code_insee="40184")
+    legere = metier_parcelles.pour_carte("40184", cadre, avec_geometrie=False)
+    point = legere["points"][0]
+    assert set(point) == {"n_dpe", "latitude", "longitude", "nouveau"}
+
+    # Et la vue rapprochee, elle, ne perd rien.
+    lourde = metier_parcelles.pour_carte("40184", cadre)
+    assert "geometrie" in lourde["parcelles"][0]
+    assert "adresse" in lourde["points"][0]

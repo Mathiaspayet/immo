@@ -458,11 +458,12 @@ def extrait_de(parcelle, marge_m=MARGE_EXTRAIT_M):
 
 # Au-dela, le navigateur peine a tracer et la carte devient illisible :
 # mieux vaut demander de zoomer que de rendre une bouillie de polygones.
-# Le plafond de parcelles renvoyees d'un coup. Relevé de 1 200 a 1 600 en
-# meme temps que l'arrondi des coordonnees : a poids egal sur le reseau,
-# la carte peut charger plus large qu'elle ne montre, et un deplacement
-# d'un tiers d'ecran ne demande alors plus rien.
-MAX_CARTE = 1600
+# Le plafond de parcelles renvoyees d'un coup. Relevé de 1 600 a 3 000
+# quand la carte a su descendre au zoom 13 : a cette echelle une commune
+# entiere tient a l'ecran, et Mimizan y compte 2 239 parcelles
+# renseignees. Le plafond ne tient que parce que la reponse est ALLEGEE
+# a ces zooms-la — voir `pour_carte`, `avec_geometrie`.
+MAX_CARTE = 3000
 
 # Six decimales valent ~11 cm : bien au-dela de ce qu'un contour cadastral
 # affiche a l'ecran peut rendre, et bien en deca des 16 chiffres que
@@ -484,7 +485,8 @@ def _arrondir(valeur, decimales=DECIMALES_CARTE):
     return valeur
 
 
-def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
+def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None,
+               avec_geometrie=True):
     """
     Les parcelles visibles dans un cadre, avec ce qu'on sait d'elles.
 
@@ -514,17 +516,28 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
     de Mimizan — 80 % de la reponse pour dire « rien ». Le contour reste
     visible : il vient de la couche parcellaire de l'IGN, qui est une
     tuile, pas une geometrie a transporter.
+
+    `avec_geometrie=False` REND UNE POSITION AU LIEU D'UN CONTOUR. C'est
+    ce que demande la carte quand elle recule assez pour montrer une
+    commune entiere : au zoom 13, un pixel vaut 13,7 m et une parcelle
+    n'en couvre que deux ou trois — son contour exact ne se voit pas, il
+    se paie seulement. Mesure sur Mimizan, commune entiere : 1 538 Ko
+    avec les contours, et ce qu'il faut pour poser un point a la place.
     """
     lon_min, lat_min, lon_max, lat_max = cadre
     ou_dpe, parametres_dpe = ("1 = 1", [])
     if filtres_dpe:
         ou_dpe, parametres_dpe = veille.conditions_dpe(filtres_dpe, prefixe="d.")
 
+    # Le detail ne se paie que s'il se voit. Sans contour, on n'a pas
+    # besoin non plus de la contenance ni du bati : rien de tout cela ne
+    # se lit a cette echelle, et tout se relit d'un clic sur la fiche.
+    colonnes = ("p.section, p.numero, p.contenance_m2, p.emprise_batie_m2,"
+                " p.nb_batiments, p.geometrie_json," if avec_geometrie else "")
     with connexion() as conn:
         lignes = conn.execute(
-            "SELECT p.id, p.section, p.numero, p.contenance_m2,"
-            "       p.emprise_batie_m2, p.nb_batiments, p.latitude, p.longitude,"
-            "       p.geometrie_json,"
+            "SELECT p.id, p.latitude, p.longitude,"
+            f"      {colonnes}"
             "       count(DISTINCT d.n_dpe) AS dpe,"
             "       count(DISTINCT CASE WHEN d.parcelle_id IS NULL"
             "                           THEN d.n_dpe END) AS dpe_approche,"
@@ -556,12 +569,22 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
     resultats = []
     for ligne in lignes[:int(limite)]:
         entree = dict(ligne)
-        try:
-            geometrie = json.loads(entree.pop("geometrie_json"))
-            geometrie["coordinates"] = _arrondir(geometrie.get("coordinates"))
-            entree["geometrie"] = geometrie
-        except (TypeError, ValueError, AttributeError):
-            continue
+        if avec_geometrie:
+            try:
+                geometrie = json.loads(entree.pop("geometrie_json"))
+                geometrie["coordinates"] = _arrondir(geometrie.get("coordinates"))
+                entree["geometrie"] = geometrie
+            except (TypeError, ValueError, AttributeError):
+                # Un contour illisible n'est pas affichable : on la tait
+                # plutot que d'envoyer une parcelle qui ne se dessinera pas.
+                continue
+        else:
+            # Sans contour, c'est la position qui place la marque — et une
+            # parcelle sans position n'en a aucune.
+            if entree["latitude"] is None or entree["longitude"] is None:
+                continue
+            entree["latitude"] = _arrondir(entree["latitude"])
+            entree["longitude"] = _arrondir(entree["longitude"])
         entree["dpe"] = entree["dpe"] or 0
         entree["dpe_approche"] = entree["dpe_approche"] or 0
         entree["ventes"] = entree["ventes"] or 0
@@ -572,12 +595,13 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
     # plafond de 1 600 sur un ecran large — et il fallait distinguer ce
     # manque anodin d'un vrai. Maintenant que seules les parcelles
     # renseignees sont rendues, tronquer, c'est cacher.
-    points, points_tronques = _dpe_sans_parcelle(code_insee, cadre, filtres_dpe)
+    points, points_tronques = _dpe_sans_parcelle(code_insee, cadre, filtres_dpe,
+                                                 leger=not avec_geometrie)
     return {"parcelles": resultats, "tronque": tronque, "limite": int(limite),
             "points": points, "points_tronques": points_tronques}
 
 
-def _dpe_sans_parcelle(code_insee, cadre, filtres_dpe=None):
+def _dpe_sans_parcelle(code_insee, cadre, filtres_dpe=None, leger=False):
     """
     Les diagnostics qu'AUCUNE parcelle ne porte, meme par approche.
 
@@ -585,17 +609,24 @@ def _dpe_sans_parcelle(code_insee, cadre, filtres_dpe=None):
     l'ADEME geocode au milieu de la voie, a egale distance des parcelles
     des deux cotes. Les departager serait inventer ; les taire serait pire.
     La carte leur pose un point, et la legende dit ce qu'il vaut.
+
+    `leger` n'en garde que de quoi poser une marque. A l'echelle d'une
+    commune entiere il n'y a pas de bulle a ouvrir : la date, la surface
+    et l'etiquette ne s'affichent nulle part, et il y a mille de ces
+    points — c'est tout de suite du poids pour rien.
     """
     lon_min, lat_min, lon_max, lat_max = cadre
     ou_dpe, parametres = ("1 = 1", [])
     if filtres_dpe:
         ou_dpe, parametres = veille.conditions_dpe(filtres_dpe, prefixe="d.")
 
+    detail = ("d.adresse, d.date_etablissement, d.surface_habitable,"
+              " d.etiquette_dpe, d.type_batiment," if not leger else "")
     with connexion() as conn:
         lignes = conn.execute(
-            "SELECT d.n_dpe, d.adresse, d.latitude, d.longitude,"
-            "       d.date_etablissement, d.surface_habitable, d.etiquette_dpe,"
-            "       d.type_batiment, (d.vu_le IS NULL) AS nouveau"
+            "SELECT d.n_dpe, d.latitude, d.longitude,"
+            f"      {detail}"
+            "       (d.vu_le IS NULL) AS nouveau"
             "  FROM dpe d"
             " WHERE d.code_insee = ?"
             "   AND d.parcelle_id IS NULL AND d.parcelle_approchee IS NULL"
