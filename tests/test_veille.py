@@ -538,3 +538,106 @@ def test_le_meme_logement_rediagnostique_reste_une_ligne(base):
     resultats = veille.lister({"fenetre_jours": 730})
     assert [r["n_dpe"] for r in resultats] == ["RECENT"]
     assert resultats[0]["logements"] == 2
+
+
+# ---------------------------------------------------------------------
+#  Ce qui n'est pas mesure ne doit pas s'afficher comme une mesure
+# ---------------------------------------------------------------------
+
+def test_un_dpe_vierge_ne_passe_pas_pour_une_classe_A(base):
+    """
+    Un logement ne consomme pas ZERO. Quand la consommation primaire est
+    nulle, le diagnostic n'a pas ete etabli : c'est le « DPE vierge » que
+    l'ancien regime autorisait. L'ADEME le note tantot « N » (non
+    renseigne), tantot « A » par defaut.
+
+    L'ecran affichait donc « classe A · 0 kWh/m² » — un logement NON
+    EVALUE presente comme la meilleure performance possible — et le filtre
+    par classe le ramenait parmi les A.
+
+    Mesure sur Mimizan : 1 194 vraies classes A, de 18,8 a 82,8 kWh/m²,
+    aucune a zero ; et 72 diagnostics a zero, tous de la base anterieure a
+    juillet 2021, tous sans consommation finale ni cout annuel.
+    """
+    from app.metier.import_dpe import transformer
+
+    correspondances = {"numero_dpe": "n", "adresse": "a", "code_insee": "i",
+                       "etiquette_dpe": "e", "etiquette_ges": "g",
+                       "conso_primaire": "c", "ges_m2": "ges", "surface": "s"}
+
+    vierge = transformer(
+        {"n": "VIERGE", "a": "1 rue", "i": "40184", "e": "A", "g": "A",
+         "c": "0", "ges": "0", "s": "80"},
+        correspondances, {}, "ancien", "40200", None, "")
+    assert vierge["etiquette_dpe"] is None
+    assert vierge["etiquette_ges"] is None
+    assert vierge["conso_ep_m2"] is None
+    assert vierge["ges_m2"] is None
+    # Ce qui EST mesure reste : surface, adresse, date.
+    assert vierge["surface_habitable"] == 80.0
+
+    non_renseigne = transformer(
+        {"n": "N", "a": "2 rue", "i": "40184", "e": "N", "g": "N",
+         "c": "150", "ges": "12", "s": "80"},
+        correspondances, {}, "ancien", "40200", None, "")
+    assert non_renseigne["etiquette_dpe"] is None, "« N » n'est pas une classe"
+
+    vraie = transformer(
+        {"n": "VRAIE", "a": "3 rue", "i": "40184", "e": "A", "g": "A",
+         "c": "45", "ges": "2", "s": "80"},
+        correspondances, {}, "ancien", "40200", None, "")
+    assert vraie["etiquette_dpe"] == "A" and vraie["conso_ep_m2"] == 45.0
+
+
+def test_le_filtre_par_type_garde_les_types_generiques(base):
+    """
+    La base anterieure a juillet 2021 ne distingue pas maison et
+    appartement : elle ecrit « Logement ». Choisir « maison » faisait donc
+    disparaitre 238 diagnostics sur dix ans — dont des maisons de 150 et
+    223 m², que seule la surface trahissait.
+
+    Meme principe que les bornes de surface, deja en place : un critere ne
+    doit pas ecarter les lignes qui ne portent pas l'information.
+    """
+    inserer_dpe(n_dpe="MAISON", adresse="1 rue", type_batiment="maison",
+                date_etablissement=jours(5))
+    inserer_dpe(n_dpe="APPART", adresse="2 rue", type_batiment="appartement",
+                date_etablissement=jours(5))
+    inserer_dpe(n_dpe="GENERIQUE", adresse="3 rue", type_batiment="Logement",
+                date_etablissement=jours(5))
+    inserer_dpe(n_dpe="IMMEUBLE", adresse="4 rue", type_batiment="immeuble",
+                date_etablissement=jours(5))
+
+    maisons = {r["n_dpe"] for r in
+               veille.lister({"fenetre_jours": 60, "type_batiment": "maison"})}
+    assert maisons == {"MAISON", "GENERIQUE"}, (
+        "« Logement » ne dit pas que ce n'est pas une maison ; "
+        "« immeuble », si")
+
+
+def test_le_compte_en_cache_suit_la_commune_affichee(base):
+    """
+    « N DPE en cache » s'affiche a cote du nom de la commune : il doit donc
+    compter CETTE commune. Sans la restriction, en suivre une seconde
+    ferait annoncer a Mimizan le total des deux.
+    """
+    inserer_dpe(n_dpe="ICI", adresse="1 rue", code_insee="40184")
+    inserer_dpe(n_dpe="AILLEURS", adresse="2 rue", code_insee="31282",
+                commune="Launaguet", code_postal="31140")
+
+    assert veille.resume({"code_insee": "40184"})["total_base"] == 1
+    assert veille.resume({})["total_base"] == 2
+
+
+def test_l_export_dit_combien_de_logements_chaque_ligne_represente(base):
+    """Sans cette colonne, le fichier laisse croire qu'une ligne vaut un
+    logement, alors qu'elle peut en representer cinquante-et-un."""
+    for numero in range(3):
+        inserer_dpe(n_dpe=f"LOT{numero}", adresse="18 Rue de l'Abbaye",
+                    surface_habitable=40.5, date_etablissement=jours(5))
+
+    csv_texte = veille.exporter_csv({"fenetre_jours": 60})
+    entete, ligne = csv_texte.splitlines()[0], csv_texte.splitlines()[1]
+    colonnes = entete.lstrip("﻿").split(";")
+    assert "logements" in colonnes
+    assert ligne.split(";")[colonnes.index("logements")] == "3"

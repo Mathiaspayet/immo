@@ -178,3 +178,38 @@ def test_une_commune_sans_ventes_est_signalee(base):
     assert mutations.manquantes("40184") is False      # pas de cadastre non plus
     _parcelle("40184000AT0148")
     assert mutations.manquantes("40184") is True
+
+
+def test_les_millesimes_annonces_sont_ceux_que_la_source_sert(base, monkeypatch):
+    """
+    `dvf.millesimes()` deduit la fenetre de l'annee courante : en 2026 elle
+    annonce 2021 a 2026. Or DVF parait deux fois l'an, avec plusieurs mois
+    de retard — verifie le 13/09/2026, le fichier 2026 de Mimizan repond
+    404 quand celui de 2025 porte ses 296 mutations, toutes en base.
+
+    L'ecran annoncait donc un millesime que la source n'a pas publie, et le
+    lecteur ne pouvait que le prendre pour un trou dans les donnees.
+    """
+    from app.metier import mutations
+    from app.sources import dvf
+
+    monkeypatch.setattr(dvf, "millesimes", lambda *a, **n: (2021, 2022, 2023))
+    # Le millesime en cours n'est pas encore paru : HEAD rend None.
+    monkeypatch.setattr(dvf, "signatures",
+                        lambda code_insee, annees: {2021: "etag-1", 2022: "etag-2",
+                                                    2023: None})
+    assert mutations.profondeur("40184")["millesimes_source"] == [2021, 2022]
+
+
+def test_une_source_injoignable_n_efface_pas_les_millesimes(base, monkeypatch):
+    """Un reseau coupe ne doit pas faire disparaitre l'information : on
+    retombe sur la fenetre calculee."""
+    from app.metier import mutations
+    from app.sources import dvf
+    from app.sources.client_http import ErreurSource
+
+    monkeypatch.setattr(dvf, "millesimes", lambda *a, **n: (2021, 2022, 2023))
+    def injoignable(*args, **nommes):
+        raise ErreurSource("DVF injoignable")
+    monkeypatch.setattr(dvf, "signatures", injoignable)
+    assert mutations.profondeur("40184")["millesimes_source"] == [2021, 2022, 2023]

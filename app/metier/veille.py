@@ -170,8 +170,23 @@ def _conditions(filtres, prefixe=""):
         clauses.append(f"{c('zone')} = ?")
         parametres.append(filtres["zone"])
 
+    # Le type ne s'applique qu'aux lignes qui en portent un VRAI, pour la
+    # meme raison que les bornes de surface plus bas : ecarter les valeurs
+    # manquantes ferait disparaitre des biens sans que rien ne l'explique.
+    #
+    # La base anterieure a juillet 2021 ne distingue pas maison et
+    # appartement : elle ecrit « Logement ». Choisir « maison » faisait
+    # donc disparaitre 238 diagnostics sur dix ans — dont des maisons de
+    # 150 et 223 m², que seule la surface trahissait.
+    #
+    # « immeuble » et « batiment collectif » sont en revanche des types
+    # CONNUS, et vraiment ni l'un ni l'autre : ceux-la sont bien ecartes.
     if filtres.get("type_batiment"):
-        clauses.append(f"lower({c('type_batiment')}) LIKE ?")
+        clauses.append(
+            f"(lower({c('type_batiment')}) LIKE ?"
+            f" OR {c('type_batiment')} IS NULL"
+            f" OR trim({c('type_batiment')}) = ''"
+            f" OR lower(trim({c('type_batiment')})) = 'logement')")
         parametres.append(f"%{str(filtres['type_batiment']).lower()}%")
 
     # Les bornes de surface ne s'appliquent qu'aux lignes qui portent une
@@ -283,8 +298,18 @@ def resume(filtres=None):
         cle = ligne.get("zone") or "hors secteur"
         par_zone[cle] = par_zone.get(cle, 0) + 1
 
+    # « N DPE en cache » s'affiche a cote du nom de la commune : il doit
+    # donc compter CETTE commune. Sans la restriction, en suivre une
+    # seconde ferait annoncer a Mimizan le total des deux.
+    filtres = filtres or filtres_par_defaut()
+    code_insee = str(filtres.get("code_insee") or "").strip()
     with connexion() as conn:
-        total_base = conn.execute("SELECT count(*) FROM dpe").fetchone()[0]
+        if code_insee:
+            total_base = conn.execute(
+                "SELECT count(*) FROM dpe WHERE code_insee = ?",
+                (code_insee,)).fetchone()[0]
+        else:
+            total_base = conn.execute("SELECT count(*) FROM dpe").fetchone()[0]
         dernier = conn.execute(
             "SELECT fin, statut, lignes, ajouts, message FROM journal_import "
             "WHERE statut IN ('succes', 'echec') ORDER BY id DESC LIMIT 1"
@@ -332,7 +357,10 @@ def exporter_csv(filtres=None):
     configuration francaise, sans quoi les accents sont illisibles.
     """
     lignes = lister(filtres, limite=None)
-    colonnes = COLONNES + ["anciennete_jours", "nouveau"]
+    # `logements` part avec le reste : sans elle, le fichier laisse croire
+    # qu'une ligne vaut un logement, alors qu'elle peut en representer
+    # cinquante-et-un — c'est justement ce que l'ecran prend soin de dire.
+    colonnes = COLONNES + ["logements", "anciennete_jours", "nouveau"]
 
     tampon = io.StringIO()
     redacteur = csv.DictWriter(tampon, fieldnames=colonnes, delimiter=";",

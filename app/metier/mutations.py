@@ -554,4 +554,32 @@ def profondeur(code_insee=None):
             "departement": dvf_archive.departement(commune) if commune else None,
             # Ce que la source sert aujourd'hui : au-dela, c'est la base
             # seule qui conserve, et plus personne ne pourrait le rendre.
-            "millesimes_source": list(dvf.millesimes())}
+            "millesimes_source": _millesimes_servis(commune)}
+
+
+def _millesimes_servis(code_insee):
+    """
+    Les millesimes qu'Etalab sert VRAIMENT, et non la fenetre calculee.
+
+    `dvf.millesimes()` deduit la fenetre de l'annee courante : en 2026 elle
+    annonce 2021 a 2026. Or DVF parait deux fois l'an, avec plusieurs mois
+    de retard — verifie le 13/09/2026, le fichier 2026 de Mimizan repond
+    404 quand celui de 2025 porte ses 296 mutations, toutes en base.
+
+    L'ecran annoncait donc un millesime que la source n'a pas encore
+    publie, et le lecteur ne pouvait que le prendre pour un trou. Une
+    requete HEAD par millesime suffit a trancher, sans rien telecharger.
+
+    Le repli est la fenetre calculee : un reseau coupe ne doit pas faire
+    disparaitre l'information de l'ecran.
+    """
+    calcules = list(dvf.millesimes())
+    if not code_insee:
+        return calcules
+    try:
+        releve = dvf.signatures(code_insee, calcules)
+    except Exception as erreur:                        # noqa: BLE001
+        logger.warning("millesimes DVF indisponibles : %s", erreur)
+        return calcules
+    servis = [annee for annee, signature in releve.items() if signature]
+    return servis or calcules

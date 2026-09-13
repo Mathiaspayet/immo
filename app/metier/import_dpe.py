@@ -111,6 +111,27 @@ def transformer(ligne, correspondances, points_de_zone, jeu, code_postal_demande
     else:
         zone, distance = zones.rattacher(latitude, longitude, points_de_zone)
 
+    # Un logement ne consomme pas ZERO. Quand la consommation est nulle, le
+    # diagnostic n'a pas ete etabli : c'est le « DPE vierge » que l'ancien
+    # regime autorisait. L'ADEME le note tantot « N » (non renseigne),
+    # tantot « A » par defaut — et l'ecran affichait alors « classe A,
+    # 0 kWh/m² », presentant un logement NON EVALUE comme la meilleure
+    # performance possible.
+    #
+    # Mesure sur Mimizan : 1 194 vraies classes A, de 18,8 a 82,8 kWh/m²,
+    # aucune a zero ; et 72 diagnostics a zero, tous de la base ancienne,
+    # tous sans consommation finale ni cout annuel. Ils ne portent donc
+    # plus ni classe ni consommation : l'ecran dira « — », qui est vrai.
+    conso_primaire = nombre(lire("conso_primaire"))
+    evalue = bool(conso_primaire)
+    etiquette = (texte(lire("etiquette_dpe")) or "").upper() or None
+    etiquette_ges = (texte(lire("etiquette_ges")) or "").upper() or None
+    # « N » veut dire « non renseigne » : ce n'est pas une classe.
+    if etiquette == "N":
+        etiquette = None
+    if etiquette_ges == "N":
+        etiquette_ges = None
+
     return {
         "n_dpe": n_dpe,
         "code_insee": code_insee,
@@ -124,11 +145,11 @@ def transformer(ligne, correspondances, points_de_zone, jeu, code_postal_demande
         "date_etablissement": (texte(lire("date")) or "")[:10] or None,
         "surface_habitable": nombre(lire("surface")),
         "type_batiment": texte(lire("type_batiment")),
-        "etiquette_dpe": (texte(lire("etiquette_dpe")) or "").upper() or None,
-        "etiquette_ges": (texte(lire("etiquette_ges")) or "").upper() or None,
-        "conso_ep_m2": nombre(lire("conso_primaire")),
+        "etiquette_dpe": etiquette if evalue else None,
+        "etiquette_ges": etiquette_ges if evalue else None,
+        "conso_ep_m2": conso_primaire if evalue else None,
         "conso_ef_m2": nombre(lire("conso_finale")),
-        "ges_m2": nombre(lire("ges_m2")),
+        "ges_m2": nombre(lire("ges_m2")) if evalue else None,
         "cout_annuel": nombre(lire("cout_annuel")),
         "annee_construction": entier(lire("annee")),
         "n_dpe_remplace": texte(lire("n_dpe_remplace")),
