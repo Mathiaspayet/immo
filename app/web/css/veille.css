@@ -310,6 +310,18 @@
 }
 .losange-legende { flex: none; display: inline-block; }
 
+/* « Vous etes ici ». Un DISQUE, encore une autre forme : il ne dit rien
+   d'un bien, il dit ou se trouve celui qui regarde. Le cercle de
+   precision qui l'entoure est trace par Leaflet, pas ici. */
+.ma-position {
+  width: 14px; height: 14px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--atlantique);
+  border: 2px solid var(--papier-carte);
+  box-shadow: 0 0 0 1px var(--atlantique), 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
 .leaflet-container { font-family: var(--courant); background: var(--papier-creux); }
 .leaflet-popup-content { font-size: 0.82rem; margin: 10px 12px; }
 .leaflet-popup-content .adresse-popup { font-family: var(--titres); font-weight: 500; display: block; margin-bottom: 4px; }

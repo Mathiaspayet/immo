@@ -65,6 +65,10 @@ export const api = {
 
   chercherCommunes: (q) => demander(`/api/communes/recherche?${versParametres({ q })}`),
 
+  /** Quelle commune se trouve à cette position, et l'a-t-on déjà ? */
+  communeIci: (latitude, longitude) =>
+    demander(`/api/communes/ici?${versParametres({ latitude, longitude })}`),
+
   /** Rend une commune consultable : la moissonne si elle manque ou date. */
   preparerCommune: (codeInsee, besoin = "dpe") =>
     demander(`/api/communes/${encodeURIComponent(codeInsee)}/preparer` +

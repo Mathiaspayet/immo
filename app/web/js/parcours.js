@@ -174,6 +174,20 @@ async function choisirCommune(commune) {
   }
 }
 
+/**
+ * Se rendre sur une commune depuis un autre écran — la carte, quand le
+ * GPS nous place ailleurs.
+ *
+ * On repasse par le MÊME chemin que le choix manuel : c'est lui qui sait
+ * moissonner ce qui manque, montrer l'avancement et prévenir les écrans
+ * quand c'est prêt. Une commune qu'on n'a jamais consultée se télécharge
+ * donc ici comme ailleurs, sans code en double.
+ */
+export function allerALaCommune(commune) {
+  return choisirCommune(commune);
+}
+
+
 function afficherResultats() {
   masquerTravail();
   changerVue(parcours.intention || "carte");

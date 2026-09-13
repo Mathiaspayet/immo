@@ -67,7 +67,7 @@ Une conséquence pratique du passage sous Linux : le problème de certificats re
 | ADEME `dpe02neuf` | DPE logements neufs | idem |
 | ADEME `dpe-france` | DPE avant juillet 2021 | idem, schéma différent |
 | Cadastre Etalab | Parcelles et bâtiments | `cadastre.data.gouv.fr`, GeoJSON par commune |
-| API Découpage administratif | Résolution nom de commune → code INSEE | `geo.api.gouv.fr` |
+| API Découpage administratif | Résolution nom de commune → code INSEE, et commune sous une position GPS | `geo.api.gouv.fr` |
 | Base Adresse Nationale | Géocodage inverse | `api-adresse.data.gouv.fr` |
 | DVF | Ventes passées | `app.dvf.etalab.gouv.fr` / API Etalab |
 | Panoramax | Photos de rue libres | `api.panoramax.xyz` — optionnel, couverture à vérifier |
@@ -78,6 +78,13 @@ Une conséquence pratique du passage sous Linux : le problème de certificats re
 - Un identifiant de navigateur classique doit être envoyé : le pare-feu de l'ADEME renvoie 403 sur les agents inhabituels.
 - Les noms de colonnes de l'ADEME changent entre versions. Le repérage automatique par lecture du `/schema`, déjà implémenté dans `dpe_recherche.py`, doit être conservé.
 - Le filtrage sur l'API se fait par `{champ}_eq=`. Prévoir la cascade de repli déjà écrite.
+- **La position GPS de l'utilisateur ne sort qu'en dernier recours, et arrondie.**
+  Le bouton « Me localiser » cherche d'abord la réponse en base : si la position
+  tombe dans l'étendue d'une commune déjà moissonnée — et d'une seule —, rien ne
+  quitte le serveur. Le référentiel n'est interrogé que lorsqu'on se trouve
+  ailleurs, là où il faut un nom de commune pour proposer un téléchargement, et
+  la position y part arrondie à trois décimales (une centaine de mètres) : assez
+  pour désigner une commune, trop grossier pour désigner une maison.
 
 ---
 

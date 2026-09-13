@@ -279,6 +279,16 @@ input:focus-visible, select:focus-visible { border-color: var(--atlantique); }
   letter-spacing: 0.02em;
 }
 
+/* Un diagnostic que la carte ne montrera jamais. L'ADEME n'en donne ni
+   adresse ni coordonnees : il existe, il compte, mais il n'a pas de
+   place sur une carte. Le dire vaut mieux que le laisser manquant. */
+.pastille-sans-position {
+  background: var(--papier-creux);
+  border-style: dotted;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
 /* --- Telephone : l'en-tete doit tenir sur une ligne ----------------
    Le sous-titre et le libelle long disparaissent les premiers ; les
    commandes, elles, restent atteignables au pouce. */

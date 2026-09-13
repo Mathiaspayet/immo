@@ -217,6 +217,69 @@ export function parcelleApprochee(parcelle) {
  * que les parcelles visibles — les 11 444 de Mimizan pèsent 3,8 Mo, et les
  * envoyer d'un bloc rendrait la carte inutilisable sur téléphone.
  */
+/**
+ * Ce qui a empêché de savoir où l'on est. `motif` sert à choisir le
+ * message : refuser la permission et servir la page en clair ne se
+ * corrigent pas du tout de la même façon.
+ */
+export class ErreurPosition extends Error {
+  constructor(message, motif) {
+    super(message);
+    this.name = "ErreurPosition";
+    this.motif = motif;
+  }
+}
+
+/**
+ * La position du téléphone, une fois.
+ *
+ * LE CONTEXTE SÉCURISÉ EST VÉRIFIÉ D'ABORD, et ce n'est pas une
+ * précaution théorique : servie en http:// depuis le NAS, la page verrait
+ * `navigator.geolocation` exister puis échouer en « permission refusée »,
+ * et on chercherait le problème du mauvais côté. Le navigateur réserve la
+ * géolocalisation aux origines sûres — https:// ou localhost.
+ *
+ * `maximumAge` accepte une position d'une demi-minute : se localiser deux
+ * fois de suite ne doit pas rallumer le GPS.
+ */
+export function positionGps({ delai = 15000 } = {}) {
+  return new Promise((resoudre, rejeter) => {
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      rejeter(new ErreurPosition(
+        "La géolocalisation demande une connexion sécurisée (https://). "
+        + "Cette page est servie en clair : le navigateur la refuse.",
+        "non-securise"));
+      return;
+    }
+    if (!navigator.geolocation) {
+      rejeter(new ErreurPosition(
+        "Ce navigateur ne sait pas donner de position.", "absent"));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => resoudre({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        precision: position.coords.accuracy,
+      }),
+      (erreur) => {
+        const motifs = {
+          1: ["Position refusée. Autorisez la localisation pour ce site dans "
+              + "les réglages du navigateur.", "refuse"],
+          2: ["Position indisponible : le téléphone n'a pas réussi à se situer.",
+              "indisponible"],
+          3: ["Le téléphone a mis trop de temps à se situer. Réessayez à "
+              + "découvert.", "trop-long"],
+        };
+        const [message, motif] = motifs[erreur?.code]
+          || ["Position introuvable.", "inconnu"];
+        rejeter(new ErreurPosition(message, motif));
+      },
+      { enableHighAccuracy: true, timeout: delai, maximumAge: 30000 });
+  });
+}
+
+
 export function creerCarteExploration(identifiant,
                                       { surDeplacement, surParcelle, surBien }) {
   const aerienne = tuilesIgn("ORTHOIMAGERY.ORTHOPHOTOS", "image/jpeg");
@@ -252,6 +315,10 @@ export function creerCarteExploration(identifiant,
   // après celle des parcelles : un rechargement du cadastre ne doit pas
   // les effacer, et ils doivent rester au-dessus des contours.
   const coucheBiens = L.layerGroup().addTo(carte);
+  // La position de l'utilisateur vit encore ailleurs : elle ne doit être
+  // effacée ni par un rechargement du cadastre, ni par un changement de
+  // filtre. On s'y repère pendant qu'on explore.
+  const couchePosition = L.layerGroup().addTo(carte);
   const marqueurs = new Map();
   // Les contours déjà posés, par identifiant de parcelle. C'est la clef de
   // la fluidité : on ne rebâtit pas, on ajuste.
@@ -454,6 +521,41 @@ export function creerCarteExploration(identifiant,
       const longitude = (bornes.lon_min + bornes.lon_max) / 2;
       carte.setView([latitude, longitude], zoom);
     },
+
+    /**
+     * Pose « vous êtes ici » et amène la carte dessus.
+     *
+     * Le cercle n'est pas un ornement : sous les arbres ou en ville, le
+     * GPS d'un téléphone donne cinquante mètres, et une punaise seule
+     * laisserait croire à une précision qu'on n'a pas. Le zoom suit la
+     * même logique — on ne cadre pas à la parcelle une position connue à
+     * cent mètres près.
+     */
+    maPosition({ latitude, longitude, precision }) {
+      couchePosition.clearLayers();
+      if (latitude == null || longitude == null) return;
+      const rayon = Number(precision) || 0;
+      if (rayon > 0) {
+        L.circle([latitude, longitude], {
+          radius: rayon, color: "#14708C", weight: 1,
+          fillColor: "#14708C", fillOpacity: 0.12,
+        }).addTo(couchePosition);
+      }
+      L.marker([latitude, longitude], {
+        icon: L.divIcon({
+          className: "",
+          html: '<div class="ma-position" title="Votre position"></div>',
+          iconSize: [18, 18], iconAnchor: [9, 9],
+        }),
+        keyboard: true, title: "Votre position",
+      }).addTo(couchePosition);
+
+      const zoom = rayon > 200 ? 15 : rayon > 60 ? 16 : 18;
+      carte.setView([latitude, longitude], zoom);
+    },
+
+    /** Retire « vous êtes ici » — changement de commune, par exemple. */
+    oublierMaPosition() { couchePosition.clearLayers(); },
 
     redimensionner() { carte.invalidateSize(); },
   };

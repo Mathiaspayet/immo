@@ -350,3 +350,125 @@ def test_un_cadastre_sans_bati_se_recharge(client, monkeypatch):
                         params={"besoin": "cadastre"}).json()
     assert corps["lance"] is True
     assert appels == [("31282", False, True)]        # (commune, dpe, cadastre)
+
+
+# ---------------------------------------------------------------------
+#  « Ou suis-je ? » — le bouton de geolocalisation
+# ---------------------------------------------------------------------
+
+def _refuser_le_referentiel(monkeypatch):
+    """Fait echouer tout appel sortant, pour prouver qu'il n'y en a pas."""
+    def interdit(*_a, **_k):
+        raise AssertionError("le referentiel ne devait pas etre interroge")
+    monkeypatch.setattr("app.sources.geo.commune_a", interdit)
+
+
+def test_une_position_chez_soi_ne_sort_pas_du_serveur(client, monkeypatch):
+    """
+    C'est la garantie du bouton : se localiser dans la commune qu'on suit
+    n'envoie la position a personne.
+
+    L'etendue des DPE deja en base suffit a repondre. Le referentiel de
+    l'Etat n'est la que pour les cas ou l'on est ailleurs.
+    """
+    inserer_dpe(n_dpe="A", code_insee="40184", commune="Mimizan",
+                latitude=44.19, longitude=-1.24)
+    inserer_dpe(n_dpe="B", code_insee="40184", commune="Mimizan",
+                latitude=44.21, longitude=-1.22)
+    _refuser_le_referentiel(monkeypatch)
+
+    corps = client.get("/api/communes/ici",
+                       params={"latitude": 44.20, "longitude": -1.23}).json()
+    assert corps["source"] == "cadre"
+    assert corps["commune"]["code_insee"] == "40184"
+    assert corps["en_cache"] is True and corps["dpe"] == 2
+
+
+def test_une_position_ailleurs_est_identifiee_et_signalee_sans_donnees(client, monkeypatch):
+    """Le cas qui justifie le bouton : on se deplace hors de ce qu'on suit."""
+    inserer_dpe(n_dpe="A", code_insee="40184", commune="Mimizan",
+                latitude=44.19, longitude=-1.24)
+    monkeypatch.setattr("app.sources.geo.commune_a", lambda lat, lon: {
+        "code_insee": "31282", "nom": "Launaguet", "code_postal": "31140",
+        "codes_postaux": ["31140"], "population": 9173,
+        "departement": "Haute-Garonne"})
+
+    corps = client.get("/api/communes/ici",
+                       params={"latitude": 43.67, "longitude": 1.45}).json()
+    assert corps["source"] == "referentiel"
+    assert corps["commune"]["nom"] == "Launaguet"
+    assert corps["commune"]["departement"] == "Haute-Garonne"
+    assert corps["en_cache"] is False and corps["dpe"] == 0
+
+
+def test_deux_etendues_qui_se_recouvrent_renvoient_au_referentiel(client, monkeypatch):
+    """
+    Le cadre est une BOITE, pas une frontiere. Quand deux boites se
+    recouvrent, il ne tranche plus — et repondre au hasard nommerait la
+    mauvaise commune. On demande alors le decoupage reel.
+
+    Mimizan et Aureilhan sont voisines : le cas n'a rien de theorique.
+    """
+    inserer_dpe(n_dpe="A", code_insee="40184", commune="Mimizan",
+                latitude=44.19, longitude=-1.24)
+    inserer_dpe(n_dpe="B", code_insee="40184", commune="Mimizan",
+                latitude=44.21, longitude=-1.22)
+    inserer_dpe(n_dpe="C", code_insee="40019", commune="Aureilhan",
+                latitude=44.195, longitude=-1.235)
+    inserer_dpe(n_dpe="D", code_insee="40019", commune="Aureilhan",
+                latitude=44.23, longitude=-1.20)
+    appels = []
+    monkeypatch.setattr("app.sources.geo.commune_a", lambda lat, lon: (
+        appels.append((lat, lon)),
+        {"code_insee": "40019", "nom": "Aureilhan", "code_postal": "40200",
+         "codes_postaux": ["40200"], "population": 1000,
+         "departement": "Landes"})[1])
+
+    corps = client.get("/api/communes/ici",
+                       params={"latitude": 44.20, "longitude": -1.23}).json()
+    assert appels, "les deux cadres contiennent le point : il faut trancher"
+    assert corps["source"] == "referentiel"
+    assert corps["commune"]["nom"] == "Aureilhan"
+    assert corps["en_cache"] is True and corps["dpe"] == 2
+
+
+def test_un_referentiel_muet_ne_casse_pas_l_ecran(client, monkeypatch):
+    """Ne pas savoir ou l'on est n'est pas une erreur : la carte est centree."""
+    monkeypatch.setattr("app.sources.geo.commune_a", lambda lat, lon: None)
+    reponse = client.get("/api/communes/ici",
+                         params={"latitude": 43.67, "longitude": 1.45})
+    assert reponse.status_code == 200
+    assert reponse.json() == {"commune": None, "en_cache": False,
+                              "dpe": 0, "source": None}
+
+
+def test_une_position_impossible_est_refusee(client):
+    assert client.get("/api/communes/ici",
+                      params={"latitude": 91, "longitude": 0}).status_code == 422
+    assert client.get("/api/communes/ici",
+                      params={"latitude": 0, "longitude": 200}).status_code == 422
+
+
+def test_la_position_ne_part_qu_arrondie(monkeypatch):
+    """
+    La position de l'utilisateur est la donnee la plus intime que
+    l'application manipule. Quand il faut bien la sortir — designer une
+    commune qu'on ne connait pas — elle part arrondie a trois decimales,
+    soit une centaine de metres : assez pour nommer une commune, trop
+    grossier pour designer une maison.
+
+    Le test lit l'URL REELLEMENT construite : c'est le seul endroit ou la
+    promesse se verifie.
+    """
+    from app.sources import geo
+
+    vues = []
+    monkeypatch.setattr("app.sources.geo.appeler",
+                        lambda url: vues.append(url) or [])
+    geo.commune_a(44.201123456, -1.228698765)
+
+    assert vues, "aucun appel construit"
+    assert "lat=44.201&" in vues[0] or vues[0].endswith("lat=44.201")
+    assert "lon=-1.229" in vues[0]
+    # La position exacte ne doit apparaitre nulle part dans l'URL.
+    assert "44.201123" not in vues[0] and "1.228698" not in vues[0]

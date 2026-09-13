@@ -135,3 +135,51 @@ def communes_du_code_postal(code_postal):
             "code_postal": code_postal,
         })
     return communes
+
+
+def commune_a(latitude, longitude):
+    """
+    La commune qui contient ce point, ou None.
+
+    Sert au bouton « Me localiser » : le telephone rend une position, il
+    faut savoir de quelle commune il s'agit pour proposer d'en telecharger
+    les donnees. L'API repond par le decoupage administratif reel, pas par
+    une distance a un centre — un point a la limite de Mimizan et
+    d'Aureilhan est attribue a la bonne des deux.
+
+    LA POSITION EST ARRONDIE AVANT DE PARTIR. Trois decimales, soit une
+    centaine de metres : largement assez pour designer une commune, et
+    trop grossier pour designer une maison. C'est la position de
+    l'utilisateur ; elle ne sort qu'a cette precision, et seulement vers
+    l'API de l'Etat deja declaree (CDC section 4).
+
+    Ne leve jamais : ne pas savoir ou l'on est n'est pas une erreur, c'est
+    une absence de reponse.
+    """
+    try:
+        latitude = round(float(latitude), 3)
+        longitude = round(float(longitude), 3)
+    except (TypeError, ValueError):
+        return None
+
+    url = construire_url(BASE, {
+        "lat": latitude, "lon": longitude,
+        "fields": "nom,code,codesPostaux,population,departement",
+    })
+    try:
+        reponse = appeler(url)
+    except ErreurSource as erreur:
+        logger.warning("commune a (%s, %s) indisponible : %s", latitude, longitude, erreur)
+        return None
+
+    for entree in reponse or []:
+        codes = entree.get("codesPostaux") or []
+        return {
+            "code_insee": entree.get("code"),
+            "nom": entree.get("nom"),
+            "code_postal": codes[0] if codes else None,
+            "codes_postaux": codes,
+            "population": entree.get("population"),
+            "departement": (entree.get("departement") or {}).get("nom"),
+        }
+    return None

@@ -264,6 +264,7 @@
           <input type="checkbox" id="f-nouveaux" name="seulement_nouveaux">
           <label for="f-nouveaux">Seulement les nouveautés</label>
         </div>
+        <button type="button" class="bouton bouton-discret" id="me-localiser">Me localiser</button>
         <button type="button" class="bouton bouton-discret" id="ouvrir-adresse">Aller à une adresse…</button>
         <button type="button" class="bouton bouton-discret" id="tout-effacer">Tout effacer</button>
         <span class="espaceur"></span>
@@ -320,6 +321,22 @@
       </div>
       <div class="dialogue-pied">
         <button type="button" class="bouton" id="adresse-fermer">Fermer</button>
+      </div>
+    </dialog>
+
+    <!-- Le GPS peut poser la carte là où l'application n'a rien : plutôt
+         que de montrer une photo vide, elle propose d'aller chercher la
+         commune où l'on se trouve. -->
+    <dialog id="dialogue-zone" class="dialogue">
+      <div class="dialogue-tete">
+        <h3 id="zone-titre">Votre position</h3>
+      </div>
+      <div class="dialogue-corps">
+        <p class="explication" id="zone-texte"></p>
+      </div>
+      <div class="dialogue-pied">
+        <button type="button" class="bouton bouton-discret" id="zone-non">Rester ici</button>
+        <button type="button" class="bouton" id="zone-oui">Télécharger</button>
       </div>
     </dialog>
 

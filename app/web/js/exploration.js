@@ -32,7 +32,7 @@
  */
 
 import { api, ErreurApi } from "./api.js";
-import { creerCarteExploration, etatParcelle } from "./carte.js";
+import { creerCarteExploration, etatParcelle, positionGps } from "./carte.js";
 import {
   $, afficherErreur, afficherSucces, anciennete, dateFr, echapper, entierFr,
   etiquetteHtml, liensExternes, masquerErreur, mesure, nombreFr,
@@ -40,7 +40,9 @@ import {
 import { ouvrirFiche } from "./fiche.js";
 import { auTermeDeLImport } from "./import.js";
 import { auChangement } from "./navigation.js";
-import { communeCourante, dessinerContexte, surCommunePrete } from "./parcours.js";
+import {
+  allerALaCommune, communeCourante, dessinerContexte, surCommunePrete,
+} from "./parcours.js";
 
 // En dessous, une commune entière tient à l'écran : des milliers de
 // parcelles de quelques pixels, illisibles et lourdes à charger.
@@ -69,6 +71,9 @@ const MARGE = 0.3;
 let carte = null;
 let derniereRequete = 0;
 let communeCadree = null;
+// Une position GPS qu'il faudra retrouver apres un changement de
+// commune. Voir `cadrerSurLaCommune`.
+let positionSouhaitee = null;
 
 // L'etat de l'ecran. `etat` tout court etait deja pris par la ligne
 // d'etat de la carte, plus bas.
@@ -108,6 +113,11 @@ function gabaritReleve(bien) {
       ${bien.nouveau ? '<span class="pastille pastille-nouveau">nouveau</span>' : ""}
       ${bien.zone ? `<span class="secteur">${echapper(bien.zone)}</span>` : ""}
       ${bien.type_batiment ? `<span>${echapper(bien.type_batiment)}</span>` : ""}
+      ${bien.latitude == null || bien.longitude == null
+        ? `<span class="pastille pastille-sans-position" title="L'ADEME ne `
+          + `donne pour ce diagnostic ni adresse ni coordonnées : il ne peut `
+          + `apparaître nulle part sur la carte.">sans position</span>`
+        : ""}
       ${bien.logements > 1
         ? `<span class="pastille pastille-lot" title="Même adresse, même surface : `
           + `l'ADEME ne permet pas de les distinguer.">`
@@ -409,6 +419,16 @@ async function chargerListe() {
 async function cadrerSurLaCommune() {
   const commune = communeCourante();
   if (!commune || communeCadree === commune.code_insee) return;
+  // Une position GPS demandée l'emporte sur le centre du bourg : si on a
+  // appuyé sur « Me localiser » et accepté de télécharger la commune,
+  // c'est devant SA maison qu'on veut arriver au retour, pas au centre
+  // d'une commune qu'on traverse.
+  if (positionSouhaitee) {
+    communeCadree = commune.code_insee;
+    carte.maPosition(positionSouhaitee);
+    positionSouhaitee = null;
+    return;
+  }
   try {
     const { communes } = await api.communes();
     const trouvee = communes.find((c) => c.code_insee === commune.code_insee);
@@ -620,6 +640,102 @@ function peindre(reponse) {
  * celle de la parcelle — contour, voisinage, bâti, ventes. Le second cas
  * est de loin le plus fréquent sur la carte.
  */
+// ====================================================================
+//  « Où suis-je, et que sait-on d'ici ? »
+//
+//  Sur un téléphone, devant une maison, la question n'est pas « quelle
+//  commune » mais « qu'est-ce que l'application sait ICI ». Le bouton
+//  répond en deux temps : il pose la position sur la carte — c'est
+//  immédiat et ça ne demande rien à personne —, puis il regarde si
+//  l'application a quelque chose à montrer à cet endroit.
+//
+//  Le second temps ne bloque pas le premier : si le référentiel ne
+//  répond pas, la carte est quand même centrée là où l'on est.
+// ====================================================================
+
+async function meLocaliser() {
+  const bouton = $("#me-localiser");
+  const libelle = bouton.textContent;
+  bouton.disabled = true;
+  bouton.textContent = "Localisation…";
+  masquerErreur();
+  try {
+    const position = await positionGps();
+    carte.maPosition(position);
+    etat(`Vous êtes ici, à ${entierFr.format(Math.round(position.precision))}&nbsp;m près.`);
+    await proposerLaZone(position);
+  } catch (erreur) {
+    afficherErreur(erreur.message);
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = libelle;
+  }
+}
+
+/**
+ * Demande au serveur ce qu'il connaît à cet endroit, et propose la suite.
+ *
+ * Trois issues, et une seule est bavarde. On est dans la commune qu'on
+ * regarde : rien à dire, la carte montre déjà. On est dans une commune
+ * déjà en base : on propose d'y basculer. On est ailleurs : on propose
+ * de la télécharger — c'est le cas qui justifie tout le reste, celui du
+ * déplacement dans une commune qu'on ne suit pas encore.
+ */
+async function proposerLaZone(position) {
+  let reponse;
+  try {
+    reponse = await api.communeIci(position.latitude, position.longitude);
+  } catch (_) {
+    // La carte est centrée : l'essentiel est fait. Ne pas savoir le nom
+    // de la commune ne mérite pas une alerte.
+    return;
+  }
+
+  const commune = reponse.commune;
+  if (!commune) {
+    etat("Votre position est sur la carte, mais la commune n'a pas pu être "
+         + "identifiée — le référentiel n'a pas répondu.");
+    return;
+  }
+
+  const courante = communeCourante();
+  if (courante && commune.code_insee === courante.code_insee) return;
+
+  const ou = commune.departement ? `${commune.nom} (${commune.departement})`
+                                 : commune.nom;
+  $("#zone-titre").textContent = reponse.en_cache
+    ? `Vous êtes à ${commune.nom}` : `Rien de connu à ${commune.nom}`;
+  $("#zone-texte").innerHTML = reponse.en_cache
+    ? `Vous vous trouvez à <strong>${echapper(ou)}</strong>, déjà en base `
+      + `avec ${entierFr.format(reponse.dpe)} diagnostic(s). L'écran montre `
+      + `${echapper(courante ? courante.nom : "une autre commune")}. `
+      + `Basculer sur ${echapper(commune.nom)}&nbsp;?`
+    : `Vous vous trouvez à <strong>${echapper(ou)}</strong>, dont `
+      + `l'application n'a aucune donnée. Télécharger les diagnostics et le `
+      + `cadastre de ${echapper(commune.nom)}&nbsp;? Une première moisson `
+      + `prend quelques minutes ; la carte s'ouvrira ensuite sur votre position.`;
+  $("#zone-oui").textContent = reponse.en_cache ? "Basculer" : "Télécharger";
+  $("#dialogue-zone").returnValue = "";
+  $("#dialogue-zone").showModal();
+
+  $("#zone-oui").onclick = async () => {
+    $("#dialogue-zone").close();
+    // On veut revenir DEVANT SA MAISON, pas au centre de la commune :
+    // `cadrerSurLaCommune` lira cette position au lieu du cadre.
+    positionSouhaitee = position;
+    try {
+      await allerALaCommune({
+        code_insee: commune.code_insee, nom: commune.nom,
+        code_postal: commune.code_postal,
+      });
+    } catch (erreur) {
+      positionSouhaitee = null;
+      afficherErreur(`Impossible de préparer ${commune.nom}.`, erreur.message);
+    }
+  };
+}
+
+
 function ouvrir(parcelle) {
   // Un seul diagnostic : on va droit a sa fiche, c'est ce qu'on cherche.
   // Plusieurs : on passe par la parcelle, qui les LISTE. Sans cette
@@ -735,6 +851,10 @@ export async function initialiserExploration() {
     $("#carte-adresse").focus();
   });
   $("#adresse-fermer").addEventListener("click", () => $("#dialogue-adresse").close());
+
+  // « Me localiser » : le geste du téléphone, devant une maison.
+  $("#me-localiser").addEventListener("click", meLocaliser);
+  $("#zone-non").addEventListener("click", () => $("#dialogue-zone").close());
   $("#carte-adresse").addEventListener("input", () => {
     clearTimeout(minuterieRecherche);
     minuterieRecherche = setTimeout(suggerer, 220);
