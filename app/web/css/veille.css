@@ -27,6 +27,13 @@
    des 320 px, et `span 2` se ramene tout seul a une piste en dessous. */
 .filtres .champ-large { grid-column: span 2; }
 
+/* La fenetre portait « 30 derniers jours », tronque dans une piste de
+   128 px. Les libelles raccourcis — « 30 jours » — y tiennent, et lui
+   donner deux pistes faisait passer toute la rangee a la ligne en 1280 px
+   de large : 73 px de carte perdus pour rien. Une piste, donc, et un
+   plancher qui garantit la place du texte le plus long. */
+.filtres .champ-fenetre select { min-width: 0; }
+
 /* Les couches — ce qu'on AFFICHE — passent en tete, avant les criteres
    qui resserrent. Un fieldset pour que le lien entre les deux cases et
    leur intitule soit porte par le balisage, pas par la seule mise en

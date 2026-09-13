@@ -126,6 +126,21 @@ function gabaritReleve(bien) {
   </article>`;
 }
 
+/**
+ * Souligne les critères POSÉS, pour qu'on voie ce que la carte montre.
+ *
+ * « toutes dates » et « 30 derniers jours » se ressemblent trop dans un
+ * menu déroulant : sans marque, on ne sait pas d'un coup d'œil si la
+ * carte répond à une question ou montre tout.
+ */
+function marquerLesFiltres() {
+  const formulaire = $("#filtres");
+  for (const champ of formulaire.querySelectorAll("select, input[type=number]")) {
+    const pose = String(champ.value || "").trim() !== "";
+    champ.dataset.pose = pose ? "oui" : "non";
+  }
+}
+
 /** Un critère est-il posé ? Sert à dire à l'écran ce qu'il montre. */
 function filtreActif() {
   const f = ecran.filtres;
@@ -177,7 +192,12 @@ function appliquerFiltres(filtres) {
   const fenetre = String(filtres.fenetre_jours ?? 120);
   const choix = formulaire.fenetre_jours;
   if (![...choix.options].some((option) => option.value === fenetre)) {
-    choix.add(new Option(`${fenetre} jours`, fenetre));
+    // À sa place dans l'ordre des durées, et non ajoutée en queue : un
+    // menu où « 120 jours » suit « 2 ans » se lit mal, et donne à croire
+    // à un choix à part.
+    const suivante = [...choix.options].find(
+      (option) => option.value !== "" && Number(option.value) > Number(fenetre));
+    choix.add(new Option(`${fenetre} jours`, fenetre), suivante ?? null);
   }
 }
 
@@ -696,6 +716,7 @@ export async function initialiserExploration() {
   // Le geste central : un critère change, la CARTE se recolore. La liste
   // de détail suit, mais c'est la carte qui répond.
   $("#filtres").addEventListener("change", (evenement) => {
+    marquerLesFiltres();
     const couches = { dpe: $("#c-dpe").checked, ventes: $("#c-ventes").checked,
                       vides: $("#c-vides").checked };
     // « DPE » et « Ventes » se relisent sur place ; « Le reste » change ce
@@ -737,6 +758,9 @@ export async function initialiserExploration() {
     $("#c-ventes").checked = true;
     formulaire.dispatchEvent(new Event("change", { bubbles: true }));
   });
+  // Un chiffre saisi au clavier ne declenche « change » qu'a la sortie du
+  // champ : la marque, elle, doit suivre la frappe.
+  $("#filtres").addEventListener("input", marquerLesFiltres);
 
   $("#marquer-vus").addEventListener("click", async () => {
     try {
@@ -770,4 +794,5 @@ export async function initialiserExploration() {
   try {
     appliquerFiltres((await api.veille({})).filtres);
   } catch (_) { /* le menu reste celui de la page */ }
+  marquerLesFiltres();
 }

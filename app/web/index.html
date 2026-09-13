@@ -213,13 +213,19 @@
           <input type="checkbox" id="c-vides" checked> Le reste</label>
       </fieldset>
 
-      <div class="champ">
-        <label for="f-fenetre">DPE de moins de</label>
+      <!-- Les pas ne sont pas choisis a l'oeil : mesures sur Mimizan,
+           7 jours ne ramenaient qu'UN diagnostic, 15 en donnent 9 et 30 en
+           donnent 14. En dessous de deux semaines, la fenetre est trop
+           fine pour montrer quoi que ce soit. -->
+      <div class="champ champ-fenetre">
+        <label for="f-fenetre">DPE récents</label>
         <select id="f-fenetre" name="fenetre_jours">
           <option value="" selected>toutes dates</option>
+          <option value="15">15 jours</option>
           <option value="30">30 jours</option>
           <option value="60">60 jours</option>
-          <option value="120">120 jours</option>
+          <option value="90">3 mois</option>
+          <option value="180">6 mois</option>
           <option value="365">1 an</option>
           <option value="730">2 ans</option>
         </select>
