@@ -484,8 +484,7 @@ def _arrondir(valeur, decimales=DECIMALES_CARTE):
     return valeur
 
 
-def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None,
-               sans_info=True):
+def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None):
     """
     Les parcelles visibles dans un cadre, avec ce qu'on sait d'elles.
 
@@ -508,6 +507,13 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None,
     situee a un metre d'un diagnostic geocode sur la chaussee est bien la
     sienne pour l'oeil. `dpe_approche` dit combien le sont, pour que la
     carte puisse le marquer au lieu de le taire.
+
+    ON NE REND QUE CE DONT ON SAIT QUELQUE CHOSE. Une parcelle sans
+    diagnostic retenu ni vente connue n'est pas envoyee du tout. Elle
+    l'etait, en voile blanc, et c'etaient 9 205 parcelles sur les 11 444
+    de Mimizan — 80 % de la reponse pour dire « rien ». Le contour reste
+    visible : il vient de la couche parcellaire de l'IGN, qui est une
+    tuile, pas une geometrie a transporter.
     """
     lon_min, lat_min, lon_max, lat_max = cadre
     ou_dpe, parametres_dpe = ("1 = 1", [])
@@ -536,14 +542,13 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None,
             "   AND p.lat_max >= ? AND p.lat_min <= ?"
             "   AND p.lon_max >= ? AND p.lon_min <= ?"
             " GROUP BY p.id"
-            # Les parcelles renseignees passent d'abord : si le cadre est
-            # trop large pour tout envoyer, autant garder les informatives.
-            + ("" if sans_info else
-               " HAVING count(DISTINCT d.n_dpe) > 0"
-               "     OR count(DISTINCT mp.mutation_id) > 0")
-            + " ORDER BY (count(DISTINCT d.n_dpe) > 0) DESC,"
-              "          (count(DISTINCT mp.mutation_id) > 0) DESC, p.id"
-              " LIMIT ?",
+            # Rien de connu, rien a envoyer.
+            " HAVING count(DISTINCT d.n_dpe) > 0"
+            "     OR count(DISTINCT mp.mutation_id) > 0"
+            # Si le plafond mord, autant qu'il morde sur les ventes seules :
+            # un diagnostic est ce qu'on vient chercher ici.
+            " ORDER BY (count(DISTINCT d.n_dpe) > 0) DESC, p.id"
+            " LIMIT ?",
             parametres_dpe + [str(code_insee), lat_min, lat_max, lon_min, lon_max,
                               int(limite) + 1]).fetchall()
 
@@ -562,15 +567,13 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None,
         entree["ventes"] = entree["ventes"] or 0
         resultats.append(entree)
 
-    # Les renseignees passent en tete : le plafond ne mord donc que sur le
-    # VOILE des parcelles sans information. La distinction n'est pas un
-    # detail — c'est elle qui dit si la carte ment.
-    renseignees = sum(1 for e in resultats if e["dpe"] or e["ventes"])
-    tronque_utile = tronque and renseignees >= int(limite)
-
+    # Il n'y a plus qu'une sorte de troncature. Tant que le voile existait,
+    # le plafond mordait presque toujours sur lui — 1 549 parcelles pour un
+    # plafond de 1 600 sur un ecran large — et il fallait distinguer ce
+    # manque anodin d'un vrai. Maintenant que seules les parcelles
+    # renseignees sont rendues, tronquer, c'est cacher.
     points, points_tronques = _dpe_sans_parcelle(code_insee, cadre, filtres_dpe)
-    return {"parcelles": resultats, "tronque": tronque,
-            "tronque_utile": tronque_utile, "limite": int(limite),
+    return {"parcelles": resultats, "tronque": tronque, "limite": int(limite),
             "points": points, "points_tronques": points_tronques}
 
 

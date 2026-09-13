@@ -408,13 +408,12 @@
 
 /* Les mêmes teintes que sur la carte, à la même opacité : la légende ne
    vaut que si l'œil reconnaît la couleur qu'il vient de voir. Elles sont
-   posées sur un gris moyen, comme sur la photo — sur du blanc, le voile
-   de « rien de connu » serait invisible. */
+   posées sur un gris moyen, comme sur la photo : une teinte a 70 %
+   d'opacite ne se juge pas sur du blanc. */
 .pastille-legende { background-color: #7d7a6a; }
 .legende-deux  { box-shadow: inset 0 0 0 999px rgba(237, 161, 0, 0.92); }
 .legende-dpe   { box-shadow: inset 0 0 0 999px rgba(0, 131, 0, 0.70); }
 .legende-vente { box-shadow: inset 0 0 0 999px rgba(42, 120, 214, 0.70); }
-.legende-rien  { box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.12); }
 /* Le tirete de la legende reprend celui de la carte : c'est le meme
    signe, il doit avoir le meme air. */
 .legende-approche {

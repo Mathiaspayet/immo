@@ -28,9 +28,7 @@ def carte(code_insee: str = Query(...),
           surface_min: float = Query(None, ge=0),
           surface_max: float = Query(None, ge=0),
           etiquettes: str = Query("", description="classes separees par une virgule"),
-          seulement_nouveaux: bool = Query(False),
-          sans_info: bool = Query(True, description=
-              "inclure les parcelles sans DPE ni vente (le voile blanc)")):
+          seulement_nouveaux: bool = Query(False)):
     """
     Les parcelles visibles dans un cadre, avec leurs drapeaux.
 
@@ -66,8 +64,7 @@ def carte(code_insee: str = Query(...),
         v not in (None, "", [], False) for v in criteres.values()) else None
 
     return parcelles.pour_carte(code_insee, (lon_min, lat_min, lon_max, lat_max),
-                                limite=limite, filtres_dpe=filtres,
-                                sans_info=sans_info)
+                                limite=limite, filtres_dpe=filtres)
 
 
 @routeur.get("/chercher")

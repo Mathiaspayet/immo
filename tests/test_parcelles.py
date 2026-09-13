@@ -88,7 +88,9 @@ def test_recoupement_dpe_parcelle(cadastre):
     par_id = {p["id"]: p for p in parcelles.pour_carte("31282", cadre)["parcelles"]}
     assert par_id["P-BONNE"]["dpe"] == 2
     assert par_id["P-BONNE"]["dpe_dernier"] == "2026-08-01"
-    assert par_id["P-PETITE"]["dpe"] == 0
+    # La voisine ne recupere rien — et comme elle ne porte rien, la carte
+    # ne la rend meme pas.
+    assert "P-PETITE" not in par_id
 
 def test_rattachement_par_la_geometrie(cadastre):
     """
@@ -428,6 +430,11 @@ def test_les_coordonnees_partent_arrondies(base):
              44.1958, 44.1969, -1.2427, -1.2416,
              json.dumps({"type": "Polygon", "coordinates": [contour]}),
              "2026-09-11T08:00:00"))
+    # La carte ne rend que les parcelles renseignees : sans diagnostic,
+    # celle-ci n'y figurerait pas et il n'y aurait aucun contour a mesurer.
+    inserer_dpe(n_dpe="A", adresse="1 rue", code_insee="40184")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = '40184AB0001' WHERE n_dpe = 'A'")
 
     reponse = metier_parcelles.pour_carte("40184", (-1.25, 44.19, -1.23, 44.20))
     sommets = reponse["parcelles"][0]["geometrie"]["coordinates"][0]
@@ -452,17 +459,19 @@ def _poser_parcelle(conn, numero, lat, lon):
          "2026-09-11T08:00:00"))
 
 
-def test_le_plafond_mord_sur_le_voile_avant_les_renseignees(base):
+def test_tronquer_c_est_desormais_toujours_cacher(base):
     """
-    Le plafond de parcelles ne doit pas faire disparaitre de
-    l'INFORMATION. Les renseignees passent en tete de tri, donc il ne mord
-    que sur les parcelles dont on ne sait rien — et c'est une troncature
-    sans consequence, qu'il serait faux d'annoncer comme un manque.
+    Il n'y a plus qu'une seule sorte de troncature.
 
-    La distinction n'est pas cosmetique : la carte s'en sert pour decider
-    si le cadre charge reste utilisable. Les confondre revenait, sur un
-    ecran large — 1 549 parcelles pour un plafond de 1 600 — a redemander
-    deux fois a chaque geste et a desactiver tout le cache.
+    Tant que le voile des parcelles sans information existait, le plafond
+    mordait presque toujours sur LUI — 1 549 parcelles pour un plafond de
+    1 600 sur un ecran large — et il fallait distinguer ce manque anodin
+    d'un vrai, faute de quoi la carte redemandait deux fois a chaque
+    geste et perdait tout son cache.
+
+    Maintenant que seules les parcelles renseignees sont rendues, le
+    drapeau `tronque` se suffit : s'il est leve, de l'information manque
+    sous les yeux.
     """
     from app.base.connexion import transaction
     from app.metier import parcelles as metier_parcelles
@@ -470,7 +479,6 @@ def test_le_plafond_mord_sur_le_voile_avant_les_renseignees(base):
     with transaction() as conn:
         for numero in range(8):
             _poser_parcelle(conn, numero, 44.2010 + numero * 0.0003, -1.2286)
-        # Deux seulement portent un diagnostic.
         conn.execute("UPDATE dpe SET parcelle_id = NULL")
     inserer_dpe(n_dpe="A", adresse="1 rue", code_insee="40184")
     inserer_dpe(n_dpe="B", adresse="2 rue", code_insee="40184")
@@ -480,30 +488,35 @@ def test_le_plafond_mord_sur_le_voile_avant_les_renseignees(base):
 
     cadre = (-1.30, 44.19, -1.20, 44.21)
 
-    # Plafond de 4 : il coupe, mais dans le voile — les deux renseignees
-    # sont la, et la troncature n'est pas « utile ».
+    # Plafond de 4 pour huit parcelles : il ne mord pas, car six d'entre
+    # elles ne sont plus envoyees du tout.
     serre = metier_parcelles.pour_carte("40184", cadre, limite=4)
-    assert serre["tronque"] is True
-    assert serre["tronque_utile"] is False
-    rendues = {p["id"] for p in serre["parcelles"] if p["dpe"]}
-    assert rendues == {"40184AB0000", "40184AB0001"}
+    assert serre["tronque"] is False
+    assert {p["id"] for p in serre["parcelles"]} == {"40184AB0000", "40184AB0001"}
+    # Le drapeau a deux visages a disparu avec le voile qui le justifiait.
+    assert "tronque_utile" not in serre
 
-    # Plafond de 1 : cette fois on coupe dans le vif.
+    # Plafond de 1 : cette fois on coupe dans le vif, et il faut le dire.
     minuscule = metier_parcelles.pour_carte("40184", cadre, limite=1)
     assert minuscule["tronque"] is True
-    assert minuscule["tronque_utile"] is True
-
-    # Large : rien ne manque.
-    large = metier_parcelles.pour_carte("40184", cadre, limite=100)
-    assert large["tronque"] is False and large["tronque_utile"] is False
-    assert len(large["parcelles"]) == 8
+    assert len(minuscule["parcelles"]) == 1
 
 
-def test_le_voile_peut_etre_ecarte(base):
+def test_une_parcelle_sans_information_n_est_jamais_rendue(base):
     """
-    Les parcelles dont on ne sait rien sont les trois quarts du poids de
-    la reponse sur un ecran large — 710 Ko sur 942, mesure sur Mimizan.
-    Qui n'en veut pas doit pouvoir s'en passer.
+    Le voile blanc n'existe plus.
+
+    Il couvrait 80 % des parcelles de Mimizan — 9 205 sur 11 444 — pour
+    ne rien dire, et pesait les trois quarts de la reponse : 710 Ko sur
+    942, mesure sur un cadre de quartier en grand ecran.
+
+    Rien n'est perdu a l'oeil : le contour des parcelles muettes reste
+    trace par la couche parcellaire de l'IGN, qui est une tuile et ne
+    transite pas par nous.
+
+    UNE VENTE SUFFIT a rendre une parcelle, comme un diagnostic : ce sont
+    les deux choses que la carte sait montrer, et aucune n'est
+    subordonnee a l'autre.
     """
     from app.base.connexion import transaction
     from app.metier import parcelles as metier_parcelles
@@ -514,11 +527,20 @@ def test_le_voile_peut_etre_ecarte(base):
     inserer_dpe(n_dpe="A", adresse="1 rue", code_insee="40184")
     with transaction() as conn:
         conn.execute("UPDATE dpe SET parcelle_id = '40184AB0000' WHERE n_dpe = 'A'")
+        conn.execute(
+            "INSERT INTO mutation (id, code_insee, date_mutation, nature,"
+            "  valeur_fonciere, nb_parcelles, nb_locaux, importe_le)"
+            " VALUES ('M1','40184','2024-11-04','Vente',261030,1,1,"
+            "         '2026-09-11T08:00:00')")
+        conn.execute("INSERT INTO mutation_parcelle (mutation_id, parcelle_id)"
+                     " VALUES ('M1','40184AB0002')")
 
     cadre = (-1.30, 44.19, -1.20, 44.21)
-    assert len(metier_parcelles.pour_carte("40184", cadre)["parcelles"]) == 5
-    sans = metier_parcelles.pour_carte("40184", cadre, sans_info=False)["parcelles"]
-    assert [p["id"] for p in sans] == ["40184AB0000"]
+    rendues = metier_parcelles.pour_carte("40184", cadre)["parcelles"]
+    assert {p["id"] for p in rendues} == {"40184AB0000", "40184AB0002"}
+    # Les trois muettes sont bien en base : c'est la carte qui les tait.
+    with connexion() as conn:
+        assert conn.execute("SELECT count(*) FROM parcelle").fetchone()[0] == 5
 
 
 def test_une_parcelle_montre_TOUS_ses_diagnostics(base):

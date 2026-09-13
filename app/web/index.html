@@ -209,8 +209,6 @@
         <legend>Afficher</legend>
         <label class="case"><input type="checkbox" id="c-dpe" checked> DPE</label>
         <label class="case"><input type="checkbox" id="c-ventes" checked> Ventes</label>
-        <label class="case" title="Les parcelles dont on ne sait rien, en voile blanc. Elles sont les trois quarts du poids de la carte : les retirer l'allège d'autant.">
-          <input type="checkbox" id="c-vides" checked> Le reste</label>
       </fieldset>
 
       <!-- Les pas ne sont pas choisis a l'oeil : mesures sur Mimizan,
@@ -281,16 +279,17 @@
       <li><span class="pastille-legende legende-deux"></span> DPE et vente connus</li>
       <li><span class="pastille-legende legende-dpe"></span> DPE seul</li>
       <li><span class="pastille-legende legende-vente"></span> Vente seule</li>
-      <li><span class="pastille-legende legende-rien"></span> Rien de connu
-          <span class="donnee">(case « Le reste »)</span></li>
       <li><span class="pastille-legende legende-approche"></span> position approchée</li>
       <li><span class="losange losange-legende"></span> DPE sans parcelle</li>
     </ul>
 
     <p class="explication">
       Les couleurs disent ce que l'application sait, pas ce qui existe&nbsp;:
-      une parcelle sans DPE peut simplement n'avoir jamais été diagnostiquée.
-      Les ventes ne couvrent que cinq millésimes, et jamais l'Alsace-Moselle.
+      une parcelle <strong>sans couleur</strong> n'est pas une parcelle sans
+      intérêt, c'est une parcelle dont on ne sait rien — jamais diagnostiquée,
+      ou diagnostiquée hors des critères posés. Son contour reste tracé par le
+      parcellaire de l'IGN. Les ventes ne couvrent que cinq millésimes, et
+      jamais l'Alsace-Moselle.
     </p>
     <p class="explication">
       Un contour <strong>tireté</strong> signale une position

@@ -66,8 +66,15 @@ def _dpe(n_dpe, parcelle_id):
 
 
 @pytest.fixture()
-def quatre_etats(base):
-    """Une parcelle par etat, alignees d'ouest en est."""
+def trois_etats(base):
+    """
+    Une parcelle par etat, alignees d'ouest en est.
+
+    P-RIEN est le TEMOIN : elle ne porte ni diagnostic ni vente, et la
+    carte ne doit jamais la rendre. Elle existe en base, comme les 9 205
+    parcelles muettes de Mimizan ; c'est la reponse de la carte qui les
+    tait, pas la moisson qui les oublie.
+    """
     _parcelle("P-DEUX", 0)
     _parcelle("P-DPE", 1)
     _parcelle("P-VENTE", 2)
@@ -78,20 +85,24 @@ def quatre_etats(base):
     _vente("M2", "P-VENTE")
 
 
-def test_les_quatre_etats_se_distinguent(quatre_etats):
+def test_les_trois_etats_se_distinguent(trois_etats):
+    """
+    Trois etats, et un quatrieme cas qui n'en est pas un : ne rien
+    savoir. La carte le traite par l'absence, pas par une couleur.
+    """
     cadre = (LON - 0.01, LAT - 0.01, LON + 0.01, LAT + 0.01)
     par_id = {p["id"]: p for p in parcelles.pour_carte("40184", cadre)["parcelles"]}
 
     assert (par_id["P-DEUX"]["dpe"], par_id["P-DEUX"]["ventes"]) == (1, 1)
     assert (par_id["P-DPE"]["dpe"], par_id["P-DPE"]["ventes"]) == (1, 0)
     assert (par_id["P-VENTE"]["dpe"], par_id["P-VENTE"]["ventes"]) == (0, 1)
-    assert (par_id["P-RIEN"]["dpe"], par_id["P-RIEN"]["ventes"]) == (0, 0)
+    # Le voile blanc n'existe plus : elle n'est pas envoyee du tout.
+    assert "P-RIEN" not in par_id
     # De quoi ouvrir la fiche depuis la carte.
     assert par_id["P-DEUX"]["n_dpe"] == "D1"
-    assert par_id["P-RIEN"]["n_dpe"] is None
 
 
-def test_seul_le_cadre_demande_est_renvoye(quatre_etats):
+def test_seul_le_cadre_demande_est_renvoye(trois_etats):
     """
     L'invariant qui rend la carte utilisable. Un cadre serre sur la
     premiere parcelle ne doit pas ramener les trois autres.
@@ -102,7 +113,7 @@ def test_seul_le_cadre_demande_est_renvoye(quatre_etats):
     assert resultat["tronque"] is False
 
 
-def test_une_parcelle_a_cheval_sur_le_bord_est_incluse(quatre_etats):
+def test_une_parcelle_a_cheval_sur_le_bord_est_incluse(trois_etats):
     """Sinon les parcelles disparaitraient au bord de l'ecran."""
     # Un cadre qui ne mord que sur la moitie ouest de P-DPE.
     x = LON + COTE * 2
@@ -111,18 +122,18 @@ def test_une_parcelle_a_cheval_sur_le_bord_est_incluse(quatre_etats):
     assert "P-DPE" in trouvees
 
 
-def test_le_trop_plein_est_annonce(quatre_etats):
+def test_le_trop_plein_est_annonce(trois_etats):
     """Mieux vaut demander de zoomer que rendre une bouillie de polygones."""
     cadre = (LON - 0.01, LAT - 0.01, LON + 0.01, LAT + 0.01)
     resultat = parcelles.pour_carte("40184", cadre, limite=2)
     assert len(resultat["parcelles"]) == 2
     assert resultat["tronque"] is True
-    # Les parcelles renseignees passent d'abord : tronquer ne doit pas
-    # faire disparaitre celles qui portent l'information.
-    assert "P-RIEN" not in {p["id"] for p in resultat["parcelles"]}
+    # Si le plafond mord, il mord sur les ventes seules : un diagnostic
+    # est ce qu'on vient chercher ici.
+    assert {p["id"] for p in resultat["parcelles"]} == {"P-DEUX", "P-DPE"}
 
 
-def test_une_autre_commune_ne_deborde_pas(quatre_etats):
+def test_une_autre_commune_ne_deborde_pas(trois_etats):
     _parcelle("AILLEURS", 0, code_insee="31282")
     cadre = (LON - 0.01, LAT - 0.01, LON + 0.01, LAT + 0.01)
     trouvees = {p["id"] for p in parcelles.pour_carte("40184", cadre)["parcelles"]}
@@ -177,7 +188,7 @@ def test_une_adresse_sans_position_est_ecartee(base):
 #  Ouvrir une parcelle depuis la carte
 # ---------------------------------------------------------------------
 
-def test_l_extrait_s_ouvre_par_la_parcelle(quatre_etats):
+def test_l_extrait_s_ouvre_par_la_parcelle(trois_etats):
     """
     Le chemin de la carte. La plupart des parcelles ne portent aucun DPE —
     468 sur 550 dans une vue courante de Mimizan — et cliquer dessus doit
@@ -197,7 +208,7 @@ def test_l_extrait_s_ouvre_par_la_parcelle(quatre_etats):
     assert "P-RIEN" not in voisines
 
 
-def test_les_deux_chemins_donnent_le_meme_extrait(quatre_etats):
+def test_les_deux_chemins_donnent_le_meme_extrait(trois_etats):
     """Par le DPE ou par la parcelle, c'est le meme terrain."""
     par_dpe = parcelles.extrait("D1")
     par_parcelle = parcelles.extrait_parcelle("P-DEUX")
@@ -210,7 +221,7 @@ def test_une_parcelle_inconnue_ne_fait_pas_tomber(base):
     assert parcelles.extrait_parcelle("N-EXISTE-PAS") is None
 
 
-def test_la_fiche_d_une_parcelle_rassemble_tout(client_carte, quatre_etats):
+def test_la_fiche_d_une_parcelle_rassemble_tout(client_carte, trois_etats):
     """Contour, voisinage, bati et ventes en une seule reponse."""
     corps = client_carte.get("/api/parcelles/fiche-parcelle",
                              params={"parcelle_id": "P-VENTE"}).json()

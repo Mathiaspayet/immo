@@ -144,15 +144,16 @@ export function creerCarte(identifiant, surSelection) {
 
 
 /**
- * Les quatre états d'une parcelle sur la carte d'exploration.
+ * Les trois états d'une parcelle sur la carte d'exploration.
  *
  * C'est le CROISEMENT qui informe, pas chaque fait pris seul : une
  * parcelle vendue sans diagnostic récent et une parcelle diagnostiquée
  * sans vente ne racontent pas la même histoire. Le jaune, le plus visible
  * des trois, est donc réservé aux deux à la fois.
  *
- * Trois teintes seulement portent de l'information : « rien de connu »
- * est une absence, pas une catégorie, et se contente d'un voile blanc.
+ * Il n'y a pas de quatrième teinte. « Rien de connu » est une ABSENCE,
+ * pas une catégorie : la parcelle n'est pas dessinée, et son contour
+ * reste celui du parcellaire IGN.
  *
  * LES VALEURS NE SONT PAS CHOISIES À L'ŒIL. Une carte est un cas « toutes
  * paires » — n'importe quelles deux parcelles peuvent se toucher — et le
@@ -178,7 +179,6 @@ export const ETATS_PARCELLE = {
   deux:  { libelle: "DPE et vente",  couleur: "#EDA100", remplissage: 0.92 },
   dpe:   { libelle: "DPE seul",      couleur: "#008300", remplissage: 0.70 },
   vente: { libelle: "Vente seule",   couleur: "#2A78D6", remplissage: 0.70 },
-  rien:  { libelle: "Rien de connu", couleur: "#FFFFFF", remplissage: 0.12 },
 };
 
 /**
@@ -189,6 +189,12 @@ export const ETATS_PARCELLE = {
  * en sait une fois les ventes mises de côté. Sans cela, la couleur la
  * plus visible de la carte — celle du croisement — répondrait encore à
  * une question qu'on vient de retirer.
+ *
+ * NULL N'EST PAS UN ÉTAT, c'est une absence : la parcelle ne répond à
+ * rien de ce qu'on demande, et elle n'est pas dessinée. Un quatrième
+ * état « rien de connu » existait, en voile blanc translucide ; il
+ * couvrait 80 % de la carte pour ne rien dire, et son contour est de
+ * toute façon déjà tracé par la couche parcellaire de l'IGN.
  */
 export function etatParcelle(parcelle, couches = {}) {
   const avecDpe = couches.dpe !== false;
@@ -198,7 +204,7 @@ export function etatParcelle(parcelle, couches = {}) {
   if (dpe && vente) return "deux";
   if (dpe) return "dpe";
   if (vente) return "vente";
-  return "rien";
+  return null;
 }
 
 /** Tous ses diagnostics sont-ils situés par approche, et non par appartenance ? */
@@ -337,7 +343,7 @@ export function creerCarteExploration(identifiant,
   function styleDe(parcelle, couches) {
     const etat = ETATS_PARCELLE[etatParcelle(parcelle, couches)];
     const approchee = parcelleApprochee(parcelle)
-      && etatParcelle(parcelle, couches) !== "rien";
+      && etatParcelle(parcelle, couches) !== null;
     return {
       color: "#FFFFFF",
       weight: approchee ? 2.5 : 1.5,
@@ -402,6 +408,11 @@ export function creerCarteExploration(identifiant,
 
       for (const parcelle of parcelles) {
         if (!parcelle.geometrie) continue;
+        // Rien à dire d'elle sous les couches demandées : on ne la dessine
+        // pas. Ne pas l'inscrire dans `vues` suffit — la boucle de sortie
+        // retire ensuite celle qui était à l'écran, par exemple quand on
+        // décoche « Ventes » sur une parcelle qui n'avait que ça.
+        if (etatParcelle(parcelle, couches) === null) continue;
         vues.add(parcelle.id);
         const style = styleDe(parcelle, couches);
         const connu = contours.get(parcelle.id);
@@ -430,7 +441,7 @@ export function creerCarteExploration(identifiant,
         couche.removeLayer(entree.forme);
         contours.delete(identifiant);
       }
-      return parcelles.length;
+      return vues.size;
     },
 
     /** Tout retirer — au changement de commune, ou sous le seuil de zoom. */

@@ -81,7 +81,7 @@ const ecran = {
   filtres: {},
   resultats: [],
   selection: null,
-  couches: { dpe: true, ventes: true, vides: true },
+  couches: { dpe: true, ventes: true },
   // La liste repliee ne se recharge pas ; on note qu'elle a vieilli.
   listeAJour: false,
   // La derniere reponse du serveur, pour redessiner sans la redemander.
@@ -172,8 +172,6 @@ function lireFiltres() {
     // complète ce qui manque par les réglages enregistrés, et la liste se
     // met à répondre à une autre question que la carte.
     defauts: false,
-    // Le voile des parcelles sans information : demandé ou non.
-    sans_info: $("#c-vides").checked,
     fenetre_jours: formulaire.fenetre_jours.value,
     // La commune vient du parcours, pas d'un filtre : on l'a choisie avant
     // d'arriver ici. Par son code INSEE, l'ADEME écrivant le même nom de
@@ -494,18 +492,16 @@ async function rafraichir({ force = false } = {}) {
   try {
     reponse = await api.parcellesCarte(commune.code_insee, cadre,
                                        null, ecran.filtres);
-    // Une réponse tronquée SUR DES PARCELLES RENSEIGNÉES a dépensé son
-    // plafond sur la marge autant que sur le visible : de l'information
-    // manque sous les yeux. On redemande alors le cadre nu.
+    // Une réponse tronquée a dépensé son plafond sur la marge autant que
+    // sur le visible : de l'information manque sous les yeux. On redemande
+    // alors le cadre nu, sans marge.
     //
-    // La distinction est capitale. Les parcelles renseignées passent en
-    // tête, donc le plafond ne mord d'ordinaire que sur le VOILE des
-    // parcelles sans information — un manque sans conséquence. Traiter
-    // les deux pareil, comme je l'ai fait d'abord, revenait à redemander
-    // deux fois à chaque geste et à désactiver tout le cache : sur un
-    // écran large, 1 549 parcelles pour un plafond de 1 600, donc tronqué
-    // presque toujours.
-    if (reponse.tronque_utile) {
+    // Ce second appel était fréquent tant que le voile des parcelles sans
+    // information remplissait le quota — 1 549 parcelles pour un plafond
+    // de 1 600 sur un écran large. Sans lui, le plafond de 1 600 ne mord
+    // plus que sur les parcelles renseignées, qui sont bien plus rares :
+    // 2 514 sur les 11 444 de Mimizan, commune entière.
+    if (reponse.tronque) {
       cadreRetenu = carte.cadre();
       reponse = await api.parcellesCarte(commune.code_insee, cadreRetenu,
                                          null, ecran.filtres);
@@ -526,9 +522,9 @@ async function rafraichir({ force = false } = {}) {
   ecran.dernieresParcelles = reponse;
   ecran.cadreCharge = cadreRetenu;
   ecran.zoomCharge = carte.zoom();
-  // Un cadre amputé d'informations ne peut pas servir à décider qu'un
-  // déplacement est inutile. Un voile incomplet, si : rien ne s'y cache.
-  ecran.chargeComplet = !reponse.tronque_utile;
+  // Un cadre amputé ne peut pas servir à décider qu'un déplacement est
+  // inutile : ce qu'il ne porte pas se cacherait au geste suivant.
+  ecran.chargeComplet = !reponse.tronque;
   peindre(reponse);
 }
 
@@ -594,7 +590,10 @@ function peindre(reponse) {
 
   const compte = (cle) =>
     parcelles.filter((p) => etatParcelle(p, ecran.couches) === cle).length;
-  const morceaux = [`${entierFr.format(parcelles.length)} parcelle(s)`];
+  // Ce qui est colorié, et non ce que le serveur a envoyé : décocher
+  // « Ventes » retire des parcelles de la carte, le compte doit suivre.
+  const affichees = compte("deux") + compte("dpe") + compte("vente");
+  const morceaux = [`${entierFr.format(affichees)} parcelle(s)`];
   if (ecran.couches.dpe && ecran.couches.ventes) {
     morceaux.push(`${entierFr.format(compte("deux"))} avec DPE et vente`);
   }
@@ -613,18 +612,11 @@ function peindre(reponse) {
   const resume = morceaux.join(" · ")
     + (filtreActif() ? " — <strong>filtré</strong>" : "");
 
-  // Deux manques bien différents, qu'il serait malhonnête de confondre.
-  // Le plafond mord d'abord sur les parcelles dont on ne sait RIEN : la
-  // carte reste alors complète sur ce qui compte. Il ne mange les
-  // renseignées qu'à très grande échelle, et là il faut le dire.
-  let avertissement = "";
-  if (reponse.tronque_utile) {
-    avertissement = ". <strong>Des parcelles renseignées manquent</strong>"
-      + "&nbsp;: zoomez pour toutes les voir.";
-  } else if (reponse.tronque) {
-    avertissement = ". Le voile des parcelles sans information n'est pas"
-      + " complet à cette échelle&nbsp;; les renseignées, elles, y sont toutes.";
-  }
+  // Le serveur n'envoie plus que des parcelles renseignées : tronquer,
+  // c'est désormais toujours cacher quelque chose.
+  const avertissement = reponse.tronque
+    ? ". <strong>Des parcelles manquent</strong>&nbsp;: zoomez pour toutes les voir."
+    : "";
   etat(resume + avertissement);
 }
 
@@ -864,10 +856,9 @@ export async function initialiserExploration() {
   // de détail suit, mais c'est la carte qui répond.
   $("#filtres").addEventListener("change", (evenement) => {
     marquerLesFiltres();
-    const couches = { dpe: $("#c-dpe").checked, ventes: $("#c-ventes").checked,
-                      vides: $("#c-vides").checked };
-    // « DPE » et « Ventes » se relisent sur place ; « Le reste » change ce
-    // que le serveur envoie, et demande donc un aller-retour.
+    const couches = { dpe: $("#c-dpe").checked, ventes: $("#c-ventes").checked };
+    // Les deux couches se relisent SUR PLACE : le serveur a déjà envoyé
+    // ce qu'il faut, on ne fait que changer ce qu'on en montre.
     const seulementLesCouches =
       evenement.target === $("#c-dpe") || evenement.target === $("#c-ventes");
     ecran.couches = couches;

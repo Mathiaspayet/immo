@@ -138,9 +138,6 @@ export const api = {
     const etiquettes = (filtres?.etiquettes || []).filter(Boolean);
     if (etiquettes.length) parametres.set("etiquettes", etiquettes.join(","));
     if (filtres?.seulement_nouveaux) parametres.set("seulement_nouveaux", "true");
-    // Le voile des parcelles sans information : 75 % du poids de la
-    // réponse sur un écran large. On dit explicitement si on le veut.
-    if (filtres?.sans_info === false) parametres.set("sans_info", "false");
     return demander(`/api/parcelles/carte?${parametres}`);
   },
 
