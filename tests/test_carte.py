@@ -239,3 +239,63 @@ def test_la_fiche_d_une_parcelle_rassemble_tout(client_carte, trois_etats):
     manquante = client_carte.get("/api/parcelles/fiche-parcelle",
                                  params={"parcelle_id": "AUCUNE"})
     assert manquante.status_code == 404
+
+
+# ---------------------------------------------------------------------
+#  Cliquer n'importe ou sur la carte
+# ---------------------------------------------------------------------
+
+def test_on_retrouve_la_parcelle_sous_un_point(trois_etats):
+    """
+    Toute parcelle doit rester consultable, meme celle dont on ne sait
+    RIEN — c'est souvent la question qu'on se pose devant la carte :
+    « qu'est-ce que c'est, ce terrain-la ? »
+
+    Tant que les parcelles muettes etaient peintes en voile blanc, elles
+    offraient une surface au clic. En cessant de les envoyer — 80 % de la
+    carte pour ne rien dire — on leur a retire cette surface. C'est donc
+    le serveur qui repond, au clic, et il repond pour TOUTES.
+    """
+    # P-RIEN ne porte ni diagnostic ni vente : la carte ne la dessine plus.
+    cadre = (LON - 0.01, LAT - 0.01, LON + 0.01, LAT + 0.01)
+    rendues = {p["id"] for p in parcelles.pour_carte("40184", cadre)["parcelles"]}
+    assert "P-RIEN" not in rendues
+
+    # Elle reste pourtant joignable par sa position.
+    x = LON + 3 * COTE * 2                  # l'abscisse de P-RIEN (indice 3)
+    trouvee = parcelles.a_la_position("40184", LAT + COTE / 2, x + COTE / 2)
+    assert trouvee == "P-RIEN"
+
+    # Et celles qui sont dessinees repondent aussi bien.
+    assert parcelles.a_la_position(
+        "40184", LAT + COTE / 2, LON + COTE / 2) == "P-DEUX"
+
+
+def test_un_point_hors_de_toute_parcelle_ne_rend_rien(trois_etats):
+    """Cliquer sur une route ou un lac n'est pas une erreur."""
+    assert parcelles.a_la_position("40184", LAT + 5, LON + 5) is None
+    # Une position illisible non plus.
+    assert parcelles.a_la_position("40184", None, LON) is None
+
+
+def test_une_autre_commune_ne_repond_pas_a_la_place(trois_etats):
+    """Le code INSEE borne la recherche : deux communes se touchent."""
+    _parcelle("AILLEURS", 0, code_insee="31282")
+    assert parcelles.a_la_position("31282", LAT + COTE / 2, LON + COTE / 2) == "AILLEURS"
+    assert parcelles.a_la_position("40184", LAT + COTE / 2, LON + COTE / 2) == "P-DEUX"
+
+
+def test_la_route_http_repond_toujours(client_carte, trois_etats):
+    """Ne rien trouver se dit par une reponse vide, pas par une erreur."""
+    x = LON + 3 * COTE * 2
+    reponse = client_carte.get("/api/parcelles/a-la-position", params={
+        "code_insee": "40184", "latitude": LAT + COTE / 2, "longitude": x + COTE / 2})
+    assert reponse.status_code == 200
+    assert reponse.json()["parcelle_id"] == "P-RIEN"
+
+    vide = client_carte.get("/api/parcelles/a-la-position", params={
+        "code_insee": "40184", "latitude": LAT + 5, "longitude": LON + 5})
+    assert vide.status_code == 200 and vide.json()["parcelle_id"] is None
+
+    assert client_carte.get("/api/parcelles/a-la-position", params={
+        "code_insee": "40184", "latitude": 91, "longitude": 0}).status_code == 422

@@ -342,6 +342,51 @@ def parcelle(identifiant):
             "SELECT * FROM parcelle WHERE id = ?", (str(identifiant),)).fetchone())
 
 
+def a_la_position(code_insee, latitude, longitude):
+    """
+    La parcelle qui contient ce point, ou None.
+
+    C'est ce qui rend la carte cliquable PARTOUT. Tant que les parcelles
+    sans information etaient tracees en voile blanc, elles offraient une
+    surface au clic ; en cessant de les envoyer — 80 % de la carte pour ne
+    rien dire — on leur a retire cette surface sans y penser, et on ne
+    pouvait plus consulter le cadastre d'un terrain dont on ne savait
+    rien. Or c'est souvent LA question : « qu'est-ce que c'est, ce
+    terrain-la ? »
+
+    Chercher au clic vaut mieux que tout envoyer d'avance : le cout est
+    nul tant qu'on n'a pas clique, et il ne depend pas du nombre de
+    parcelles affichees. On presele par les boites englobantes, qui sont
+    indexees, puis on tranche sur les rares candidates — une poignee,
+    meme dans un quartier dense.
+
+    Rend aussi cliquables les parcelles qu'aucun filtre ne retient, et
+    celles des zooms larges ou seules des pastilles sont posees : la carte
+    repond partout, quelle que soit l'echelle.
+    """
+    try:
+        latitude = float(latitude)
+        longitude = float(longitude)
+    except (TypeError, ValueError):
+        return None
+
+    with connexion() as conn:
+        candidates = conn.execute(
+            "SELECT id, geometrie_json FROM parcelle"
+            " WHERE code_insee = ? AND lat_min <= ? AND lat_max >= ?"
+            "   AND lon_min <= ? AND lon_max >= ?",
+            (str(code_insee), latitude, latitude, longitude, longitude)).fetchall()
+
+    for ligne in candidates:
+        try:
+            anneaux = geometrie.anneaux_exterieurs(json.loads(ligne["geometrie_json"]))
+        except (TypeError, ValueError):
+            continue
+        if geometrie.dans_geometrie(longitude, latitude, anneaux):
+            return ligne["id"]
+    return None
+
+
 def diagnostics_de(identifiant):
     """
     Les diagnostics portes par une parcelle, du plus recent au plus ancien.

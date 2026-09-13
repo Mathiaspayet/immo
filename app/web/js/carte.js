@@ -287,7 +287,8 @@ export function positionGps({ delai = 15000 } = {}) {
 
 
 export function creerCarteExploration(identifiant,
-                                      { surDeplacement, surParcelle, surBien }) {
+                                      { surDeplacement, surParcelle, surBien,
+                                        surFond }) {
   const aerienne = tuilesIgn("ORTHOIMAGERY.ORTHOPHOTOS", "image/jpeg");
   const carte = L.map(identifiant, {
     center: FRANCE,
@@ -340,6 +341,22 @@ export function creerCarteExploration(identifiant,
   // Le déplacement est continu, le rechargement ne doit pas l'être : on
   // attend que la main se pose. Sans cela, un simple glissement lancerait
   // dix requêtes dont neuf seraient périmées à l'arrivée.
+  // Un clic AILLEURS que sur une forme tracée. Depuis que les parcelles
+  // sans information ne sont plus dessinées, elles n'offrent plus de
+  // surface au clic : c'est la carte elle-même qui doit répondre « quelle
+  // parcelle est là ? ». Les formes tracées, elles, arrêtent l'événement.
+  //
+  // Le clic ATTEND un peu : un double-clic zoome, et sans ce délai il
+  // ouvrirait d'abord une fiche. 260 ms ne se sentent pas sur un clic
+  // franc, et suffisent à voir venir le second.
+  let minuterieClic = null;
+  carte.on("click", (evenement) => {
+    clearTimeout(minuterieClic);
+    const point = evenement.latlng;
+    minuterieClic = setTimeout(() => surFond && surFond(point), 260);
+  });
+  carte.on("dblclick", () => clearTimeout(minuterieClic));
+
   let minuterie = null;
   carte.on("moveend", () => {
     clearTimeout(minuterie);
@@ -489,7 +506,10 @@ export function creerCarteExploration(identifiant,
         const entree = { forme, style, parcelle, pastilles: [] };
         // Le clic lit l'entrée, jamais la parcelle capturée à la création :
         // les comptes changent avec les filtres, la forme non.
-        forme.on("click", () => surParcelle && surParcelle(entree.parcelle));
+        forme.on("click", (evenement) => {
+          L.DomEvent.stopPropagation(evenement);
+          if (surParcelle) surParcelle(entree.parcelle);
+        });
         forme.addTo(couche);
 
         // Les diagnostics d'une parcelle trop vaste, posés à LEUR position.
@@ -501,7 +521,8 @@ export function creerCarteExploration(identifiant,
           for (const diagnostic of parcelle.diagnostics || []) {
             if (diagnostic.latitude == null || diagnostic.longitude == null) continue;
             const pastille = L.circleMarker(
-              [diagnostic.latitude, diagnostic.longitude], stylePastille);
+              [diagnostic.latitude, diagnostic.longitude],
+              { ...stylePastille });
             pastille.bindTooltip("Diagnostic situé ici — la parcelle est trop "
                                  + "vaste pour être colorée en entier");
             pastille.on("click", (evenement) => {
@@ -556,8 +577,11 @@ export function creerCarteExploration(identifiant,
             renderer: toile, stroke: false, radius: 3,
             fillColor: ETATS_PARCELLE.dpe.couleur, fillOpacity: 0.95,
           });
-          point.on("click", () =>
-            (surBienChoisi || surBien) && (surBienChoisi || surBien)(bien.n_dpe));
+          point.on("click", (evenement) => {
+            L.DomEvent.stopPropagation(evenement);
+            const suite = surBienChoisi || surBien;
+            if (suite) suite(bien.n_dpe);
+          });
           point.addTo(coucheBiens);
           marqueurs.set(bien.n_dpe, point);
           continue;
@@ -579,8 +603,11 @@ export function creerCarteExploration(identifiant,
           `<span class="donnee">${bien.date_etablissement || "?"} · ` +
           `${bien.surface_habitable ?? "?"} m² · ${bien.etiquette_dpe || "?"}</span>` +
           '<span class="donnee">aucune parcelle : adresse trop imprécise</span>');
-        marqueur.on("click", () =>
-          (surBienChoisi || surBien) && (surBienChoisi || surBien)(bien.n_dpe));
+        marqueur.on("click", (evenement) => {
+          L.DomEvent.stopPropagation(evenement);
+          const suite = surBienChoisi || surBien;
+          if (suite) suite(bien.n_dpe);
+        });
         marqueur.addTo(coucheBiens);
         marqueurs.set(bien.n_dpe, marqueur);
       }

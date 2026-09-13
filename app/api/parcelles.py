@@ -77,17 +77,33 @@ def chercher(code_insee: str = Query(...),
     return {"resultats": parcelles.chercher_sur_carte(code_insee, q)}
 
 
+@routeur.get("/a-la-position")
+def a_la_position(code_insee: str = Query(...),
+                  latitude: float = Query(..., ge=-90, le=90),
+                  longitude: float = Query(..., ge=-180, le=180)):
+    """
+    Quelle parcelle se trouve sous ce point ?
+
+    C'est ce qui rend la carte cliquable partout, y compris la ou rien
+    n'est dessine. Repond toujours 200 : cliquer sur une route, un lac ou
+    hors de la commune n'est pas une erreur, c'est une reponse vide.
+    """
+    return {"parcelle_id": parcelles.a_la_position(code_insee, latitude, longitude)}
+
+
 @routeur.get("/fiche-parcelle")
 def fiche_parcelle(parcelle_id: str = Query(...)):
     """
     Tout ce qu'on sait d'une parcelle : contour, bati, ventes, et les
     diagnostics qu'elle porte.
 
-    La carte montre beaucoup de parcelles sans aucun DPE — 468 sur 550
-    dans une vue courante de Mimizan — et cliquer dessus doit mener
-    quelque part. Mais celles qui en portent PLUSIEURS meritent la meme
-    fiche : ouvrir l'un des diagnostics au hasard, sans dire que les
-    autres existent, etait le defaut.
+    On y arrive par deux chemins : en cliquant une parcelle coloree, ou
+    en cliquant n'importe ou sur la carte — `/a-la-position` dit alors
+    laquelle se trouve sous le doigt, meme si rien n'y est trace.
+
+    Une parcelle qui porte PLUSIEURS diagnostics merite cette fiche
+    plutot que l'un d'eux pris au hasard : les autres existent, et rien
+    ne le disait.
     """
     parcelle = parcelles.parcelle(parcelle_id)
     if parcelle is None:

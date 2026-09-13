@@ -753,6 +753,43 @@ async function proposerLaZone(position) {
 }
 
 
+/**
+ * Cliquer là où rien n'est tracé : la carte demande ce qu'il y a dessous.
+ *
+ * Tant que les parcelles sans information étaient peintes en voile
+ * blanc, elles offraient une surface au clic. En cessant de les envoyer
+ * — 80 % de la carte pour ne rien dire — on leur a retiré cette surface
+ * sans y penser, et on ne pouvait plus consulter le cadastre d'un
+ * terrain dont on ne sait rien. C'est pourtant souvent LA question :
+ * « qu'est-ce que c'est, ce terrain-là ? »
+ *
+ * Le serveur cherche au clic plutôt qu'on envoie tout d'avance : rien ne
+ * coûte tant qu'on n'a pas cliqué, et la carte répond maintenant PARTOUT
+ * — y compris sur les parcelles qu'un filtre écarte, et aux zooms larges
+ * où seules des pastilles sont posées.
+ */
+async function consulterSousLeClic(position) {
+  const commune = communeCourante();
+  if (!commune || !position) return;
+  // Sous le seuil, un pixel vaut des dizaines de mètres : le point cliqué
+  // ne désigne rien de précis, et la carte l'annonce déjà.
+  if (carte.zoom() < ZOOM_MINIMAL) return;
+  try {
+    const { parcelle_id } = await api.parcelleALaPosition(
+      commune.code_insee, position.lat, position.lng);
+    if (parcelle_id) {
+      ouvrirFiche({ parcelle_id, retour: "carte" });
+    } else {
+      etat("Aucune parcelle cadastrale ici&nbsp;: voirie, domaine public, "
+           + "ou hors de la commune.");
+    }
+  } catch (_) {
+    // Un clic qui n'aboutit pas ne mérite pas d'alerte : on n'a rien
+    // promis, et le geste se refait.
+  }
+}
+
+
 function ouvrir(parcelle) {
   // Un seul diagnostic : on va droit a sa fiche, c'est ce qu'on cherche.
   // Plusieurs : on passe par la parcelle, qui les LISTE. Sans cette
@@ -821,6 +858,7 @@ export async function initialiserExploration() {
     // Un clic sur un repère ouvre la fiche du bien, comme un clic sur une
     // parcelle : c'est là qu'on allait de toute façon.
     surBien: (numero) => ouvrirFiche({ n_dpe: numero, retour: "carte" }),
+    surFond: consulterSousLeClic,
   });
 
   // Leaflet mesure son conteneur à la création : l'écran étant masqué à ce

@@ -149,6 +149,11 @@ export const api = {
     demander(`/api/parcelles/chercher?code_insee=${encodeURIComponent(code_insee)}`
       + `&q=${encodeURIComponent(q)}`),
 
+  /** Quelle parcelle se trouve sous ce point de la carte ? */
+  parcelleALaPosition: (code_insee, latitude, longitude) =>
+    demander(`/api/parcelles/a-la-position?${versParametres(
+      { code_insee, latitude, longitude })}`),
+
   ficheParcelle: (parcelle_id) =>
     demander(`/api/parcelles/fiche-parcelle?parcelle_id=${encodeURIComponent(parcelle_id)}`),
 
