@@ -626,3 +626,120 @@ def test_une_vue_large_rend_des_positions_et_non_des_contours(base):
     lourde = metier_parcelles.pour_carte("40184", cadre)
     assert "geometrie" in lourde["parcelles"][0]
     assert "adresse" in lourde["points"][0]
+
+
+def test_une_parcelle_trop_vaste_n_est_pas_peinte_en_plein(base):
+    """
+    Colorer une parcelle, c'est dire « ce terrain est diagnostique ».
+
+    Sur les 900 m² d'une maison c'est vrai, et c'est meme plus juste que
+    le point de l'ADEME, geocode a l'adresse donc sur la chaussee. Sur les
+    18 hectares de 401840000K0051, un seul diagnostic peignait une foret
+    entiere en vert.
+
+    Le critere n'est PAS le nombre de batiments : le cadastre compte les
+    garages et les abris, et un meme batiment peut porter plusieurs
+    logements — 109 diagnostics pour 17 batiments sur une parcelle de
+    Mimizan. C'est la surface revendiquee par diagnostic qui discrimine,
+    et elle laisse tranquilles 754 des 762 parcelles diagnostiquees.
+
+    La parcelle trop vaste porte alors la POSITION de ses diagnostics :
+    c'est tout ce qu'on sait d'eux, et la carte le pose la plutot que de
+    l'etaler sur un hectare.
+    """
+    import json as _json
+    from app.base.connexion import transaction
+    from app.metier import parcelles as metier_parcelles
+
+    def _terrain(identifiant, lat, lon, cote, contenance):
+        anneau = [[lon, lat], [lon + cote, lat], [lon + cote, lat + cote],
+                  [lon, lat + cote], [lon, lat]]
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO parcelle (id, code_insee, section, numero,"
+                " contenance_m2, latitude, longitude, lat_min, lat_max,"
+                " lon_min, lon_max, geometrie_json, importe_le)"
+                " VALUES (?,'40184','AB',?,?,?,?,?,?,?,?,?,'2026-09-13T08:00:00')",
+                (identifiant, identifiant[-1], contenance, lat, lon,
+                 lat, lat + cote, lon, lon + cote,
+                 _json.dumps({"type": "Polygon", "coordinates": [anneau]})))
+
+    # Une maison sur son terrain, et une foret avec un seul diagnostic.
+    _terrain("40184AB0001", 44.2010, -1.2286, 0.0003, 900.0)
+    _terrain("40184AB0002", 44.2030, -1.2286, 0.0300, 182275.0)
+    inserer_dpe(n_dpe="MAISON", adresse="1 rue", code_insee="40184",
+                latitude=44.2011, longitude=-1.2285)
+    inserer_dpe(n_dpe="FORET", adresse="2 rue", code_insee="40184",
+                latitude=44.2164, longitude=-1.2198)
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id='40184AB0001' WHERE n_dpe='MAISON'")
+        conn.execute("UPDATE dpe SET parcelle_id='40184AB0002' WHERE n_dpe='FORET'")
+
+    cadre = (-1.30, 44.19, -1.10, 44.25)
+    par_id = {p["id"]: p for p in
+              metier_parcelles.pour_carte("40184", cadre)["parcelles"]}
+
+    maison = par_id["40184AB0001"]
+    assert maison["trop_vaste"] is False
+    # Rien de superflu sur celle qui n'en a pas besoin.
+    assert "diagnostics" not in maison
+
+    foret = par_id["40184AB0002"]
+    assert foret["trop_vaste"] is True
+    assert [d["n_dpe"] for d in foret["diagnostics"]] == ["FORET"]
+    assert foret["diagnostics"][0]["latitude"] == 44.2164
+
+    # Le meme terrain, dix fois plus diagnostique, redevient legitime.
+    with transaction() as conn:
+        for numero in range(60):
+            conn.execute(
+                "INSERT INTO dpe (n_dpe, code_insee, adresse, commune, code_postal,"
+                " date_etablissement, jeu_de_donnees, importe_le, latitude, longitude,"
+                " parcelle_id) VALUES (?,'40184',?,'Mimizan','40200','2026-08-01',"
+                " 'existant','2026-08-01T10:00:00',44.2164,-1.2198,'40184AB0002')",
+                (f"LOT-{numero}", f"{numero} rue du Lot"))
+    par_id = {p["id"]: p for p in
+              metier_parcelles.pour_carte("40184", cadre)["parcelles"]}
+    assert par_id["40184AB0002"]["trop_vaste"] is False
+
+
+def test_le_seuil_suit_les_criteres_de_l_ecran(base):
+    """
+    Le compte des diagnostics d'une parcelle depend des filtres poses.
+    Le seuil doit suivre : une parcelle qui porte cinquante diagnostics
+    mais un seul dans la fenetre demandee revendique bien, pour l'ecran
+    affiche, toute sa surface pour ce seul diagnostic.
+    """
+    import json as _json
+    from app.base.connexion import transaction
+    from app.metier import parcelles as metier_parcelles
+
+    anneau = [[-1.2286, 44.2030], [-1.1986, 44.2030],
+              [-1.1986, 44.2330], [-1.2286, 44.2330], [-1.2286, 44.2030]]
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO parcelle (id, code_insee, section, numero, contenance_m2,"
+            " latitude, longitude, lat_min, lat_max, lon_min, lon_max,"
+            " geometrie_json, importe_le)"
+            " VALUES ('40184AB0009','40184','AB','9',60000.0,44.21,-1.21,"
+            "         44.2030,44.2330,-1.2286,-1.1986,?,'2026-09-13T08:00:00')",
+            (_json.dumps({"type": "Polygon", "coordinates": [anneau]}),))
+        for numero in range(40):
+            conn.execute(
+                "INSERT INTO dpe (n_dpe, code_insee, adresse, commune, code_postal,"
+                " date_etablissement, jeu_de_donnees, importe_le, latitude, longitude,"
+                " parcelle_id) VALUES (?,'40184',?,'Mimizan','40200',?,"
+                " 'existant','2026-08-01T10:00:00',44.21,-1.21,'40184AB0009')",
+                (f"V-{numero}", f"{numero} rue",
+                 "2026-09-01" if numero == 0 else "2015-01-01"))
+
+    cadre = (-1.30, 44.19, -1.10, 44.25)
+    # Sans filtre : 40 diagnostics pour 60 000 m², soit 1 500 m² chacun.
+    sans = metier_parcelles.pour_carte("40184", cadre)["parcelles"][0]
+    assert sans["dpe"] == 40 and sans["trop_vaste"] is False
+
+    # Fenetre courte : un seul reste, et il revendiquerait les 6 hectares.
+    avec = metier_parcelles.pour_carte(
+        "40184", cadre, filtres_dpe={"fenetre_jours": 30})["parcelles"][0]
+    assert avec["dpe"] == 1 and avec["trop_vaste"] is True
+    assert [d["n_dpe"] for d in avec["diagnostics"]] == ["V-0"]

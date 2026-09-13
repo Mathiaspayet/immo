@@ -475,6 +475,29 @@ DECIMALES_CARTE = 6
 # coutent pas de geometrie : le plafond peut etre large.
 MAX_POINTS = 1000
 
+# A partir de quelle SURFACE REVENDIQUEE PAR DIAGNOSTIC une parcelle
+# cesse d'etre un bon approximant.
+#
+# Colorer une parcelle, c'est dire « ce terrain est diagnostique ». Sur
+# les 900 m² d'une maison, c'est vrai, et c'est meme plus juste que le
+# point de l'ADEME — geocode a l'adresse, donc sur la chaussee. Sur les
+# 18 hectares de 401840000K0051, un seul diagnostic peint une foret
+# entiere.
+#
+# Le seuil ne se lit pas au nombre de batiments : le cadastre compte les
+# garages et les abris, et un meme batiment peut porter plusieurs
+# logements — 109 diagnostics pour 17 batiments sur une parcelle de
+# Mimizan. C'est la surface par diagnostic qui discrimine. Releve sur les
+# 762 parcelles diagnostiquees de Mimizan :
+#
+#     jusqu'a 1 000 m²   : 636 parcelles
+#     1 000 a 3 000 m²   : 118
+#     3 000 a 10 000 m²  :  25
+#     plus de 10 000 m²  :   5
+#
+# 754 sur 762 sont irreprochables ; le seuil n'attrape que les 30 autres.
+M2_PAR_DIAGNOSTIC = 3000
+
 
 def _arrondir(valeur, decimales=DECIMALES_CARTE):
     """Arrondit les coordonnees d'une geometrie GeoJSON, en place."""
@@ -588,6 +611,14 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None,
         entree["dpe"] = entree["dpe"] or 0
         entree["dpe_approche"] = entree["dpe_approche"] or 0
         entree["ventes"] = entree["ventes"] or 0
+        # Trop vaste pour que sa couleur veuille dire quelque chose. La
+        # carte la laissera en retrait et posera les diagnostics la ou ils
+        # sont vraiment. Sans contour il n'y a rien a peindre : la
+        # question ne se pose qu'ici.
+        surface = entree.get("contenance_m2") or 0
+        entree["trop_vaste"] = bool(
+            avec_geometrie and entree["dpe"]
+            and surface / entree["dpe"] > M2_PAR_DIAGNOSTIC)
         resultats.append(entree)
 
     # Il n'y a plus qu'une sorte de troncature. Tant que le voile existait,
@@ -595,10 +626,52 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None,
     # plafond de 1 600 sur un ecran large — et il fallait distinguer ce
     # manque anodin d'un vrai. Maintenant que seules les parcelles
     # renseignees sont rendues, tronquer, c'est cacher.
+    _situer_les_trop_vastes(resultats, ou_dpe, parametres_dpe)
+
     points, points_tronques = _dpe_sans_parcelle(code_insee, cadre, filtres_dpe,
                                                  leger=not avec_geometrie)
     return {"parcelles": resultats, "tronque": tronque, "limite": int(limite),
             "points": points, "points_tronques": points_tronques}
+
+
+def _situer_les_trop_vastes(resultats, ou_dpe, parametres_dpe):
+    """
+    Donne a chaque parcelle trop vaste la POSITION de ses diagnostics.
+
+    Sur une parcelle de la taille d'une maison, la couleur suffit : elle
+    dit ou est le logement mieux que ne le ferait le point de l'ADEME,
+    pose sur la chaussee. Sur dix-huit hectares, elle ne dit plus rien, et
+    ce sont les points qui portent le peu qu'on sait.
+
+    Modifie `resultats` sur place. Ne concerne qu'une poignee de parcelles
+    — 30 sur 762 a Mimizan — donc le cout est negligeable, et nul quand
+    le cadre n'en contient aucune.
+    """
+    vastes = [e["id"] for e in resultats if e.get("trop_vaste")]
+    if not vastes:
+        return
+
+    trous = ",".join("?" * len(vastes))
+    with connexion() as conn:
+        lignes = conn.execute(
+            "SELECT d.parcelle_carte AS parcelle, d.n_dpe, d.latitude, d.longitude"
+            "  FROM dpe d"
+            f" WHERE d.parcelle_carte IN ({trous})"
+            "   AND d.latitude IS NOT NULL AND d.longitude IS NOT NULL"
+            f"   AND {ou_dpe}"
+            " ORDER BY d.date_etablissement DESC, d.n_dpe",
+            vastes + parametres_dpe).fetchall()
+
+    par_parcelle = {}
+    for ligne in lignes:
+        par_parcelle.setdefault(ligne["parcelle"], []).append({
+            "n_dpe": ligne["n_dpe"],
+            "latitude": _arrondir(ligne["latitude"]),
+            "longitude": _arrondir(ligne["longitude"]),
+        })
+    for entree in resultats:
+        if entree.get("trop_vaste"):
+            entree["diagnostics"] = par_parcelle.get(entree["id"], [])
 
 
 def _dpe_sans_parcelle(code_insee, cadre, filtres_dpe=None, leger=False):

@@ -355,6 +355,22 @@ export function creerCarteExploration(identifiant,
       return { stroke: false, fillColor: etat.couleur, fillOpacity: 0.95,
                radius: 4 };
     }
+    // Trop vaste pour que sa couleur veuille dire quelque chose : on la
+    // CERNE au lieu de la remplir. Le contour dit « cette parcelle est
+    // concernée », les pastilles posées dessus disent ce qu'on sait
+    // vraiment. Un remplissage ténu subsiste pour qu'elle reste
+    // cliquable et qu'on la repère.
+    if (parcelle.trop_vaste) {
+      return {
+        color: etat.couleur,
+        weight: 2,
+        opacity: 0.9,
+        dashArray: null,
+        fillColor: etat.couleur,
+        fillOpacity: 0.12,
+        lineJoin: "round",
+      };
+    }
     const approchee = parcelleApprochee(parcelle)
       && etatParcelle(parcelle, couches) !== null;
     return {
@@ -372,6 +388,16 @@ export function creerCarteExploration(identifiant,
   function memeStyle(a, b) {
     return a && b && a.fillColor === b.fillColor && a.weight === b.weight
       && a.fillOpacity === b.fillOpacity && a.dashArray === b.dashArray;
+  }
+
+  /** La pastille d'un diagnostic posé à SA position, sur une parcelle trop vaste. */
+  function styleDuDiagnostic(parcelle, couches) {
+    const etat = ETATS_PARCELLE[etatParcelle(parcelle, couches)];
+    return {
+      color: "#FFFFFF", weight: 1.5, opacity: 1, radius: 5,
+      fillColor: etat ? etat.couleur : ETATS_PARCELLE.dpe.couleur,
+      fillOpacity: 1,
+    };
   }
 
   // Contours ou marques : passer de l'un à l'autre change la NATURE des
@@ -449,6 +475,8 @@ export function creerCarteExploration(identifiant,
           if (!memeStyle(connu.style, style)) {
             connu.forme.setStyle(style);
             connu.style = style;
+            const stylePastille = styleDuDiagnostic(parcelle, couches);
+            for (const pastille of connu.pastilles) pastille.setStyle(stylePastille);
           }
           connu.parcelle = parcelle;
           continue;
@@ -458,17 +486,39 @@ export function creerCarteExploration(identifiant,
           ? L.circleMarker([parcelle.latitude, parcelle.longitude],
                            { ...style, renderer: toile })
           : L.geoJSON(parcelle.geometrie, { style });
-        const entree = { forme, style, parcelle };
+        const entree = { forme, style, parcelle, pastilles: [] };
         // Le clic lit l'entrée, jamais la parcelle capturée à la création :
         // les comptes changent avec les filtres, la forme non.
         forme.on("click", () => surParcelle && surParcelle(entree.parcelle));
         forme.addTo(couche);
+
+        // Les diagnostics d'une parcelle trop vaste, posés à LEUR position.
+        // Ils sont peu nombreux — une trentaine de parcelles sur Mimizan —
+        // et doivent passer au-dessus du contour : le SVG ordinaire les
+        // empile dans l'ordre d'ajout, ce que la toile ne garantirait pas.
+        if (!marques && parcelle.trop_vaste) {
+          const stylePastille = styleDuDiagnostic(parcelle, couches);
+          for (const diagnostic of parcelle.diagnostics || []) {
+            if (diagnostic.latitude == null || diagnostic.longitude == null) continue;
+            const pastille = L.circleMarker(
+              [diagnostic.latitude, diagnostic.longitude], stylePastille);
+            pastille.bindTooltip("Diagnostic situé ici — la parcelle est trop "
+                                 + "vaste pour être colorée en entier");
+            pastille.on("click", (evenement) => {
+              L.DomEvent.stopPropagation(evenement);
+              if (surBien) surBien(diagnostic.n_dpe);
+            });
+            pastille.addTo(couche);
+            entree.pastilles.push(pastille);
+          }
+        }
         contours.set(parcelle.id, entree);
       }
 
       for (const [identifiant, entree] of contours) {
         if (vues.has(identifiant)) continue;
         couche.removeLayer(entree.forme);
+        for (const pastille of entree.pastilles) couche.removeLayer(pastille);
         contours.delete(identifiant);
       }
       return vues.size;
