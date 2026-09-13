@@ -81,6 +81,82 @@
   .filtres[data-replie="oui"] { display: none; }
 }
 
+/* --- Grand ecran : les filtres passent a GAUCHE ---------------------
+   Une rangee de filtres coute de la HAUTEUR, et la hauteur est ce dont
+   une carte manque. Pire, elle en coute d'autant plus que l'ecran est
+   etroit : la rangee passe a la ligne, et la carte recule. Mesure avant
+   ce changement, du plus large au plus etroit :
+
+       1920 x 1080 -> carte 1920 x 815  (75 % de la fenetre)
+       1440 x  900 -> carte 1440 x 635  (71 %)
+       1280 x  800 -> carte 1280 x 535  (67 %)
+       1100 x  800 -> carte 1100 x 462  (58 %)
+
+   En colonne, la place prise est CONSTANTE — 268 px — et prelevee sur la
+   largeur, qui ne manque pas sur un grand ecran. La carte reprend toute
+   la hauteur de la fenetre.
+
+   Le seuil est a 1 080 px : en dessous, une colonne de 268 px couterait
+   plus de carte qu'elle n'en rend, et le telephone garde ses filtres
+   replies. */
+@media (min-width: 1080px) {
+  #vue-carte {
+    display: grid;
+    grid-template-columns: 268px minmax(0, 1fr);
+  }
+  /* Tout le reste de l'ecran occupe la seconde colonne ; les `dialog`
+     fermes ne creent aucune case, et ouverts ils sont hors flux. */
+  #vue-carte > * { grid-column: 2; }
+
+  /* Selecteur plus SPECIFIQUE que celui du dessus, et pas seulement
+     postérieur : `#vue-carte > *` pese un identifiant, `.filtres` une
+     classe — la rangee de filtres se retrouvait dans la colonne 2 avec
+     tout le reste, et la carte gardait sa hauteur plancher. */
+  #vue-carte > #filtres {
+    grid-column: 1;
+    /* `1 / -1` ne marche pas ici : la derniere ligne d'une grille sans
+       rangees DECLAREES est la premiere, et la colonne des filtres ne
+       couvrait que la rangee 1 — qui prenait alors toute leur hauteur et
+       repoussait la carte de 600 px. Mesure : carte ramenee a son
+       plancher de 320 px. `span` compte les rangees implicites. */
+    grid-row: 1 / span 50;
+    /* `start` plutot que l'etirement par defaut : sans cela, `sticky`
+       n'a rien contre quoi coller. */
+    align-self: start;
+    position: sticky;
+    top: var(--bandeau-reel, 0px);
+    max-height: calc(100vh - var(--bandeau-reel, 0px));
+    overflow-y: auto;
+    /* Une seule piste : les criteres s'empilent au lieu de se ranger. */
+    grid-template-columns: minmax(0, 1fr);
+    gap: calc(var(--pas) * 3);
+    border-bottom: none;
+    border-right: 1px solid var(--trait);
+  }
+  /* Les `span` calcules pour une rangee large n'ont plus de sens dans
+     une colonne unique. */
+  .filtres .champ-large,
+  .filtres .champ-fenetre,
+  .couches { grid-column: span 1; }
+  .couches {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: calc(var(--pas) * 2);
+  }
+  .filtres .actions-filtres {
+    flex-direction: column;
+    align-items: stretch;
+    border-top: 1px solid var(--trait);
+    padding-top: calc(var(--pas) * 3);
+  }
+  /* Les commandes discretes se lisent comme des liens : alignees a
+     gauche, comme le reste de la colonne. Seul l'export, qui est un
+     vrai bouton, prend toute la largeur. */
+  .filtres .actions-filtres .bouton-discret { text-align: left; }
+  .filtres .actions-filtres #export-csv { text-align: center; }
+  .filtres .espaceur { display: none; }
+}
+
 /* --- Compteurs ---------------------------------------------------- */
 .compteurs {
   display: flex;
