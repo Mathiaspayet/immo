@@ -104,6 +104,46 @@
 .etat-libelle { font-size: 0.86rem; }
 .etat-effet { font-size: 0.82rem; color: var(--encre-douce); }
 
+/* Les atouts et défauts : même lecture que l'échelle d'état, l'effet
+   aligné à droite ; le signe se lit aussi à la couleur, discrètement. */
+.criteres {
+  margin: 0 0 calc(var(--pas) * 4);
+  padding: 0;
+  border: 0;
+}
+.criteres legend {
+  padding: 0;
+  margin-bottom: calc(var(--pas) * 1.5);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--encre-douce);
+}
+.critere-choix {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: calc(var(--pas) * 3);
+  min-height: 44px;
+  padding: calc(var(--pas) * 1.5) calc(var(--pas) * 2);
+  border-bottom: 1px dotted var(--trait);
+  cursor: pointer;
+}
+.critere-choix:first-of-type { border-top: 1px solid var(--trait); }
+.critere-choix input { accent-color: var(--pin); width: 18px; height: 18px; margin: 0; }
+.critere-choix:has(input:checked) { background: #E4EDE8; }
+.critere-libelle { font-size: 0.86rem; }
+.critere-effet { font-size: 0.82rem; }
+.critere-bonus { color: var(--pin); }
+.critere-malus { color: var(--alerte); }
+.criteres .aide { margin-top: calc(var(--pas) * 2); }
+
+.criteres-sources { margin: calc(var(--pas) * 2) 0 0; font-size: 0.8rem; }
+.criteres-sources summary { cursor: pointer; color: var(--atlantique); }
+.criteres-sources ul { margin: calc(var(--pas) * 2) 0; padding-left: 1.1rem; color: var(--encre-douce); }
+.criteres-sources li { margin-bottom: var(--pas); }
+
 .estimation-actions {
   display: flex;
   flex-wrap: wrap;

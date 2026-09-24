@@ -13,7 +13,7 @@ import logging
 
 from fastapi import APIRouter, Body, HTTPException, Query, Response
 
-from app.metier import estimation, references
+from app.metier import criteres, estimation, references
 from app.sources.client_http import ErreurSource
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ def bien(n_dpe: str = Query(None), parcelle_id: str = Query(None)):
                    if description["code_insee"] else None)
     return {"bien": description,
             "departement": estimation.etat_departement(departement) if departement else None,
-            "etats": estimation.etats()}
+            "etats": estimation.etats(), "criteres": criteres.liste()}
 
 
 @routeur.get("/departement/{departement}")
@@ -107,8 +107,8 @@ def estimer(corps: dict = Body(...)):
 
 @routeur.get("/etats")
 def etats():
-    """L'echelle d'etat du bati, avec l'effet de chaque niveau."""
-    return {"etats": estimation.etats()}
+    """L'echelle d'etat du bati, et les atouts et defauts, avec l'effet de chacun."""
+    return {"etats": estimation.etats(), "criteres": criteres.liste()}
 
 
 @routeur.get("/enregistrees")

@@ -45,7 +45,7 @@ import threading
 import numpy as np
 
 from app.base.connexion import connexion, transaction
-from app.metier import boosting, references
+from app.metier import boosting, criteres, references
 from app.metier.voisinage import Voisinage
 from app.sources import insee, loyers
 from app.sources.client_http import ErreurSource
@@ -1055,6 +1055,26 @@ def estimer(bien, saisie=None):
             facteur_etat = facteur_etat ** (1 - historique["poids"])
             libelle += " — effet réduit : l'ancien prix du bien le reflète déjà en partie"
         ajustements.append({"libelle": libelle, "facteur": facteur_etat})
+
+    # Les atouts et defauts coches : la vue, le bruit, la piscine... tout ce
+    # que les ventes ne disent pas. Comme l'etat, ils ne portent que sur la
+    # part « bien type » du calcul quand l'ancien prix du bien est connu :
+    # une vue mer, il l'avait deja.
+    retenus, brut, borne = criteres.retenir(saisie.get("criteres"), type_bien)
+    attenuation = 1 - historique["poids"] if historique else 1.0
+    for critere in retenus:
+        ajustements.append({
+            "libelle": critere["libelle"] + (" (réduit : l'ancien prix en tient déjà compte)"
+                                             if historique else ""),
+            "facteur": (1 + critere["effet"]) ** attenuation, "critere": critere["cle"]})
+    if borne != brut:
+        ajustements.append({
+            "libelle": (f"Atouts et défauts bornés entre −{round((1 - criteres.PLANCHER) * 100)} % "
+                        f"et +{round((criteres.PLAFOND - 1) * 100)} % : ils se recouvrent en partie, "
+                        "et au-delà le bien sort de ce que ses voisins permettent de juger"),
+            "facteur": (borne / brut) ** attenuation})
+    facteur_criteres = borne ** attenuation
+
     try:
         perso = float(saisie.get("ajustement") or 0)
     except (TypeError, ValueError):
@@ -1064,7 +1084,7 @@ def estimer(bien, saisie=None):
         ajustements.append({"libelle": f"Ajustement personnel : {saisie.get('raison') or 'sans motif'}",
                             "facteur": 1 + perso / 100})
 
-    centre = marche * facteur_marche * facteur_etat * (1 + perso / 100)
+    centre = marche * facteur_marche * facteur_etat * facteur_criteres * (1 + perso / 100)
     bas_r, haut_r = (precision["bas"], precision["haut"]) if precision else (-0.4, 0.35)
     if travaux:
         ajustements.append({"libelle": "Travaux à prévoir", "montant": -travaux})
@@ -1088,7 +1108,10 @@ def estimer(bien, saisie=None):
                      "brut": location["loyer_m2"] * 12 * surface / valeur}
 
     ne_sait_pas = [
-        "L'état intérieur, les finitions, la vue, une piscine : aucune base publique ne les connaît.",
+        ("Les atouts et défauts cochés appliquent des repères publiés, pas des mesures de ce "
+         "secteur : le bilan de vos estimations dira s'ils tombent juste ici." if retenus else
+         "La vue, le bruit, une piscine, les finitions : aucune base publique ne les connaît. "
+         "Cochez les atouts et défauts du bien pour en tenir compte."),
         "Une vente hors marché (viager, vente entre proches) parmi les comparables fausse leur médiane.",
     ]
     if pieces_estimees:
@@ -1105,7 +1128,8 @@ def estimer(bien, saisie=None):
         "donnees": {"periode": m["periode"], "ventes": m["ventes"].get(type_bien)},
         "bien": {**bien, "pieces_estimees": pieces_estimees, "terrain_estime": terrain_estime},
         "saisie": {"etat": None if travaux else etat, "travaux": travaux, "ajustement": perso,
-                   "raison": saisie.get("raison") or ""},
+                   "raison": saisie.get("raison") or "",
+                   "criteres": [critere["cle"] for critere in retenus]},
         "methodes": methodes,
         "croisement": round(croise),
         "historique": historique,
@@ -1389,13 +1413,22 @@ def bilan():
         "ecart_median": float(np.median(ecarts) * 100),
         "dans_la_fourchette": float(np.mean(dedans) * 100) if dedans else None,
     })
-    par_etat = {}
+    par_etat, par_critere = {}, {}
     for ligne, ecart in zip(lignes, ecarts.tolist()):
         saisie = json.loads(ligne["saisie_json"] or "{}")
         cle = "travaux" if saisie.get("travaux") else (saisie.get("etat") or ETAT_DE_REFERENCE)
         par_etat.setdefault(cle, []).append(ecart)
+        for critere in saisie.get("criteres") or []:
+            par_critere.setdefault(critere, []).append(ecart)
     resultat["par_etat"] = {cle: {"n": len(valeurs), "ecart_median": float(np.median(valeurs) * 100)}
                             for cle, valeurs in par_etat.items()}
+    # Critere par critere : si les biens coches « vue mer » se vendent
+    # systematiquement au-dessus de l'estimation, son coefficient est trop
+    # faible ICI. C'est ce qui permettra de passer de reperes nationaux a
+    # des mesures locales.
+    resultat["par_critere"] = {cle: {"libelle": criteres.libelle(cle), "n": len(valeurs),
+                                     "ecart_median": float(np.median(valeurs) * 100)}
+                               for cle, valeurs in par_critere.items()}
     return resultat
 
 

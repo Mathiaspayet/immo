@@ -498,6 +498,23 @@ ce qui reste d'erreur. L'échelle est celle du coefficient d'entretien du
 code général des impôts, recentrée sur « assez bon » (état d'usage courant) :
 de +9 % pour « bon » à −27 % pour « mauvais ». Ou bien un montant de travaux.
 
+**Les atouts et défauts se cochent.** Vingt-six critères que les ventes
+ignorent, chacun avec son coefficient : vue mer (+20 % dégagée, +8 %
+partielle), calme ou rue passante (+3 % / −8 %, −15 % pour une forte
+nuisance), vis-à-vis (+4 % / −8 %), exposition, voisinage difficile (−8 %),
+zone inondable ou érosion du littoral (−8 %), standing (+10 % / −6 %),
+architecture remarquable (+8 %), performance énergétique (+10 % pour A-B,
+−12 % pour F-G), domotique (+1 %), piscine (+10 %), mitoyenneté (−7 %), et
+pour un appartement l'étage, l'ascenseur, le balcon ou la terrasse, l'état
+de la copropriété. Les coefficients viennent de mesures publiées — valeur
+verte des notaires, bruit selon l'ADEME, étage et extérieurs selon les
+études hédoniques, risque d'inondation selon le ministère —, pris dans le
+bas des fourchettes : ces études comparent souvent un bien à un autre situé
+ailleurs, alors qu'ici il l'est déjà à ses voisins. Les critères qui
+s'excluent ne se cumulent pas, et le total est borné entre −35 et +40 %.
+Ce sont des repères nationaux : le bilan des estimations les confronte,
+critère par critère, aux prix réellement payés dans votre secteur.
+
 **Le DPE n'entre pas dans le calcul.** Relié à 833 ventes de maisons, il ne
 réduit pas l'erreur (16,0 % sans, 16,2 % avec) : son effet est déjà dans
 l'âge et le secteur. L'année de construction, elle, sert à la vétusté.
@@ -709,6 +726,7 @@ app/
 │   ├── voisinage.py         F8 — plus proches voisins, exacts, en grille
 │   ├── estimation.py        F8 — méthodes, auto-évaluation, estimation, bilan
 │   ├── boosting.py          F8 — gradient boosting (LightGBM)
+│   ├── criteres.py          F8 — atouts et défauts, et leurs coefficients
 ├── api/             routes HTTP — ne font que traduire en JSON
 └── web/             interface : HTML, CSS, modules ES natifs
 ```

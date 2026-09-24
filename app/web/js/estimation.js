@@ -23,6 +23,7 @@ const ecran = {
   saisie: null,          // état, travaux, ajustement
   departement: null,     // ventes chargées, modèle appris, précision
   etats: [],             // l'échelle d'état du bâti
+  criteres: [],          // les atouts et défauts, avec leur coefficient
   resultat: null,        // la dernière estimation
   enregistree: null,     // l'identifiant, si elle a été gardée
   retour: "carte",
@@ -37,6 +38,15 @@ const PRINCIPES = {
   hedonique: "régression sur les ventes du département : surface, terrain, pièces, commune",
   sol_construction: "terrains à bâtir voisins + bâti à neuf moins son usure, calé sur le marché",
   boosting: "des centaines d'arbres de décision appris sur le département, nourris des prix voisins",
+};
+
+// Les atouts et défauts, par thème : on les parcourt comme on visite, du
+// dehors vers le dedans.
+const THEMES_CRITERES = {
+  emplacement: "L'emplacement, à l'échelle du bien",
+  bati: "Le bâti et ses prestations",
+  maison: "Pour une maison",
+  appartement: "Pour un appartement",
 };
 
 const LIBELLES_ETATS = {
@@ -83,7 +93,8 @@ export async function ouvrirEstimation({ n_dpe = null, parcelle_id = null,
   }
   Object.assign(ecran, {
     bien: reponse.bien, departement: reponse.departement, etats: reponse.etats,
-    saisie: { etat: "assez_bon", travaux: 0, ajustement: 0, raison: "" },
+    criteres: reponse.criteres || [],
+    saisie: { etat: "assez_bon", travaux: 0, ajustement: 0, raison: "", criteres: [] },
     resultat: null, enregistree: null,
   });
   dessiner();
@@ -116,8 +127,9 @@ export async function ouvrirEstimationEnregistree(ident, { sansHistorique = fals
             n_dpe: gardee.n_dpe, parcelle_id: gardee.parcelle_id,
             pieces: resultat.bien.pieces_estimees ? null : resultat.bien.pieces,
             terrain_m2: resultat.bien.terrain_estime ? null : resultat.bien.terrain_m2 },
-    saisie: { etat: "assez_bon", travaux: 0, ajustement: 0, raison: "", ...gardee.saisie },
-    departement, etats: etats.etats, resultat, enregistree: gardee,
+    saisie: { etat: "assez_bon", travaux: 0, ajustement: 0, raison: "", criteres: [],
+              ...gardee.saisie },
+    departement, etats: etats.etats, criteres: etats.criteres || [], resultat, enregistree: gardee,
   });
   dessiner();
 }
@@ -326,8 +338,10 @@ function formulaire() {
           </div>
         </div>
         ${b.etiquette_dpe ? `<p class="aide">Classe énergie ${echapper(b.etiquette_dpe)} :
-          elle n'entre pas dans le calcul. Mesuré sur 833 maisons du Born, le DPE
-          n'améliore pas la précision — son effet est déjà dans l'âge et le secteur.</p>` : ""}
+          elle n'entre pas d'elle-même dans le calcul — mesuré sur 833 maisons du Born,
+          elle n'améliore pas la précision, son effet étant déjà dans l'âge et le secteur.
+          Si le bien fait nettement mieux ou moins bien que ses voisins, cochez-le
+          dans «&nbsp;Atouts et défauts&nbsp;».</p>` : ""}
       </section>
 
       <section>
@@ -354,11 +368,33 @@ function formulaire() {
       </section>
 
       <section>
+        <h2>Atouts et défauts</h2>
+        <p class="explication">
+          Ce que les ventes ne disent pas&nbsp;: la vue, le bruit, une piscine,
+          le vis-à-vis… L'estimation représente un bien ordinaire de son
+          secteur&nbsp;; cochez ce qui écarte celui-ci de ses voisins. Les
+          coefficients sont des repères publiés, pris dans le bas des
+          fourchettes, et leur cumul est borné.
+        </p>
+        ${sectionsCriteres(b, s)}
+        <details class="criteres-sources">
+          <summary>D'où viennent ces coefficients&nbsp;?</summary>
+          <ul>${ecran.criteres.map((c) => `
+            <li><strong>${echapper(c.libelle)}</strong>
+              <span class="donnee">${c.effet > 0 ? "+" : ""}${c.effet}&nbsp;%</span>
+              — ${echapper(c.repere)}</li>`).join("")}
+          </ul>
+          <p class="aide">Ce sont des repères nationaux. Le bilan de vos
+            estimations, dans «&nbsp;Mes estimations&nbsp;», dira critère par
+            critère s'ils tombent juste dans votre secteur.</p>
+        </details>
+      </section>
+
+      <section>
         <h2>Votre appréciation</h2>
         <p class="explication">
-          Une vue, une piscine, une nuisance&nbsp;: ce que vous savez et que les
-          données ignorent. L'ajustement est borné à 30&nbsp;% et reste affiché
-          à part, avec sa raison.
+          Ce que ni les données ni les cases ci-dessus ne disent. L'ajustement
+          est borné à 30&nbsp;% et reste affiché à part, avec sa raison.
         </p>
         <div class="grille-champs">
           ${champNombre("e-ajustement", "Ajustement", s.ajustement || null,
@@ -366,7 +402,7 @@ function formulaire() {
           <div class="champ">
             <label for="e-raison">Raison</label>
             <input type="text" id="e-raison" maxlength="120" value="${echapper(s.raison || "")}"
-                   placeholder="vue sur le lac, piscine…">
+                   placeholder="jardin très soigné, rue recherchée…">
           </div>
         </div>
       </section>
@@ -378,6 +414,32 @@ function formulaire() {
         ${pret ? "" : '<span class="aide">Chargez d\'abord les ventes du département.</span>'}
       </p>
     </form>`;
+}
+
+/**
+ * Les cases des atouts et défauts, par thème. Celles d'un autre type de
+ * bien sont posées mais masquées : changer de type ne redessine rien.
+ */
+function sectionsCriteres(b, s) {
+  const coches = new Set(s.criteres || []);
+  return Object.entries(THEMES_CRITERES).map(([theme, titre]) => {
+    const liste = ecran.criteres.filter((c) => c.theme === theme);
+    if (!liste.length) return "";
+    return `
+      <fieldset class="criteres" data-theme="${theme}">
+        <legend>${titre}</legend>
+        ${liste.map((c) => `
+          <label class="critere-choix" data-types="${c.types.join(" ")}">
+            <input type="checkbox" name="critere" value="${c.cle}"
+                   data-groupe="${c.groupe || ""}" ${coches.has(c.cle) ? "checked" : ""}>
+            <span class="critere-libelle">${echapper(c.libelle)}</span>
+            <span class="critere-effet donnee ${c.effet < 0 ? "critere-malus" : "critere-bonus"}">${
+              c.effet > 0 ? "+" : ""}${c.effet}&nbsp;%</span>
+          </label>`).join("")}
+        ${theme === "bati" && b.etiquette_dpe ? `<p class="aide">Classe énergie du diagnostic&nbsp;:
+          <strong>${echapper(b.etiquette_dpe)}</strong>.</p>` : ""}
+      </fieldset>`;
+  }).join("");
 }
 
 function valeurNombre(id) {
@@ -407,19 +469,47 @@ function lireFormulaire() {
     travaux: valeurNombre("e-travaux") || 0,
     ajustement: valeurNombre("e-ajustement") || 0,
     raison: $("#e-raison").value.trim(),
+    // Les cases d'un autre type de bien sont décochées en le masquant.
+    criteres: [...formulaire.querySelectorAll('input[name="critere"]:checked')]
+      .map((caseCochee) => caseCochee.value),
   };
 }
 
 function ajusterFormulaire() {
-  const type = $("#estimation-formulaire")?.querySelector('input[name="type"]:checked')?.value;
+  const formulaire = $("#estimation-formulaire");
+  const type = formulaire?.querySelector('input[name="type"]:checked')?.value;
   // Le terrain d'un appartement est celui de la copropriété : il ne dit rien du lot.
   $("#e-bloc-terrain").hidden = type === "appartement";
   $("#e-etats").disabled = (valeurNombre("e-travaux") || 0) > 0;
+  // Une piscine pour un appartement, un étage pour une maison : masqués, et
+  // décochés — sinon ils partiraient avec la demande sans qu'on les voie.
+  formulaire.querySelectorAll(".critere-choix").forEach((choix) => {
+    const applicable = (choix.dataset.types || "").split(" ").includes(type);
+    choix.hidden = !applicable;
+    if (!applicable) choix.querySelector("input").checked = false;
+  });
+  formulaire.querySelectorAll("fieldset.criteres").forEach((groupe) => {
+    groupe.hidden = !groupe.querySelector(".critere-choix:not([hidden])");
+  });
+}
+
+/** « Vue mer » et « vue mer partielle » s'excluent : cocher l'une décoche l'autre. */
+function exclureDansLeGroupe(evenement) {
+  const caseCochee = evenement.target;
+  if (caseCochee.name !== "critere" || !caseCochee.checked || !caseCochee.dataset.groupe) return;
+  $("#estimation-formulaire").querySelectorAll('input[name="critere"]').forEach((autre) => {
+    if (autre !== caseCochee && autre.dataset.groupe === caseCochee.dataset.groupe) {
+      autre.checked = false;
+    }
+  });
 }
 
 function brancherFormulaire() {
   const formulaire = $("#estimation-formulaire");
-  formulaire.addEventListener("change", ajusterFormulaire);
+  formulaire.addEventListener("change", (evenement) => {
+    exclureDansLeGroupe(evenement);
+    ajusterFormulaire();
+  });
   $("#e-travaux").addEventListener("input", ajusterFormulaire);
   formulaire.addEventListener("submit", (evenement) => {
     evenement.preventDefault();
@@ -805,6 +895,10 @@ function blocBilan(bilan) {
     `<li><span class="donnee">${ecartSigne(e.ecart_median / 100)}</span> pour
        l'état «&nbsp;${echapper(LIBELLES_ETATS[cle] || cle)}&nbsp;» (${entierFr.format(e.n)}
        vente${e.n > 1 ? "s" : ""})</li>`).join("");
+  const criteres = Object.values(bilan.par_critere || {}).map((c) =>
+    `<li><span class="donnee">${ecartSigne(c.ecart_median / 100)}</span> pour
+       «&nbsp;${echapper(c.libelle)}&nbsp;» (${entierFr.format(c.n)}
+       vente${c.n > 1 ? "s" : ""})</li>`).join("");
   return `
     <div class="estimations-bilan">
       <p>
@@ -818,6 +912,10 @@ function blocBilan(bilan) {
       <p class="explication">Écart médian entre le prix payé et l'estimation, selon l'état
         que vous aviez saisi — positif, le bien s'est vendu plus cher qu'estimé&nbsp;:</p>
       <ul class="liste-raisons">${etats}</ul>
+      ${criteres ? `<p class="explication">Et selon les atouts et défauts cochés — un écart
+        qui revient dans le même sens dira que le coefficient ne convient pas à votre
+        secteur&nbsp;:</p>
+      <ul class="liste-raisons">${criteres}</ul>` : ""}
     </div>`;
 }
 

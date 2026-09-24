@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 from app.base.connexion import connexion, transaction
 from app.main import application
-from app.metier import boosting, estimation, references
+from app.metier import boosting, criteres, estimation, references
 from app.metier.voisinage import Voisinage
 from app.sources import insee, loyers
 from app.sources.client_http import ErreurSource
@@ -530,6 +530,89 @@ def test_l_entretien_ne_reprend_que_ce_qui_a_change(departement, monkeypatch):
 
 
 # =====================================================================
+#  Les atouts et defauts
+# =====================================================================
+def test_un_atout_s_applique_a_son_coefficient(departement):
+    reference = estimation.estimer(_bien(), {})["valeur"]
+    avec_vue = estimation.estimer(_bien(), {"criteres": ["vue_mer"]})
+    assert avec_vue["valeur"] / reference == pytest.approx(1.20, rel=0.002)
+    assert avec_vue["saisie"]["criteres"] == ["vue_mer"]
+    assert {"libelle": "Vue mer dégagée", "facteur": 1.2, "critere": "vue_mer"} in avec_vue["ajustements"]
+    bruit = estimation.estimer(_bien(), {"criteres": ["rue_passante", "vis_a_vis"]})["valeur"]
+    assert bruit / reference == pytest.approx(0.92 * 0.92, rel=0.002)
+
+
+def test_le_cumul_des_atouts_est_borne(departement):
+    reference = estimation.estimer(_bien(), {})["valeur"]
+    tout = ["vue_mer", "standing", "architecture", "piscine", "sans_vis_a_vis", "lumineux", "calme"]
+    resultat = estimation.estimer(_bien(), {"criteres": tout})
+    assert resultat["valeur"] / reference == pytest.approx(criteres.PLAFOND, rel=0.002)
+    assert any("bornés" in a["libelle"] for a in resultat["ajustements"])
+    defauts = ["nuisance_forte", "vis_a_vis", "sombre", "voisinage", "risque", "passoire",
+               "prestations_modestes", "mitoyenne"]
+    assert (estimation.estimer(_bien(), {"criteres": defauts})["valeur"] / reference
+            == pytest.approx(criteres.PLANCHER, rel=0.002))
+
+
+@pytest.mark.parametrize("coches, message", [
+    (["inconnu"], "inconnu"),
+    (["rdc"], "ne s'applique pas à une maison"),
+    (["vue_mer", "vue_mer_partielle"], "s'excluent"),
+    (["calme", "rue_passante"], "s'excluent"),
+])
+def test_les_atouts_incoherents_sont_refuses(departement, coches, message):
+    with pytest.raises(ValueError, match=message):
+        estimation.estimer(_bien(), {"criteres": coches})
+
+
+def test_un_atout_d_appartement_s_applique_a_un_appartement(departement):
+    appartement = _bien(type_bien="appartement", surface=55, terrain=0)
+    reference = estimation.estimer(appartement, {})["valeur"]
+    rdc = estimation.estimer(appartement, {"criteres": ["rdc", "grande_terrasse"]})["valeur"]
+    assert rdc / reference == pytest.approx(0.90 * 1.10, rel=0.002)
+    with pytest.raises(ValueError, match="ne s'applique pas à un appartement"):
+        estimation.estimer(appartement, {"criteres": ["piscine"]})
+
+
+def test_un_bien_deja_vendu_garde_ses_atouts_dans_son_ancien_prix(departement):
+    """Une vue mer, le bien l'avait deja a sa vente precedente : l'atout ne
+    porte que sur la part « bien type » du calcul."""
+    revente = next(v for v in departement["ventes"] if v[1].startswith("R"))
+    bien = _bien(revente[2], surface=revente[7], terrain=revente[9], parcelle_id=revente[14])
+    bien["latitude"], bien["longitude"] = revente[12], revente[13]
+    reference = estimation.estimer(bien, {})["valeur"]
+    avec_vue = estimation.estimer(bien, {"criteres": ["vue_mer"]})
+    assert avec_vue["valeur"] / reference == pytest.approx(1.20 ** (1 / 3), rel=0.002)
+    assert "ancien prix" in avec_vue["ajustements"][0]["libelle"]
+
+
+def test_le_bilan_se_lit_aussi_par_critere(departement):
+    resultat = estimation.estimer(_bien(parcelle_id="99004000ZZ0003"), {"criteres": ["piscine"]})
+    estimation.enregistrer(resultat)
+    _vente_apres("99004000ZZ0003", datetime.date.today().isoformat(),
+                 round(resultat["valeur"] * 0.95), 100, ident="VENTE-PISCINE")
+    assert estimation.rapprocher(DEP) == 1
+    par_critere = estimation.bilan()["par_critere"]
+    assert par_critere["piscine"]["libelle"] == "Piscine"
+    assert par_critere["piscine"]["ecart_median"] == pytest.approx(-5, abs=0.1)
+
+
+def test_le_catalogue_est_coherent():
+    catalogue = criteres.liste()
+    assert len({c["cle"] for c in catalogue}) == len(catalogue)
+    for c in catalogue:
+        assert c["theme"] in criteres.THEMES and c["repere"]
+        assert -20 <= c["effet"] <= 20 and c["effet"] != 0
+        assert set(c["types"]) <= {"maison", "appartement"}
+    # Un groupe exclusif reunit des criteres du meme type de bien.
+    groupes = {}
+    for c in catalogue:
+        if c["groupe"]:
+            groupes.setdefault(c["groupe"], set()).add(tuple(c["types"]))
+    assert all(len(types) == 1 for types in groupes.values())
+
+
+# =====================================================================
 #  Le gradient boosting
 # =====================================================================
 @pytest.mark.parametrize("methode", ["grille", "auto"])
@@ -679,6 +762,8 @@ def test_route_bien_et_departement(client, base, monkeypatch):
     corps = reponse.json()
     assert corps["departement"]["departement"] == "40" and corps["departement"]["pret"] is False
     assert [e["cle"] for e in corps["etats"]][:2] == ["bon", "assez_bon"]
+    assert "vue_mer" in {c["cle"] for c in corps["criteres"]}
+    assert client.get("/api/estimation/etats").json()["criteres"] == corps["criteres"]
     assert client.get("/api/estimation/bien").status_code == 400
     assert client.get("/api/estimation/bien?n_dpe=ABSENT").status_code == 404
 
