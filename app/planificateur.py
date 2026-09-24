@@ -16,7 +16,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app import config
 from app.base import reglages, sauvegarde
-from app.metier import alerte_ventes, alertes, import_dpe, mutations
+from app.metier import alerte_ventes, alertes, estimation, import_dpe, mutations
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,7 @@ def _tache():
         logger.error("alerte en echec : %s", erreur)
 
     _ventes()
+    _estimation()
     _sauvegarder()
 
 
@@ -118,6 +119,21 @@ def _ventes():
             logger.info("pas d'alerte ventes (%s)", resultat["raison"])
     except Exception as erreur:                     # noqa: BLE001
         logger.error("alerte ventes en echec : %s", erreur)
+
+
+def _estimation():
+    """
+    Tient a jour ce dont l'estimation a besoin : les ventes des departements
+    deja charges quand DVF publie un millesime, l'indice Notaires-Insee et
+    la carte des loyers quand ils ont vieilli.
+
+    Rien n'est charge pour un departement ou l'on n'a jamais estime : c'est
+    la premiere estimation qui le fait, a la demande.
+    """
+    try:
+        estimation.entretenir()
+    except Exception as erreur:                     # noqa: BLE001
+        logger.error("entretien de l'estimation en echec : %s", erreur)
 
 
 def horaire():

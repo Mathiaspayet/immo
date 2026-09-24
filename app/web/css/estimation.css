@@ -1,0 +1,208 @@
+/* ====================================================================
+   estimation.css — Estimer un bien, et la liste des estimations.
+
+   Même registre que la fiche : un document d'expertise, pas un
+   simulateur d'agence. Le chiffre est grand, mais sa fourchette et sa
+   fiabilité sont dessous, à la même taille que le reste — c'est le
+   calcul qui doit se lire, pas seulement son résultat.
+   ==================================================================== */
+
+#vue-estimation { max-width: 980px; }
+
+.visuellement-cache {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.surtitre {
+  margin: 0 0 var(--pas);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--encre-douce);
+}
+
+.estimation-tete { margin-bottom: calc(var(--pas) * 4); }
+.estimation-tete h1 { font-size: 1.35rem; line-height: 1.25; }
+.estimation-tete .explication { margin-top: var(--pas); }
+
+.estimation-modele { font-size: 0.8rem; }
+
+.estimation-preparer {
+  margin-bottom: calc(var(--pas) * 6);
+  padding: calc(var(--pas) * 4) calc(var(--pas) * 5);
+  background: var(--papier-carte);
+  border: 1px solid var(--trait);
+  border-left: 3px solid var(--ambre);
+}
+.estimation-preparer .message { margin-top: calc(var(--pas) * 3); border-bottom: 0; }
+
+.aide {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--encre-douce);
+  max-width: 62ch;
+}
+
+/* --- Le formulaire ------------------------------------------------- */
+.estimation-formulaire section { padding-bottom: calc(var(--pas) * 4); }
+.estimation-formulaire input[type="number"],
+.estimation-formulaire input[type="text"] { width: 100%; min-width: 0; }
+
+.types-bien {
+  display: flex;
+  gap: calc(var(--pas) * 2);
+  margin: calc(var(--pas) * 2) 0 calc(var(--pas) * 4);
+}
+.type-choix {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pas) * 2);
+  min-height: 44px;
+  padding: calc(var(--pas) * 2) calc(var(--pas) * 4);
+  border: 1px solid var(--trait-fort);
+  border-radius: var(--rayon);
+  background: var(--papier-carte);
+  cursor: pointer;
+  font-weight: 600;
+}
+.type-choix input { accent-color: var(--pin); width: 18px; height: 18px; margin: 0; }
+.type-choix:has(input:checked) { border-color: var(--pin); box-shadow: inset 0 0 0 1px var(--pin); }
+
+.cases-bien {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pas) * 2) calc(var(--pas) * 6);
+  margin-bottom: calc(var(--pas) * 3);
+}
+
+/* L'échelle d'état : cinq lignes, l'effet aligné à droite en chasse fixe
+   pour qu'on lise d'un coup d'œil ce que coûte chaque cran. */
+.etats {
+  margin: 0 0 calc(var(--pas) * 4);
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--trait);
+}
+.etats:disabled { opacity: 0.45; }
+.etat-choix {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: calc(var(--pas) * 3);
+  min-height: 44px;
+  padding: calc(var(--pas) * 1.5) calc(var(--pas) * 2);
+  border-bottom: 1px dotted var(--trait);
+  cursor: pointer;
+}
+.etat-choix input { accent-color: var(--pin); width: 18px; height: 18px; margin: 0; }
+.etat-choix:has(input:checked) { background: #E4EDE8; }
+.etat-libelle { font-size: 0.86rem; }
+.etat-effet { font-size: 0.82rem; color: var(--encre-douce); }
+
+.estimation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--pas) * 3);
+  margin: calc(var(--pas) * 2) 0 calc(var(--pas) * 6);
+}
+.estimation-actions .bouton-principal { min-width: 10rem; }
+
+/* --- Le résultat --------------------------------------------------- */
+/* Le résultat se fait défiler jusqu'en haut de l'écran : sans marge, il
+   glisserait sous le bandeau et la barre de retour, qui restent collés. */
+#estimation-resultat { scroll-margin-top: calc(var(--bandeau-reel) + 64px); }
+.estimation-verdict {
+  padding: calc(var(--pas) * 5) calc(var(--pas) * 5) calc(var(--pas) * 2);
+  background: var(--papier-carte);
+  border: 1px solid var(--trait-fort);
+  border-top: 3px solid var(--pin);
+}
+.reglages section.estimation-verdict { border-bottom: 1px solid var(--trait-fort); }
+.estimation-valeur {
+  margin: 0;
+  font-size: clamp(1.9rem, 6vw, 2.6rem);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.estimation-fourchette { margin: calc(var(--pas) * 2) 0 calc(var(--pas) * 3); font-size: 0.95rem; }
+
+.fiabilite {
+  display: inline-block;
+  padding: 2px calc(var(--pas) * 2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+}
+.fiabilite-bonne   { color: var(--pin); background: #E4EDE8; }
+.fiabilite-moyenne { color: #7A5A12; background: #FBF3DF; }
+.fiabilite-faible  { color: #6E2318; background: #F7E6E3; }
+
+.liste-raisons { margin: calc(var(--pas) * 2) 0 0; padding-left: 1.1rem; }
+.liste-raisons li { margin-bottom: var(--pas); }
+
+/* Le calcul, ligne à ligne : le chiffre en colonne, l'explication à côté. */
+.estimation-calcul { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+.estimation-calcul th {
+  text-align: left;
+  font-weight: 500;
+  padding: calc(var(--pas) * 2) calc(var(--pas) * 3) calc(var(--pas) * 2) 0;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.estimation-calcul td {
+  padding: calc(var(--pas) * 2) calc(var(--pas) * 3) calc(var(--pas) * 2) 0;
+  border-top: 1px dotted var(--trait);
+  vertical-align: top;
+}
+.estimation-calcul th { border-top: 1px dotted var(--trait); }
+.estimation-calcul td.donnee { text-align: right; white-space: nowrap; }
+.estimation-calcul .detail { color: var(--encre-douce); font-size: 0.78rem; }
+.estimation-calcul .ligne-somme th,
+.estimation-calcul .ligne-somme td { border-top: 1px solid var(--trait-fort); font-weight: 600; }
+.estimation-calcul .ligne-finale th,
+.estimation-calcul .ligne-finale td { border-top: 2px solid var(--encre); }
+
+.estimation-decomposition .part {
+  display: inline-block;
+  min-width: 3.2em;
+  margin-left: calc(var(--pas) * 2);
+  color: var(--encre-douce);
+  text-align: right;
+}
+
+.estimation-comparables { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.estimation-comparables th {
+  text-align: left;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--encre-douce);
+  padding: calc(var(--pas) * 2);
+  border-bottom: 1px solid var(--trait-fort);
+  white-space: nowrap;
+}
+.estimation-comparables td {
+  padding: calc(var(--pas) * 2);
+  border-bottom: 1px solid var(--papier-creux);
+  vertical-align: top;
+}
+.estimation-comparables td.donnee { white-space: nowrap; }
+
+/* L'entrée depuis la fiche. */
+.fiche-estimer { margin: calc(var(--pas) * 4) 0 0; }
+.fiche-estimer .bouton { width: 100%; }
+
+@media (max-width: 640px) {
+  .estimation-calcul th { white-space: normal; }
+  .estimation-verdict { padding: calc(var(--pas) * 4) calc(var(--pas) * 3) calc(var(--pas) * 1); }
+}

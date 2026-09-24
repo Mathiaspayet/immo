@@ -4,3 +4,7 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 apscheduler==3.11.0
 certifi==2024.12.14
+# L'estimation (F8) : regressions et voisinages sur les ventes d'un
+# departement, soit jusqu'a 115 000 ventes. Une roue precompilee de 70 Mo,
+# sans chaine de compilation.
+numpy==2.4.6

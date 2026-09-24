@@ -30,6 +30,7 @@ Spécification complète : [`CAHIER_DES_CHARGES.md`](CAHIER_DES_CHARGES.md).
 | Alerte courriel des nouveaux DPE (F6) | livré |
 | Écran Réglages, export CSV | livrés |
 | **F3** Cadastre, croisement avec les DPE | livrée |
+| **F8** Estimation de la valeur d'un bien | phase 1 livrée |
 | **F5/F6** Suivi, notes, notifications | lot 4 |
 
 Sur un import réel du code postal 40200 : **7 593 DPE**, des trois bases de
@@ -451,6 +452,61 @@ Un test rejoue ce chemin pour de bon, sur une base montée jusqu'au 006
 puis migrée : il ne s'emprunte qu'une fois par base, et ne casserait pas un
 test au passage — il enverrait un courriel absurde le jour de la parution.
 
+### L'estimation (F8)
+
+« Estimer ce bien », sur la fiche d'un diagnostic ou d'une parcelle : une
+valeur, une fourchette, une fiabilité — et surtout de quoi les juger. Les
+choix viennent d'une étude sur les ventes 2021-2025 de seize départements,
+chaque méthode apprise sur le passé et jugée sur l'année suivante.
+
+**Plusieurs méthodes, croisées.** Ventes comparables, régression hédonique,
+et pour une maison sol + construction (terrains à bâtir voisins, plus le
+bâti à neuf moins son usure). Leur moyenne géométrique bat chacune d'elles
+partout : chacune se trompe différemment.
+
+**L'historique du bien d'abord.** Un bien déjà vendu s'estime bien mieux :
+l'ancien prix contient l'état, la vue, la piscine. Il pèse les deux tiers
+pour une maison — une maison revendue vaut en moyenne 9 à 12 % de plus que
+la maison type de son secteur, et le croisement seul la sous-évalue.
+
+**Le département est l'échelle d'apprentissage.** Un modèle régional ne fait
+jamais mieux, même pour la Creuse ; une commune seule est trop maigre. La
+première estimation dans un département en charge les cinq millésimes DVF —
+une demi-minute pour les Landes, 34 376 ventes —, le planificateur les
+reprend à chaque parution.
+
+**L'application mesure sa propre précision.** À chaque apprentissage, elle
+refait tout le calcul sur les ventes d'avant la dernière année et le
+confronte aux prix de cette année-là. La fourchette affichée — huit chances
+sur dix — vient de ces erreurs réelles :
+
+| Erreur médiane mesurée | Maisons | déjà vendues | Appartements | déjà vendus |
+|---|---|---|---|---|
+| Landes | 18,3 % | 11,4 % | 12,0 % | 10,2 % |
+| Gironde | 17,6 % | 11,9 % | 12,1 % | 9,9 % |
+| Creuse | 31,6 % | 16,2 % | 18,7 % | 17,2 % |
+
+**L'état du bâti se saisit** : rien, dans les données, ne le mesure, et c'est
+ce qui reste d'erreur. L'échelle est celle du coefficient d'entretien du
+code général des impôts, recentrée sur « assez bon » (état d'usage courant) :
+de +9 % pour « bon » à −27 % pour « mauvais ». Ou bien un montant de travaux.
+
+**Le DPE n'entre pas dans le calcul.** Relié à 833 ventes de maisons, il ne
+réduit pas l'erreur (16,0 % sans, 16,2 % avec) : son effet est déjà dans
+l'âge et le secteur. L'année de construction, elle, sert à la vétusté.
+
+**Le marché récent vient de l'indice Notaires-Insee.** DVF paraît avec six
+mois de retard ; l'indice de la zone officielle la plus proche — province,
+région, ou département en Île-de-France — projette l'estimation jusqu'au
+dernier trimestre publié. **Le rendement brut** est donné à titre de repère,
+d'après la carte des loyers : ce n'est pas une méthode d'estimation.
+
+**Rien ne sort.** Tout se calcule sur le NAS, à partir de sources publiques
+(section 4 du cahier des charges). Pas de service d'estimation, pas de
+moteur d'intelligence artificielle tiers : le bien estimé ne quitte pas la
+maison. Ouvrir l'écran ne déclenche aucun appel ; seuls « Charger les ventes
+du département » et « Estimer » en font.
+
 ---
 
 ## Sauvegardes
@@ -621,6 +677,8 @@ app/
 │   ├── ban.py               géocodage des DPE que l'ADEME n'a pas placés
 │   ├── dvf.py               ventes, cinq millésimes glissants
 │   ├── dvf_archive.py       les millésimes que la source ne sert plus
+│   ├── insee.py             indice Notaires-Insee des logements anciens
+│   ├── loyers.py            carte des loyers, par commune
 ├── metier/          logique portée des scripts d'origine
 │   ├── veille.py            F1 — les DPE récents, dédoublonnés
 │   ├── identification.py    F2 — l'entonnoir et le classement
@@ -631,6 +689,9 @@ app/
 │   └── (carte : parcelles.pour_carte + chercher_sur_carte)
 │   ├── geometrie.py         surfaces, appartenance, index spatial en grille
 │   ├── parcelles.py         F3 — cadastre, extrait, carte
+│   ├── references.py        F8 — ventes d'un département, nettoyées
+│   ├── voisinage.py         F8 — plus proches voisins, exacts, en grille
+│   ├── estimation.py        F8 — méthodes, auto-évaluation, estimation
 ├── api/             routes HTTP — ne font que traduire en JSON
 └── web/             interface : HTML, CSS, modules ES natifs
 ```

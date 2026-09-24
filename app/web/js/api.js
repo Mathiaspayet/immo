@@ -187,6 +187,37 @@ export const api = {
   sauvegarderMaintenant: () =>
     demander("/api/import/sauvegardes", { method: "POST" }),
 
+  // --- Estimation -------------------------------------------------
+  /** Ce que la base sait du bien, et l'état de son département. Ne sort pas du NAS. */
+  bienAEstimer: ({ n_dpe, parcelle_id }) =>
+    demander(`/api/estimation/bien?${versParametres({ n_dpe, parcelle_id })}`),
+
+  etatDepartement: (departement) =>
+    demander(`/api/estimation/departement/${encodeURIComponent(departement)}`),
+
+  /** Charge les ventes du département et apprend : répond aussitôt, on suit ensuite. */
+  preparerDepartement: (departement) =>
+    demander(`/api/estimation/preparer?${versParametres({ departement })}`, { method: "POST" }),
+
+  etatPreparation: () => demander("/api/estimation/preparation"),
+
+  etatsDuBati: () => demander("/api/estimation/etats"),
+
+  estimer: (corps) =>
+    demander("/api/estimation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corps),
+    }),
+
+  estimationsEnregistrees: () => demander("/api/estimation/enregistrees"),
+
+  estimationEnregistree: (ident) =>
+    demander(`/api/estimation/enregistrees/${encodeURIComponent(ident)}`),
+
+  supprimerEstimation: (ident) =>
+    demander(`/api/estimation/enregistrees/${encodeURIComponent(ident)}`, { method: "DELETE" }),
+
   // Sans rien, le serveur prend la commune surveillée. Sinon une autre
   // commune, ou tout un département.
   reprendreArchive: ({ code_insee, dep } = {}) =>

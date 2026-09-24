@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import config, planificateur
 from app.api import communes as api_communes
+from app.api import estimation as api_estimation
 from app.api import alertes as api_alertes
 from app.api import fiche as api_fiche
 from app.api import identification as api_identification
@@ -70,6 +71,7 @@ application.include_router(api_fiche.routeur)
 application.include_router(api_parcelles.routeur)
 application.include_router(api_reglages.routeur)
 application.include_router(api_alertes.routeur)
+application.include_router(api_estimation.routeur)
 
 
 @application.get("/api/sante", tags=["technique"])

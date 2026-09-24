@@ -14,7 +14,7 @@ import { $ } from "./format.js";
 // connait et montre le reste. Une vue absente de la liste n'est jamais
 // affichee — l'ecran reste vide, sans erreur pour le signaler.
 const VUES = ["accueil", "commune", "identifier",
-              "carte", "reglages", "fiche"];
+              "carte", "reglages", "fiche", "estimation", "estimations"];
 
 const rappels = {};
 const restaurateurs = {};

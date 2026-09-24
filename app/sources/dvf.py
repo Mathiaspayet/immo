@@ -21,6 +21,7 @@ Deux limites de la source, a connaitre avant de s'y fier :
 
 import csv
 import datetime
+import gzip
 import io
 import logging
 import urllib.error
@@ -158,3 +159,73 @@ def signatures(code_insee, annees=None):
     """Les signatures de tous les millesimes, {annee: signature ou None}."""
     annees = millesimes() if annees is None else annees
     return {annee: signature_annee(code_insee, annee) for annee in annees}
+
+
+# ---------------------------------------------------------------------
+#  Un departement entier, pour l'estimation
+# ---------------------------------------------------------------------
+# L'estimation apprend sur les ventes de tout le departement, pas de la
+# seule commune suivie. Etalab en publie un fichier par departement et par
+# annee, compresse : de 0,5 a 3 Mo selon le departement — la Gironde, la
+# plus lourde des douze de Nouvelle-Aquitaine, fait 14 Mo pour cinq ans.
+
+DELAI_DEPARTEMENT = 300
+TENTATIVES_DEPARTEMENT = 3
+
+
+def url_departement(departement, annee):
+    return f"{RACINE}/{annee}/departements/{departement}.csv.gz"
+
+
+def lignes_departement(departement, annee):
+    """
+    Les lignes d'un departement pour un millesime, ou None s'il n'existe pas.
+
+    On rend un ITERATEUR plutot qu'une liste : une
+    annee de Gironde, c'est cent mille lignes, et les garder toutes en
+    dictionnaires couterait plusieurs centaines de megaoctets a un NAS pour
+    rien — l'appelant les agrege au fil de l'eau.
+    """
+    url = url_departement(departement, annee)
+    derniere = None
+    for essai in range(TENTATIVES_DEPARTEMENT):
+        try:
+            requete = urllib.request.Request(url, headers=ENTETES)
+            with urllib.request.urlopen(requete, timeout=DELAI_DEPARTEMENT,
+                                        context=CONTEXTE) as reponse:
+                brut = reponse.read()
+            # On garde le fichier COMPRESSE en memoire (quelques Mo) et on le
+            # decompresse au fil de la lecture : le texte entier d'une annee
+            # de Gironde, c'est trente megaoctets de plus pour rien.
+            flux = io.TextIOWrapper(gzip.GzipFile(fileobj=io.BytesIO(brut)), encoding="utf-8")
+            return csv.DictReader(flux)
+        except urllib.error.HTTPError as erreur:
+            if erreur.code in (403, 404):
+                logger.info("dvf departement %s : pas de millesime %s", departement, annee)
+                return None
+            raise ErreurSource(f"DVF : HTTP {erreur.code} sur {departement}/{annee}") from erreur
+        except Exception as erreur:                  # noqa: BLE001
+            derniere = f"{type(erreur).__name__}"
+            logger.info("dvf departement %s/%s : nouvel essai apres %s", departement, annee, derniere)
+    raise ErreurSource(f"DVF injoignable pour le departement {departement} ({derniere})")
+
+
+def signatures_departement(departement, annees=None):
+    """Comme `signatures`, pour les fichiers departementaux."""
+    annees = millesimes() if annees is None else annees
+    resultat = {}
+    for annee in annees:
+        url = url_departement(departement, annee)
+        try:
+            requete = urllib.request.Request(url, headers=ENTETES, method="HEAD")
+            with urllib.request.urlopen(requete, timeout=DELAI, context=CONTEXTE) as reponse:
+                resultat[annee] = (reponse.headers.get("ETag")
+                                   or reponse.headers.get("Last-Modified"))
+        except urllib.error.HTTPError as erreur:
+            if erreur.code in (403, 404):
+                resultat[annee] = None
+                continue
+            raise ErreurSource(f"DVF : HTTP {erreur.code} sur {departement}/{annee}") from erreur
+        except Exception as erreur:                  # noqa: BLE001
+            raise ErreurSource(f"DVF injoignable ({type(erreur).__name__})") from erreur
+    return resultat

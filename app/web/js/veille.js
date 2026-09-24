@@ -13,6 +13,7 @@ import { initialiserExploration } from "./exploration.js";
 import { initialiserReglages, rafraichirReglages } from "./reglages.js";
 import { initialiserParcours } from "./parcours.js";
 import { initialiserIdentification } from "./identifier.js";
+import { initialiserEstimation } from "./estimation.js";
 import { auChangement, changerVue, brancherHistorique } from "./navigation.js";
 import {
   $, afficherErreur, dateFr, echapper, entierFr, masquerErreur,
@@ -611,6 +612,7 @@ async function demarrer() {
   });
 
   initialiserIdentification();
+  initialiserEstimation();
 
   await rafraichirReglages().catch(() => {});
   afficherVersion();

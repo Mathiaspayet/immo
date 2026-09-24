@@ -14,6 +14,7 @@ import {
   $, afficherErreur, afficherTravail, dateFr, echapper, entierFr, etiquetteHtml,
   euroFr, liensExternes, masquerErreur, masquerTravail, nombreFr,
 } from "./format.js";
+import { ouvrirEstimation } from "./estimation.js";
 import { auProchainTerme, suivreImport } from "./import.js";
 import { auRetourArriere, changerVue } from "./navigation.js";
 
@@ -520,6 +521,7 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
           <div><dt>construit</dt><dd>${principal.annee_construction ?? "—"}</dd></div>
         </dl>
         <div class="liens">${liensExternes(principal)}</div>
+        ${boutonEstimer()}
       </div>
     </div>
     ${inviteCadastre(principal, extrait)}
@@ -556,6 +558,8 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
   }
 
   $("#fiche-retour").addEventListener("click", revenir);
+  $("#fiche-estimer")?.addEventListener("click", () =>
+    ouvrirEstimation({ n_dpe: principal.n_dpe, retour: "fiche" }));
   brancherVueDeRue();
 
   const chargeur = $("#fiche-contenu").querySelector("[data-charger-cadastre]");
@@ -659,6 +663,7 @@ async function ouvrirFicheParcelle(identifiant) {
             ? entierFr.format(parcelle.emprise_batie_m2) + " m²" : "—"}</dd></div>
           <div><dt>bâtiments</dt><dd>${entierFr.format(parcelle.nb_batiments ?? 0)}</dd></div>
         </dl>
+        ${boutonEstimer()}
       </div>
     </div>
 
@@ -692,6 +697,22 @@ async function ouvrirFicheParcelle(identifiant) {
     });
   }
   $("#fiche-retour").addEventListener("click", revenir);
+  $("#fiche-estimer")?.addEventListener("click", () =>
+    ouvrirEstimation({ parcelle_id: parcelle.id, retour: "fiche" }));
+}
+
+
+/**
+ * L'entrée de l'estimation, dans l'identité du bien : c'est là qu'on se
+ * pose la question « combien vaut-il ? », le bien sous les yeux.
+ */
+function boutonEstimer() {
+  return `
+    <p class="fiche-estimer">
+      <button type="button" class="bouton bouton-principal" id="fiche-estimer">
+        Estimer ce bien
+      </button>
+    </p>`;
 }
 
 

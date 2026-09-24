@@ -302,8 +302,11 @@ input:focus-visible, select:focus-visible { border-color: var(--atlantique); }
   .bouton { padding: calc(var(--pas) * 2); font-size: 0.8rem; }
 }
 @media (max-width: 420px) {
-  h1 { font-size: 0; }              /* le titre cede la place aux commandes */
-  h1::after {
+  /* Le titre DU BANDEAU cede la place aux commandes. Ecrit `h1` tout court,
+     la regle vidait aussi le titre des fiches et de l'estimation, et leur
+     accolait « Veille » : « 6 Rue des Ecureuils MimizanVeille ». */
+  .bandeau h1 { font-size: 0; }
+  .bandeau h1::after {
     content: "Veille";
     font-size: 0.95rem;
     font-family: var(--titres);
