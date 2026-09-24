@@ -29,6 +29,20 @@ const ecran = {
 };
 
 const NOMS_DEPARTEMENT_TYPE = { maison: "maisons", appartement: "appartements" };
+
+// Ce que fait chaque méthode, en une ligne : on ne se fie pas à un chiffre
+// dont on ignore d'où il vient.
+const PRINCIPES = {
+  comparables: "les 12 ventes du même type les plus proches, prix au m² actualisé",
+  hedonique: "régression sur les ventes du département : surface, terrain, pièces, commune",
+  sol_construction: "terrains à bâtir voisins + bâti à neuf moins son usure, calé sur le marché",
+  boosting: "des centaines d'arbres de décision appris sur le département, nourris des prix voisins",
+};
+
+const LIBELLES_ETATS = {
+  bon: "bon", assez_bon: "assez bon", passable: "passable", mediocre: "médiocre",
+  mauvais: "mauvais", travaux: "travaux chiffrés",
+};
 const pourcent = new Intl.NumberFormat("fr-FR", { style: "percent", maximumFractionDigits: 1 });
 const pourcentEntier = new Intl.NumberFormat("fr-FR", { style: "percent", maximumFractionDigits: 0 });
 const coefficient = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -530,7 +544,8 @@ function ligne(libelle, valeur, detail = "", classe = "") {
 function blocConstruction(r) {
   const lignes = [];
   for (const m of r.methodes) {
-    lignes.push(ligne(echapper(m.libelle), euros(m.valeur),
+    lignes.push(ligne(`${echapper(m.libelle)}<span class="methode-principe">${
+      echapper(PRINCIPES[m.cle] || "")}</span>`, euros(m.valeur),
       m.erreur_mediane != null
         ? `erreur médiane mesurée&nbsp;: ${nombreFr.format(m.erreur_mediane)}&nbsp;%` : ""));
   }
@@ -717,6 +732,7 @@ async function chargerMesEstimations() {
     return;
   }
   const liste = reponse.estimations;
+  $("#estimations-bilan").innerHTML = blocBilan(reponse.bilan);
   if (!liste.length) {
     zone.innerHTML = `
       <div class="vide">
@@ -734,6 +750,9 @@ async function chargerMesEstimations() {
           <div class="vente-tete">
             <span class="vente-prix donnee">${euros(e.valeur)}</span>
             <span class="pastille">${echapper(e.type)}</span>
+            ${e.vente_prix ? `<span class="pastille pastille-vendu">vendu ${echapper(
+              euroFr.format(e.vente_prix))} le ${dateFr(e.vente_date)} · ${ecartSigne(
+              e.vente_prix / e.valeur - 1)}</span>` : ""}
             <button type="button" class="bouton-lien" data-ouvrir-estimation="${e.id}">Ouvrir</button>
             <button type="button" class="bouton-lien" data-supprimer-estimation="${e.id}">Supprimer</button>
           </div>
@@ -762,6 +781,44 @@ async function chargerMesEstimations() {
       chargerMesEstimations();
     });
   });
+}
+
+function ecartSigne(ecart) {
+  return `${ecart >= 0 ? "+" : ""}${pourcentEntier.format(ecart)}`;
+}
+
+/**
+ * Le bilan : vos estimations face aux prix réellement payés, quand DVF
+ * les publie. C'est la seule mesure de VOTRE usage — l'état que vous
+ * saisissez, les ajustements que vous faites —, que rien d'autre ne
+ * calibre.
+ */
+function blocBilan(bilan) {
+  if (!bilan || !bilan.estimations) return "";
+  if (!bilan.vendues) {
+    return `<p class="explication">
+      Aucun des biens estimés n'est encore paru vendu dans DVF. La publication
+      a six mois de retard&nbsp;; à chaque parution, l'application cherche la
+      vente de chacun, et ce bilan dira ce que valaient vos estimations.</p>`;
+  }
+  const etats = Object.entries(bilan.par_etat || {}).map(([cle, e]) =>
+    `<li><span class="donnee">${ecartSigne(e.ecart_median / 100)}</span> pour
+       l'état «&nbsp;${echapper(LIBELLES_ETATS[cle] || cle)}&nbsp;» (${entierFr.format(e.n)}
+       vente${e.n > 1 ? "s" : ""})</li>`).join("");
+  return `
+    <div class="estimations-bilan">
+      <p>
+        <strong>${entierFr.format(bilan.vendues)}</strong> bien${bilan.vendues > 1 ? "s" : ""}
+        vendu${bilan.vendues > 1 ? "s" : ""} depuis leur estimation, sur
+        ${entierFr.format(bilan.estimations)} estimé${bilan.estimations > 1 ? "s" : ""}&nbsp;:
+        erreur médiane <strong class="donnee">${nombreFr.format(bilan.erreur_mediane)}&nbsp;%</strong>${
+        bilan.dans_la_fourchette != null ? `, ${entierFr.format(bilan.dans_la_fourchette)}&nbsp;% dans
+        la fourchette annoncée` : ""}.
+      </p>
+      <p class="explication">Écart médian entre le prix payé et l'estimation, selon l'état
+        que vous aviez saisi — positif, le bien s'est vendu plus cher qu'estimé&nbsp;:</p>
+      <ul class="liste-raisons">${etats}</ul>
+    </div>`;
 }
 
 // --------------------------------------------------------------------

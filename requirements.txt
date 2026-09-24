@@ -5,6 +5,11 @@ uvicorn[standard]==0.34.0
 apscheduler==3.11.0
 certifi==2024.12.14
 # L'estimation (F8) : regressions et voisinages sur les ventes d'un
-# departement, soit jusqu'a 115 000 ventes. Une roue precompilee de 70 Mo,
-# sans chaine de compilation.
+# departement, soit jusqu'a 115 000 ventes. Roues precompilees, sans chaine
+# de compilation.
 numpy==2.4.6
+# Le gradient boosting de l'estimation. SciPy vient avec LightGBM, qui en
+# depend ; l'estimation s'en sert aussi pour ses plus proches voisins.
+# Le Dockerfile retire leurs suites de tests, inutiles a l'execution.
+scipy==1.17.1
+lightgbm==4.7.0

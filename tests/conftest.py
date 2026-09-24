@@ -28,7 +28,7 @@ TABLES = ("dpe", "parcelle", "batiment", "mutation", "mutation_parcelle",
           "dvf_millesime", "commune", "reglage", "journal_import",
           "journal_alerte", "vente_reference", "terrain_reference",
           "departement_reference", "modele_estimation", "estimation",
-          "indice_officiel", "loyer_commune", "source_maj")
+          "indice_officiel", "loyer_commune", "source_maj", "modele_boosting")
 
 
 def _vider(conn):

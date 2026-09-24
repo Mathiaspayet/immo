@@ -22,12 +22,20 @@ ENV BUILD_VERSION=${BUILD_VERSION} \
 
 # tzdata : sans la base des fuseaux, Europe/Paris serait inconnu et le
 # planificateur retomberait sur UTC — les imports partiraient deux heures trop tot.
+# libgomp1 : le moteur de LightGBM (gradient boosting de l'estimation) est
+# compile avec OpenMP, que l'image « slim » n'embarque pas.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tzdata \
+    && apt-get install -y --no-install-recommends tzdata libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Les suites de tests de NumPy et SciPy pesent pres de 50 Mo et ne servent
+# jamais a l'execution : on les retire DANS la meme couche, faute de quoi
+# elles resteraient dans l'image. Le budget est de 400 Mo.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && find /usr/local/lib/python3.12/site-packages/numpy /usr/local/lib/python3.12/site-packages/scipy \
+         -type d -name tests -prune -exec rm -rf {} + \
+    && python -c "import lightgbm, scipy.spatial, numpy; print('estimation : dependances chargees')"
 
 COPY app/ /app/app/
 COPY healthcheck.py /app/

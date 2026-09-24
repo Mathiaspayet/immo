@@ -151,14 +151,14 @@ Filtrage des parcelles d'une commune par surface de terrain et emprise bâtie au
 
 Depuis la fiche d'un diagnostic ou d'une parcelle — donc depuis n'importe quel point de la carte —, estimer la valeur d'une maison ou d'un appartement, avec sa fourchette et sa fiabilité.
 
-- **Plusieurs méthodes croisées** : ventes comparables (les douze plus proches du même type), régression hédonique (commune absorbée, effet des petites communes tiré vers la moyenne), sol + construction pour une maison (terrains à bâtir voisins, coût de reconstruction moins la vétusté, calé sur les prix réels). Leur moyenne géométrique bat chacune d'elles.
+- **Plusieurs méthodes croisées** : ventes comparables (les douze plus proches du même type), régression hédonique (commune absorbée, effet des petites communes tiré vers la moyenne), sol + construction pour une maison (terrains à bâtir voisins, coût de reconstruction moins la vétusté, calé sur les prix réels), gradient boosting appris par département. Leur moyenne géométrique bat chacune d'elles.
 - **L'historique du bien** : sa vente précédente, réindexée, avec la plus-value moyenne des reventes du département. Elle pèse les deux tiers pour une maison, la moitié pour un appartement.
 - **Le département est l'échelle d'apprentissage.** Ses ventes des cinq millésimes DVF sont chargées à la première estimation qu'on y fait, puis tenues à jour à chaque parution.
 - **L'application mesure sa propre précision** : elle refait le calcul sur les ventes d'avant la dernière année et le confronte aux prix de cette année. La fourchette (8 chances sur 10) et le niveau de fiabilité affichés viennent de ces erreurs réelles, par type de bien et pour les biens déjà vendus.
 - **L'état du bâti se saisit**, sur l'échelle du coefficient d'entretien du CGI (annexe III, art. 324 Q), ou par un montant de travaux. Un ajustement personnel borné à ±30 % reste affiché à part, avec sa raison.
 - **Le DPE n'entre pas dans le calcul** : mesuré sur 833 maisons, il n'améliore pas la précision. Son année de construction sert à la vétusté.
 - Le marché récent est projeté par l'indice Notaires-Insee de la zone officielle la plus proche ; le rendement brut est donné à titre indicatif d'après la carte des loyers.
-- Les estimations s'enregistrent, avec tout ce qui a été saisi.
+- Les estimations s'enregistrent, avec tout ce qui a été saisi. À chaque parution DVF, la vente de chaque bien estimé est recherchée, et un bilan confronte les estimations aux prix payés, par niveau d'état saisi.
 - **Tout est calculé sur le NAS.** Aucun service d'estimation ni moteur d'intelligence artificielle tiers : rien du bien estimé ne sort.
 
 ### F7 — Photos de rue
@@ -198,8 +198,10 @@ terrain_reference(departement, id_mutation, code_insee, date_vente,
                   trimestre, prix, terrain_m2, latitude, longitude)
 departement_reference(departement PK, importe_le, signatures_json, ventes, terrains)
 modele_estimation(departement PK, entraine_le, modele_json)
+modele_boosting(departement, type, modele)
 estimation(id PK, cree_le, code_insee, parcelle_id, n_dpe, adresse, type,
-           surface, terrain_m2, saisie_json, valeur, bas, haut, resultat_json)
+           surface, terrain_m2, saisie_json, valeur, bas, haut, resultat_json,
+           vente_id_mutation, vente_date, vente_prix, rapproche_le)
 indice_officiel(zone, type, trimestre, indice)
 loyer_commune(code_insee, type, loyer_m2, bas_m2, haut_m2, millesime)
 ```
@@ -264,7 +266,7 @@ La fiche d'un bien reprend la forme d'un extrait cadastral : le polygone de la p
 | Import des DPE des communes surveillées | hebdomadaire |
 | Détection des nouveautés et notification | à la suite de l'import |
 | Rafraîchissement du cadastre | mensuel |
-| Ventes de référence des départements déjà estimés (F8) | à la parution d'un millésime DVF — contrôle quotidien par requêtes HEAD |
+| Ventes de référence des départements déjà estimés (F8), puis recherche de la vente des biens estimés | à la parution d'un millésime DVF — contrôle quotidien par requêtes HEAD |
 | Indice Notaires-Insee (F8) | au plus une fois par mois |
 | Carte des loyers (F8) | au plus deux fois par an |
 

@@ -30,7 +30,7 @@ Spécification complète : [`CAHIER_DES_CHARGES.md`](CAHIER_DES_CHARGES.md).
 | Alerte courriel des nouveaux DPE (F6) | livré |
 | Écran Réglages, export CSV | livrés |
 | **F3** Cadastre, croisement avec les DPE | livrée |
-| **F8** Estimation de la valeur d'un bien | phase 1 livrée |
+| **F8** Estimation de la valeur d'un bien | livrée (phases 1 et 2) |
 | **F5/F6** Suivi, notes, notifications | lot 4 |
 
 Sur un import réel du code postal 40200 : **7 593 DPE**, des trois bases de
@@ -460,9 +460,12 @@ choix viennent d'une étude sur les ventes 2021-2025 de seize départements,
 chaque méthode apprise sur le passé et jugée sur l'année suivante.
 
 **Plusieurs méthodes, croisées.** Ventes comparables, régression hédonique,
-et pour une maison sol + construction (terrains à bâtir voisins, plus le
-bâti à neuf moins son usure). Leur moyenne géométrique bat chacune d'elles
-partout : chacune se trompe différemment.
+pour une maison sol + construction (terrains à bâtir voisins, plus le bâti
+à neuf moins son usure), et un gradient boosting (LightGBM) appris sur le
+département, nourri du prix au m² des ventes voisines. Leur moyenne
+géométrique bat chacune d'elles partout : chacune se trompe différemment.
+Le boosting, seul, vaut les meilleures ; croisé, il retire encore un
+demi-point d'erreur.
 
 **L'historique du bien d'abord.** Un bien déjà vendu s'estime bien mieux :
 l'ancien prix contient l'état, la vue, la piscine. Il pèse les deux tiers
@@ -482,9 +485,13 @@ sur dix — vient de ces erreurs réelles :
 
 | Erreur médiane mesurée | Maisons | déjà vendues | Appartements | déjà vendus |
 |---|---|---|---|---|
-| Landes | 18,3 % | 11,4 % | 12,0 % | 10,2 % |
-| Gironde | 17,6 % | 11,9 % | 12,1 % | 9,9 % |
-| Creuse | 31,6 % | 16,2 % | 18,7 % | 17,2 % |
+| Landes | 17,8 % | 11,3 % | 11,6 % | 10,3 % |
+| Gironde | 17,2 % | 11,9 % | 11,3 % | 9,6 % |
+| Creuse | 31,0 % | 15,9 % | 17,8 % | 17,5 % |
+
+Préparer un département prend une demi-minute à une minute, téléchargement
+compris (Gironde, 115 000 ventes : 13 s d'apprentissage) ; ensuite une
+estimation répond en quelques millisecondes.
 
 **L'état du bâti se saisit** : rien, dans les données, ne le mesure, et c'est
 ce qui reste d'erreur. L'échelle est celle du coefficient d'entretien du
@@ -500,6 +507,15 @@ mois de retard ; l'indice de la zone officielle la plus proche — province,
 région, ou département en Île-de-France — projette l'estimation jusqu'au
 dernier trimestre publié. **Le rendement brut** est donné à titre de repère,
 d'après la carte des loyers : ce n'est pas une méthode d'estimation.
+
+**Le bilan de vos estimations.** Une estimation enregistrée garde tout ce
+qui a été saisi. À chaque parution DVF, l'application cherche la vente de
+chaque bien estimé — même parcelle, même type, surface proche, vendu après
+l'estimation — et « Mes estimations » confronte vos chiffres aux prix
+payés : erreur médiane, part des ventes dans la fourchette, et écart selon
+l'état du bâti que vous aviez saisi. C'est la seule façon de vérifier, sur
+vos propres biens, ce que rien d'autre ne calibre : votre lecture de l'état
+et vos ajustements.
 
 **Rien ne sort.** Tout se calcule sur le NAS, à partir de sources publiques
 (section 4 du cahier des charges). Pas de service d'estimation, pas de
@@ -691,7 +707,8 @@ app/
 │   ├── parcelles.py         F3 — cadastre, extrait, carte
 │   ├── references.py        F8 — ventes d'un département, nettoyées
 │   ├── voisinage.py         F8 — plus proches voisins, exacts, en grille
-│   ├── estimation.py        F8 — méthodes, auto-évaluation, estimation
+│   ├── estimation.py        F8 — méthodes, auto-évaluation, estimation, bilan
+│   ├── boosting.py          F8 — gradient boosting (LightGBM)
 ├── api/             routes HTTP — ne font que traduire en JSON
 └── web/             interface : HTML, CSS, modules ES natifs
 ```

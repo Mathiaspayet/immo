@@ -207,7 +207,8 @@ def lignes_departement(departement, annee):
         except Exception as erreur:                  # noqa: BLE001
             derniere = f"{type(erreur).__name__}"
             logger.info("dvf departement %s/%s : nouvel essai apres %s", departement, annee, derniere)
-    raise ErreurSource(f"DVF injoignable pour le departement {departement} ({derniere})")
+    raise ErreurSource(f"DVF injoignable pour le département {departement} ({derniere}) : "
+                       "réessayez dans quelques minutes.")
 
 
 def signatures_departement(departement, annees=None):

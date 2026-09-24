@@ -113,8 +113,11 @@ def etats():
 
 @routeur.get("/enregistrees")
 def enregistrees():
-    """Les estimations gardees, de la plus recente a la plus ancienne."""
-    return {"estimations": estimation.enregistrees()}
+    """
+    Les estimations gardees, de la plus recente a la plus ancienne, et leur
+    bilan face aux ventes reelles quand DVF les a publiees.
+    """
+    return {"estimations": estimation.enregistrees(), "bilan": estimation.bilan()}
 
 
 @routeur.get("/enregistrees/{ident}")

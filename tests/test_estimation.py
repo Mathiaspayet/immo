@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 from app.base.connexion import connexion, transaction
 from app.main import application
-from app.metier import estimation, references
+from app.metier import boosting, estimation, references
 from app.metier.voisinage import Voisinage
 from app.sources import insee, loyers
 from app.sources.client_http import ErreurSource
@@ -121,12 +121,20 @@ def sans_reseau(monkeypatch):
 
 
 @pytest.fixture()
-def departement(base, sans_reseau):
+def departement(base, sans_reseau, monkeypatch):
+    # Moins d'arbres qu'en production : les tests verifient le comportement,
+    # pas la precision du boosting, et restent rapides.
+    monkeypatch.setattr(boosting, "TOURS", 120)
     estimation._cache.clear()
     ventes, terrains = _fabriquer()
     modele = estimation.entrainer(DEP)
     yield {"ventes": ventes, "terrains": terrains, "modele": modele}
     estimation._cache.clear()
+
+
+# Le boosting vient avec LightGBM, installe dans l'image : sans lui, le
+# croisement se fait sans, et les tests le verifient aussi.
+BOOSTING = {"boosting"} if boosting.disponible() else set()
 
 
 def _bien(code="99004", type_bien="maison", surface=100.0, terrain=700.0, **autres):
@@ -283,7 +291,7 @@ def test_une_maison_s_estime_pres_de_sa_valeur(departement):
     attendu = _valeur_attendue("99004", "maison", 100, 700, datetime.date(2025, 10, 1))
     assert resultat["valeur"] == pytest.approx(attendu, rel=0.15)
     assert resultat["bas"] < resultat["valeur"] < resultat["haut"]
-    assert {m["cle"] for m in resultat["methodes"]} == {"comparables", "hedonique", "sol_construction"}
+    assert {m["cle"] for m in resultat["methodes"]} == {"comparables", "hedonique", "sol_construction"} | BOOSTING
     assert resultat["decomposition"]["terrain"] > 0 and resultat["decomposition"]["bati"] > 0
     assert len(resultat["comparables"]) == estimation.K_COMPARABLES
     json.dumps(resultat)              # tout doit passer en JSON
@@ -298,7 +306,7 @@ def test_la_commune_chere_s_estime_plus_cher(departement):
 
 def test_un_appartement_n_a_pas_de_sol_construction(departement):
     resultat = estimation.estimer(_bien(type_bien="appartement", surface=55, terrain=300), {})
-    assert {m["cle"] for m in resultat["methodes"]} == {"comparables", "hedonique"}
+    assert {m["cle"] for m in resultat["methodes"]} == {"comparables", "hedonique"} | BOOSTING
     assert resultat["bien"]["terrain_m2"] == 0
     assert resultat["decomposition"] is None
 
@@ -522,6 +530,113 @@ def test_l_entretien_ne_reprend_que_ce_qui_a_change(departement, monkeypatch):
 
 
 # =====================================================================
+#  Le gradient boosting
+# =====================================================================
+@pytest.mark.parametrize("methode", ["grille", "auto"])
+def test_les_voisins_d_un_lot_sont_ceux_de_chaque_point(methode):
+    rng = np.random.default_rng(8)
+    lat, lon = 44 + rng.random(800) * 0.2, -1 + rng.random(800) * 0.2
+    index = Voisinage(lat, lon, methode=methode)
+    qlat, qlon = 44 + rng.random(25) * 0.2, -1 + rng.random(25) * 0.2
+    indices, distances = index.plus_proches_lot(qlat, qlon, 7)
+    assert indices.shape == distances.shape == (25, 7)
+    for rang in range(25):
+        _, attendues = index.plus_proches(qlat[rang], qlon[rang], 7)
+        assert np.allclose(distances[rang], attendues)
+
+
+def test_le_prix_des_voisines_est_la_mediane_ponderee_des_comparables():
+    """Le trait principal du boosting est exactement le calcul des comparables."""
+    rng = np.random.default_rng(9)
+    pm2 = rng.uniform(1500, 4000, (30, 12))
+    distances = rng.uniform(0, 2000, (30, 12))
+    surfaces_v = rng.uniform(40, 200, (30, 12))
+    surfaces = rng.uniform(40, 200, 30)
+    lot = boosting.prix_voisins(pm2, distances, surfaces_v, surfaces)
+    for rang in range(30):
+        poids = (1 / (1 + distances[rang] / 300)
+                 * np.exp(-np.abs(np.log(surfaces_v[rang] / surfaces[rang]))))
+        assert lot[rang] == pytest.approx(estimation._mediane_ponderee(pm2[rang], poids))
+
+
+@pytest.mark.skipif(not boosting.disponible(), reason="LightGBM absent")
+def test_le_boosting_est_appris_garde_et_relu(departement):
+    assert departement["modele"]["boosting"] == ["appartement", "maison"]
+    assert "boosting" in departement["modele"]["precision"]["maison"]["methodes"]
+    with connexion() as conn:
+        assert conn.execute("SELECT count(*) FROM modele_boosting WHERE departement = ?",
+                            (DEP,)).fetchone()[0] == 2
+    # Relu de la base, sans re-apprentissage, il predit la meme chose.
+    premiere = estimation.estimer(_bien(), {})
+    estimation._cache.clear()
+    seconde = estimation.estimer(_bien(), {})
+    valeur = {m["cle"]: m["valeur"] for m in premiere["methodes"]}["boosting"]
+    assert valeur == {m["cle"]: m["valeur"] for m in seconde["methodes"]}["boosting"]
+    assert valeur == pytest.approx(
+        _valeur_attendue("99004", "maison", 100, 700, datetime.date(2025, 10, 1)), rel=0.25)
+    assert estimation.a_reapprendre(DEP) is False
+
+
+def test_sans_lightgbm_le_croisement_se_fait_sans_lui(departement, monkeypatch):
+    monkeypatch.setattr(boosting, "lightgbm", None)
+    estimation._cache.clear()
+    resultat = estimation.estimer(_bien(), {})
+    assert "boosting" not in {m["cle"] for m in resultat["methodes"]}
+    assert resultat["valeur"] > 0
+
+
+def test_un_modele_d_une_version_anterieure_est_re_appris(departement):
+    with transaction() as conn:
+        ligne = conn.execute("SELECT modele_json FROM modele_estimation WHERE departement = ?",
+                             (DEP,)).fetchone()
+        ancien = json.loads(ligne["modele_json"])
+        ancien["version"] = 1
+        conn.execute("UPDATE modele_estimation SET modele_json = ? WHERE departement = ?",
+                     (json.dumps(ancien), DEP))
+    assert estimation.a_reapprendre(DEP) is True
+
+
+# =====================================================================
+#  Le bilan : les estimations face aux ventes reelles
+# =====================================================================
+def _vente_apres(parcelle, date, prix, surface, type_bien="maison", ident="VENTE-APRES"):
+    with transaction() as conn:
+        conn.execute("INSERT INTO vente_reference VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (DEP, ident, "99004", date, "2026-Q4", type_bien, prix, surface, 4, 700, 0, 0,
+                      LAT0, LON0, parcelle, "4 rue de l'Essai"))
+
+
+def test_la_vente_d_un_bien_estime_est_retrouvee(departement):
+    resultat = estimation.estimer(_bien(parcelle_id="99004000ZZ0001"), {"etat": "mediocre"})
+    ident = estimation.enregistrer(resultat)
+    assert estimation.rapprocher(DEP) == 0             # rien de paru encore
+    prix = round(resultat["valeur"] * 1.08)
+    _vente_apres("99004000ZZ0001", datetime.date.today().isoformat(), prix, 104)
+    assert estimation.rapprocher(DEP) == 1
+    relue = estimation.enregistree(ident)
+    assert relue["vente_prix"] == prix
+    assert estimation.rapprocher(DEP) == 0             # deja rapprochee
+    bilan = estimation.bilan()
+    assert (bilan["estimations"], bilan["vendues"]) == (1, 1)
+    assert bilan["erreur_mediane"] == pytest.approx(8, abs=0.1)
+    assert bilan["par_etat"]["mediocre"]["ecart_median"] == pytest.approx(8, abs=0.1)
+    assert bilan["dans_la_fourchette"] == 100
+
+
+def test_une_vente_ancienne_ou_d_un_autre_lot_n_est_pas_retenue(departement):
+    resultat = estimation.estimer(_bien(type_bien="appartement", surface=50, terrain=0,
+                                        parcelle_id="99004000ZZ0002"), {})
+    estimation.enregistrer(resultat)
+    # Six mois avant l'estimation : c'etait la vente precedente, pas celle-ci.
+    ancienne = (datetime.date.today() - datetime.timedelta(days=180)).isoformat()
+    _vente_apres("99004000ZZ0002", ancienne, 150000, 50, "appartement", "ANCIENNE")
+    # Apres, mais un autre lot de l'immeuble : 70 m² au lieu de 50.
+    _vente_apres("99004000ZZ0002", datetime.date.today().isoformat(), 210000, 70, "appartement", "AUTRE")
+    assert estimation.rapprocher(DEP) == 0
+    assert estimation.bilan()["vendues"] == 0
+
+
+# =====================================================================
 #  Les routes
 # =====================================================================
 @pytest.fixture()
@@ -536,8 +651,9 @@ def test_route_estimer(client, departement):
     assert reponse.status_code == 200
     resultat = reponse.json()
     assert resultat["id"] and resultat["valeur"] > 0
-    liste = client.get("/api/estimation/enregistrees").json()["estimations"]
-    assert [e["id"] for e in liste] == [resultat["id"]]
+    corps_liste = client.get("/api/estimation/enregistrees").json()
+    assert [e["id"] for e in corps_liste["estimations"]] == [resultat["id"]]
+    assert corps_liste["bilan"] == {"estimations": 1, "vendues": 0}
     assert client.get(f"/api/estimation/enregistrees/{resultat['id']}").status_code == 200
     assert client.delete(f"/api/estimation/enregistrees/{resultat['id']}").status_code == 204
     assert client.get(f"/api/estimation/enregistrees/{resultat['id']}").status_code == 404

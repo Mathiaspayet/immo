@@ -198,6 +198,27 @@
 }
 .estimation-comparables td.donnee { white-space: nowrap; }
 
+/* Ce que fait chaque méthode, sous son nom. */
+.methode-principe {
+  display: block;
+  max-width: 26ch;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--encre-douce);
+  white-space: normal;
+}
+
+/* Le bilan des estimations, face aux ventes réelles. */
+.estimations-bilan {
+  margin: 0 0 calc(var(--pas) * 5);
+  padding: calc(var(--pas) * 3) calc(var(--pas) * 4);
+  background: var(--papier-carte);
+  border: 1px solid var(--trait);
+  border-left: 3px solid var(--pin);
+}
+.estimations-bilan p { margin: 0 0 calc(var(--pas) * 2); }
+.pastille-vendu { background: #E4EDE8; border-color: var(--pin); color: var(--pin); text-transform: none; letter-spacing: 0.02em; }
+
 /* L'entrée depuis la fiche. */
 .fiche-estimer { margin: calc(var(--pas) * 4) 0 0; }
 .fiche-estimer .bouton { width: 100%; }

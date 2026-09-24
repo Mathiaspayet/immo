@@ -100,6 +100,26 @@ class Voisinage:
         ordre = np.argsort(d)[:k]
         return candidats[ordre], d[ordre]
 
+    def plus_proches_lot(self, latitudes, longitudes, k):
+        """
+        Les k plus proches de CHAQUE point d'un lot : (indices, distances),
+        deux tableaux n x k. Sert au boosting, qui a besoin du voisinage de
+        dizaines de milliers de ventes a la fois ; l'arbre les traite d'un
+        seul appel, la grille point par point.
+        """
+        latitudes = np.asarray(latitudes, dtype=float)
+        longitudes = np.asarray(longitudes, dtype=float)
+        k = min(int(k), self.n)
+        if self.arbre is not None and k > 0:
+            d, i = self.arbre.query(np.column_stack([longitudes * self.kx,
+                                                     latitudes * METRES_PAR_DEGRE_LAT]), k=k)
+            return i.reshape(len(latitudes), k).astype(np.int64), d.reshape(len(latitudes), k)
+        indices = np.zeros((len(latitudes), max(k, 0)), dtype=np.int64)
+        distances = np.zeros((len(latitudes), max(k, 0)))
+        for rang, (lat, lon) in enumerate(zip(latitudes.tolist(), longitudes.tolist())):
+            indices[rang], distances[rang] = self.plus_proches(lat, lon, k)
+        return indices, distances
+
     def dans_le_rayon(self, latitude, longitude, rayon_m):
         """Combien de points a moins de `rayon_m` — pour juger la densite locale."""
         if self.n == 0:

@@ -7,10 +7,11 @@ de seize departements (Nouvelle-Aquitaine, Paris, Rhone) : apprendre sur le
 passe, predire l'annee suivante, deux fois. Ce qui en est retenu :
 
   - PLUSIEURS METHODES CROISEES valent mieux qu'une. La moyenne
-    geometrique des comparables, de la regression hedonique et (pour une
-    maison) de la methode sol + construction bat chacune prise seule,
-    partout : maisons de Mimizan 14,6 et 18,9 % d'erreur mediane selon
-    l'annee, contre 21,8 et 25,9 % pour le prix au m2 de la commune ;
+    geometrique des comparables, de la regression hedonique, de la methode
+    sol + construction (pour une maison) et du gradient boosting bat
+    chacune prise seule, partout : maisons de Mimizan 14,6 et 18,9 %
+    d'erreur mediane selon l'annee, contre 21,8 et 25,9 % pour le prix au
+    m2 de la commune ;
   - L'HISTORIQUE DU BIEN, quand il a deja ete vendu, est le signal le plus
     precis (13,7 % pour une maison) : l'ancien prix contient deja l'etat,
     la vue, la piscine. Il pese les deux tiers pour une maison, la moitie
@@ -44,7 +45,7 @@ import threading
 import numpy as np
 
 from app.base.connexion import connexion, transaction
-from app.metier import references
+from app.metier import boosting, references
 from app.metier.voisinage import Voisinage
 from app.sources import insee, loyers
 from app.sources.client_http import ErreurSource
@@ -52,6 +53,9 @@ from app.sources.client_http import ErreurSource
 logger = logging.getLogger(__name__)
 
 TYPES = ("maison", "appartement")
+# 2 : le gradient boosting rejoint le croisement. Un modele d'une version
+# anterieure est re-appris au prochain passage du planificateur.
+VERSION_MODELE = 2
 K_COMPARABLES = 12
 K_TERRAINS = 10
 RETRAIT_COMMUNE = 10.0        # « poids » de la moyenne departementale pour une commune
@@ -91,7 +95,7 @@ LIBELLES_METHODES = {
     "comparables": "Ventes comparables",
     "hedonique": "Régression hédonique",
     "sol_construction": "Sol + construction",
-    "boosting": "Gradient boosting",
+    "boosting": "Gradient boosting",           # phase 2 : voir metier/boosting.py
 }
 
 ZONES_INDICE = {
@@ -147,6 +151,9 @@ def _variables(v, sel, avec_terrain):
         colonnes.insert(1, np.log1p(np.maximum(v["terrain_m2"][sel], 0)))
         noms.insert(1, "log_terrain")
     return np.column_stack(colonnes), noms
+
+
+_CARACTERISTIQUES = ("surface", "terrain_m2", "pieces", "dependances", "vefa", "latitude", "longitude")
 
 
 def _vecteur(bien, noms):
@@ -212,7 +219,8 @@ class Moteur:
     calcul qui tourne vraiment.
     """
 
-    def __init__(self, v, t, sel, indices, parametres=None):
+    def __init__(self, v, t, sel, indices, parametres=None, boosters=None,
+                 apprendre_boosting=False):
         self.v, self.t, self.indices = v, t, indices
         self.parametres = parametres or {}
         self.types = {}
@@ -253,6 +261,12 @@ class Moteur:
         self.coefficient_marche = self.parametres.get("coefficient_marche")
         if self.coefficient_marche is None and "maison" in self.types:
             self.coefficient_marche = self._mesurer_coefficient_marche()
+        # Le boosting s'apprend a l'entrainement (quelques secondes par type),
+        # et se relit ensuite de la base : jamais au moment d'estimer.
+        self.boosters = {tb: m for tb, m in (boosters or {}).items() if tb in self.types}
+        if apprendre_boosting and boosting.disponible():
+            for type_bien in self.types:
+                self.boosters[type_bien] = self._apprendre_boosting(type_bien)
 
     # --- apprentissage ------------------------------------------------
     def _apprendre_hedonique(self, masque, log_d, avec_terrain):
@@ -314,6 +328,26 @@ class Moteur:
             rapports.append(math.exp(e["log_d"][position[r]]) / (terrain[0] + bati))
         return float(np.median(rapports)) if len(rapports) >= 50 else None
 
+    def _apprendre_boosting(self, type_bien):
+        """Le modele d'un type de bien, appris sur toutes ses ventes de reference.
+
+        Les voisines d'une vente d'apprentissage l'EXCLUENT : on en demande une
+        de plus, et on retire la vente elle-meme — ou, si des ventes au meme
+        point la masquent, la plus lointaine."""
+        v, e = self.v, self.types[type_bien]
+        rangs = e["rangs"]
+        k = boosting.K_VOISINS
+        locaux, distances = e["voisinage"].plus_proches_lot(v["latitude"][rangs],
+                                                            v["longitude"][rangs], k + 1)
+        garde = locaux != np.arange(len(rangs))[:, None]
+        garde[garde.all(axis=1), -1] = False
+        locaux = locaux[garde].reshape(len(rangs), k)
+        distances = distances[garde].reshape(len(rangs), k)
+        pm2 = boosting.prix_voisins(e["pm2_d"][locaux], distances, v["surface"][rangs][locaux],
+                                    v["surface"][rangs])
+        x = boosting.traits(type_bien, {c: v[c][rangs] for c in _CARACTERISTIQUES}, pm2, distances)
+        return boosting.apprendre(x, e["log_d"])
+
     def pieces_typiques(self, type_bien, surface):
         """Le nombre de pieces le plus courant pour cette surface, quand il n'est pas saisi.
 
@@ -340,17 +374,37 @@ class Moteur:
                 "coefficient_marche": self.coefficient_marche}
 
     # --- les methodes ---------------------------------------------------
-    def comparables(self, bien, k=K_COMPARABLES):
+    def voisines(self, bien, k=K_COMPARABLES):
+        """Les k ventes du meme type les plus proches : (indices locaux, distances)."""
         e = self.types.get(bien["type"])
         if e is None:
-            return None, [], []
-        indices, distances = e["voisinage"].plus_proches(bien["latitude"], bien["longitude"], k)
-        if len(indices) < 3:
-            return None, [], []
-        surfaces = self.v["surface"][e["rangs"][indices]]
+            return np.array([], dtype=np.int64), np.array([])
+        return e["voisinage"].plus_proches(bien["latitude"], bien["longitude"], k)
+
+    def comparables(self, bien, locaux, distances):
+        e = self.types.get(bien["type"])
+        if e is None or len(locaux) < 3:
+            return None
+        surfaces = self.v["surface"][e["rangs"][locaux]]
         poids = 1.0 / (1.0 + distances / 300.0) * np.exp(-np.abs(np.log(surfaces / bien["surface"])))
-        pm2 = _mediane_ponderee(e["pm2_d"][indices], poids)
-        return pm2 * bien["surface"], e["rangs"][indices], distances
+        return _mediane_ponderee(e["pm2_d"][locaux], poids) * bien["surface"]
+
+    def gradient_boosting(self, bien, locaux, distances):
+        modele = self.boosters.get(bien["type"])
+        e = self.types.get(bien["type"])
+        if modele is None or e is None or len(locaux) < boosting.K_VOISINS:
+            return None
+        pm2 = boosting.prix_voisins(e["pm2_d"][locaux][None, :], distances[None, :],
+                                    self.v["surface"][e["rangs"][locaux]][None, :],
+                                    np.array([bien["surface"]]))
+        caracteristiques = {
+            "surface": bien["surface"], "terrain_m2": bien.get("terrain_m2") or 0.0,
+            "pieces": float(bien.get("pieces") or 0), "dependances": float(bien.get("dependances") or 0),
+            "vefa": 1.0 if bien.get("neuf") else 0.0,
+            "latitude": bien["latitude"], "longitude": bien["longitude"]}
+        x = boosting.traits(bien["type"], {c: np.array([float(val)]) for c, val in caracteristiques.items()},
+                            pm2, distances[None, :])
+        return float(np.exp(boosting.predire(modele, x)[0]))
 
     def hedonique(self, bien):
         e = self.types.get(bien["type"])
@@ -395,9 +449,13 @@ class Moteur:
                         "distance_terrains_m": terrain[1]}
 
     def estimer_brut(self, bien):
-        """Les methodes disponibles pour ce bien, et leur croisement."""
+        """Les methodes disponibles pour ce bien, et leur croisement.
+
+        Rend aussi les ventes comparables (rangs dans les ventes de reference)
+        et leurs distances, pour les montrer."""
         valeurs = {}
-        comp, rangs, distances = self.comparables(bien)
+        locaux, distances = self.voisines(bien)
+        comp = self.comparables(bien, locaux, distances)
         if comp:
             valeurs["comparables"] = comp
         hed = self.hedonique(bien)
@@ -406,6 +464,13 @@ class Moteur:
         sc, detail = self.sol_construction(bien)
         if sc:
             valeurs["sol_construction"] = sc
+        gb = self.gradient_boosting(bien, locaux, distances)
+        if gb:
+            valeurs["boosting"] = gb
+        e = self.types.get(bien["type"])
+        rangs = e["rangs"][locaux] if e is not None and len(locaux) >= 3 else []
+        if not len(rangs):
+            distances = []
         return valeurs, _geo(list(valeurs.values())), rangs, distances, detail
 
 
@@ -528,7 +593,7 @@ def _auto_evaluation(v, t, indices):
     fin = datetime.date.fromisoformat(max(dates))
     coupure = (fin - datetime.timedelta(days=365)).isoformat()
     avant = dates < coupure
-    moteur = Moteur(v, t, avant, indices)
+    moteur = Moteur(v, t, avant, indices, apprendre_boosting=True)
     reventes = _plus_value_des_reventes(v, indices, avant)
     anterieures = _ventes_par_bien(v, np.where(avant)[0])
     graine = np.random.default_rng(11)
@@ -595,7 +660,10 @@ def entrainer(departement, progression=None):
     if progression:
         progression("Mesure de la précision sur la dernière année")
     mesures = _auto_evaluation(v, t, indices)
-    moteur = Moteur(v, t, tout, indices)
+    if progression:
+        progression("Apprentissage du modèle final")
+    moteur = Moteur(v, t, tout, indices, apprendre_boosting=True)
+    boosters = {tb: boosting.vers_octets(m) for tb, m in moteur.boosters.items() if m is not None}
     modele = {
         "departement": departement,
         "indices": indices,
@@ -606,7 +674,8 @@ def entrainer(departement, progression=None):
         "terrains": int(t.get("n", 0)),
         "periode": [str(min(v["date_vente"])), str(max(v["date_vente"]))],
         "cout_construction_m2": COUT_CONSTRUCTION_M2,
-        "version": 1,
+        "boosting": sorted(boosters),
+        "version": VERSION_MODELE,
     }
     maintenant = datetime.datetime.now().isoformat(timespec="seconds")
     with transaction() as conn:
@@ -614,7 +683,11 @@ def entrainer(departement, progression=None):
                      " VALUES (?,?,?) ON CONFLICT(departement) DO UPDATE SET"
                      " entraine_le = excluded.entraine_le, modele_json = excluded.modele_json",
                      (departement, maintenant, json.dumps(modele)))
-    _cache.pop(departement, None)
+        conn.execute("DELETE FROM modele_boosting WHERE departement = ?", (departement,))
+        conn.executemany("INSERT INTO modele_boosting (departement, type, modele) VALUES (?,?,?)",
+                         [(departement, tb, octets) for tb, octets in boosters.items()])
+    with _verrou_cache:
+        _cache.pop(departement, None)
     logger.info("modele %s appris : %s", departement,
                 {tb: round(m["erreur_mediane"], 1) for tb, m in mesures.items()})
     return modele
@@ -638,6 +711,23 @@ _cache = {}
 _verrou_cache = threading.Lock()
 
 
+def _boosters(departement):
+    """Les modeles de boosting appris pour ce departement, prets a predire."""
+    with connexion() as conn:
+        lignes = conn.execute("SELECT type, modele FROM modele_boosting WHERE departement = ?",
+                              (str(departement),)).fetchall()
+    boosters = {}
+    for ligne in lignes:
+        try:
+            modele_type = boosting.depuis_octets(ligne["modele"])
+        except Exception as erreur:                  # noqa: BLE001
+            logger.warning("boosting %s/%s illisible : %s", departement, ligne["type"], erreur)
+            continue
+        if modele_type is not None:
+            boosters[ligne["type"]] = modele_type
+    return boosters
+
+
 def _moteur(departement):
     m = modele(departement)
     if m is None:
@@ -650,7 +740,8 @@ def _moteur(departement):
     t = references.charger_terrains(departement)
     if v.get("n", 0) == 0:
         raise PasPret(departement)
-    moteur = Moteur(v, t, np.ones(v["n"], dtype=bool), m["indices"], m["parametres"])
+    moteur = Moteur(v, t, np.ones(v["n"], dtype=bool), m["indices"], m["parametres"],
+                    boosters=_boosters(departement))
     with _verrou_cache:
         _cache[departement] = (m["entraine_le"], moteur)
     return m, moteur
@@ -680,8 +771,9 @@ def preparer(departement, forcer=False):
     if forcer or references.etat(departement) is None or references.a_rafraichir(departement):
         references.importer(departement, progression=progression)
         entrainer(departement, progression=progression)
-    elif modele(departement) is None:
+    elif a_reapprendre(departement):
         entrainer(departement, progression=progression)
+    rapprocher(departement)
     # L'indice et les loyers servent a toutes les estimations : on les lit
     # ici, pendant qu'on attend deja, plutot qu'au moment d'estimer.
     progression("Indice Notaires-Insee et carte des loyers")
@@ -691,6 +783,15 @@ def preparer(departement, forcer=False):
         except Exception as erreur:                  # noqa: BLE001
             logger.warning("source annexe de l'estimation indisponible : %s", erreur)
     return modele(departement)
+
+
+def a_reapprendre(departement):
+    """Pas de modele, ou un modele d'une version anterieure — sans boosting,
+    alors qu'il est disponible."""
+    m = modele(departement)
+    if m is None or m.get("version", 1) < VERSION_MODELE:
+        return True
+    return boosting.disponible() and not m.get("boosting")
 
 
 def lancer_preparation(departement, forcer=False):
@@ -1216,13 +1317,98 @@ def supprimer(ident):
 
 
 # =====================================================================
+#  Le bilan : les estimations confrontees aux ventes reelles
+# =====================================================================
+# Une vente parue au plus trois mois AVANT l'estimation compte encore : DVF
+# a six mois de retard, et l'on estime parfois un bien deja vendu sans le
+# savoir. Au-dela, c'est une vente precedente, que l'historique connaissait.
+RAPPROCHEMENT_JOURS_AVANT = 90
+# La surface saisie vient souvent du diagnostic (habitable), celle de DVF du
+# fisc (reelle batie) : elles different couramment de 10 %. Pour une maison
+# la parcelle suffit presque a designer le bien ; pour un appartement, la
+# surface doit trancher entre les lots d'un meme immeuble.
+RAPPROCHEMENT_ECART_SURFACE = {"maison": 0.25, "appartement": 0.10}
+
+
+def rapprocher(departement=None):
+    """
+    Retrouve, dans les ventes de reference, la vente des biens estimes.
+
+    Meme parcelle, meme type, surface proche, vendue apres l'estimation (ou
+    juste avant). Rend le nombre d'estimations nouvellement rapprochees.
+    """
+    requete = ("SELECT id, cree_le, parcelle_id, type, surface FROM estimation"
+               " WHERE vente_id_mutation IS NULL AND parcelle_id IS NOT NULL")
+    parametres = ()
+    if departement:
+        requete += " AND departement = ?"
+        parametres = (str(departement),)
+    trouvees = []
+    with connexion() as conn:
+        for e in conn.execute(requete, parametres).fetchall():
+            depuis = (datetime.date.fromisoformat(e["cree_le"][:10])
+                      - datetime.timedelta(days=RAPPROCHEMENT_JOURS_AVANT)).isoformat()
+            ecart = RAPPROCHEMENT_ECART_SURFACE.get(e["type"], 0.1)
+            for vente in conn.execute(
+                    "SELECT id_mutation, date_vente, prix, surface FROM vente_reference"
+                    " WHERE parcelle_id = ? AND type = ? AND date_vente >= ?"
+                    " ORDER BY date_vente", (e["parcelle_id"], e["type"], depuis)):
+                if abs(math.log(vente["surface"] / e["surface"])) <= ecart:
+                    trouvees.append((vente["id_mutation"], vente["date_vente"], vente["prix"], e["id"]))
+                    break
+    if trouvees:
+        maintenant = datetime.datetime.now().isoformat(timespec="seconds")
+        with transaction() as conn:
+            conn.executemany("UPDATE estimation SET vente_id_mutation = ?, vente_date = ?,"
+                             " vente_prix = ?, rapproche_le = ? WHERE id = ?",
+                             [(ident, date, prix, maintenant, e) for ident, date, prix, e in trouvees])
+        logger.info("estimation : %d vente(s) retrouvee(s)", len(trouvees))
+    return len(trouvees)
+
+
+def bilan():
+    """
+    Ce que valaient vos estimations, face aux prix reellement payes.
+
+    C'est la seule facon de verifier sur SES biens ce que rien d'autre ne
+    calibre : l'echelle d'etat et l'ajustement personnel. Si les biens juges
+    « mediocres » se vendent systematiquement plus cher qu'estime, c'est que
+    l'on est trop severe — l'ecart par niveau d'etat le montre.
+    """
+    with connexion() as conn:
+        total = conn.execute("SELECT count(*) FROM estimation").fetchone()[0]
+        lignes = conn.execute("SELECT valeur, bas, haut, vente_prix, saisie_json FROM estimation"
+                              " WHERE vente_prix IS NOT NULL AND valeur > 0").fetchall()
+    resultat = {"estimations": total, "vendues": len(lignes)}
+    if not lignes:
+        return resultat
+    ecarts = np.array([l["vente_prix"] / l["valeur"] - 1 for l in lignes])
+    dedans = [l["bas"] <= l["vente_prix"] <= l["haut"] for l in lignes if l["bas"] and l["haut"]]
+    resultat.update({
+        "erreur_mediane": float(np.median(np.abs(ecarts)) * 100),
+        "ecart_median": float(np.median(ecarts) * 100),
+        "dans_la_fourchette": float(np.mean(dedans) * 100) if dedans else None,
+    })
+    par_etat = {}
+    for ligne, ecart in zip(lignes, ecarts.tolist()):
+        saisie = json.loads(ligne["saisie_json"] or "{}")
+        cle = "travaux" if saisie.get("travaux") else (saisie.get("etat") or ETAT_DE_REFERENCE)
+        par_etat.setdefault(cle, []).append(ecart)
+    resultat["par_etat"] = {cle: {"n": len(valeurs), "ecart_median": float(np.median(valeurs) * 100)}
+                            for cle, valeurs in par_etat.items()}
+    return resultat
+
+
+# =====================================================================
 #  Entretien quotidien
 # =====================================================================
 def entretenir():
     """
     Le passage du planificateur : reprendre les departements dont DVF a
-    publie un nouveau millesime, puis relire l'indice et les loyers s'ils
-    ont vieilli. Quelques requetes HEAD les jours ou rien n'a change.
+    publie un nouveau millesime (ou dont le modele date d'une version
+    anterieure), relire l'indice et les loyers s'ils ont vieilli, puis
+    chercher la vente des biens estimes. Quelques requetes HEAD les jours
+    ou rien n'a change.
 
     Ne leve jamais : une source injoignable ne doit pas faire echouer la
     tache quotidienne, qui a d'autres choses a faire.
@@ -1238,6 +1424,10 @@ def entretenir():
             if references.a_rafraichir(departement):
                 logger.info("estimation %s : nouveau millesime DVF, reprise", departement)
                 preparer(departement, forcer=True)
+            elif a_reapprendre(departement):
+                logger.info("estimation %s : modele d'une version anterieure, re-apprentissage",
+                            departement)
+                entrainer(departement)
         except Exception as erreur:                  # noqa: BLE001
             logger.error("entretien de l'estimation %s en echec : %s", departement, erreur)
             _publier(erreur=str(erreur))
@@ -1250,3 +1440,7 @@ def entretenir():
                 rafraichir()
             except Exception as erreur:              # noqa: BLE001
                 logger.error("source annexe de l'estimation en echec : %s", erreur)
+        try:
+            rapprocher()
+        except Exception as erreur:                  # noqa: BLE001
+            logger.error("rapprochement des estimations en echec : %s", erreur)
