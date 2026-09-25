@@ -12,6 +12,7 @@
 // ====================================================================
 
 import { api } from "./api.js";
+import { COULEURS, libelleTrimestre, tracerCourbe } from "./courbe.js";
 import {
   $, afficherErreur, afficherSucces, dateFr, echapper, entierFr, euroFr,
   masquerErreur, nombreFr,
@@ -582,6 +583,7 @@ async function estimer(enregistrer) {
 function blocResultat(r) {
   return `
     ${blocVerdict(r)}
+    ${blocEvolution(r)}
     ${blocConstruction(r)}
     ${blocDecomposition(r)}
     ${blocRendement(r)}
@@ -618,12 +620,6 @@ function blocVerdict(r) {
                Enregistrer cette estimation</button>`}
       </p>
     </section>`;
-}
-
-function libelleTrimestre(code) {
-  const [annee, t] = String(code || "").split("-Q");
-  if (!t) return code || "";
-  return `${t === "1" ? "1er" : `${t}e`} trimestre ${annee}`;
 }
 
 function ligne(libelle, valeur, detail = "", classe = "") {
@@ -798,6 +794,75 @@ function blocPrecision(r) {
 function brancherResultat() {
   const bouton = $("#enregistrer-estimation");
   if (bouton) bouton.addEventListener("click", () => estimer(true));
+  // Le graphique se trace une fois la section posée : il prend la largeur réelle.
+  if (ecran.resultat?.evolution) tracerCourbe($("#courbe-valeur"), ecran.resultat.evolution);
+}
+
+/**
+ * La valeur dans le temps : ce que le bien aurait valu chaque trimestre,
+ * ses ventes réelles posées dessus, et les estimations gardées. Pour une
+ * estimation enregistrée, la courbe est recalculée à l'ouverture : elle
+ * suit le bien au-delà du jour de l'estimation, à mesure que les données
+ * paraissent.
+ */
+function blocEvolution(r) {
+  const ev = r.evolution;
+  if (!ev || !ev.points?.length) return "";
+  const v = ev.variations;
+  const tuile = (libelle, taux) => (taux == null ? "" : `
+    <div class="tuile">
+      <span class="tuile-libelle">${libelle}</span>
+      <span class="tuile-valeur">${ecartSigne(taux)}</span>
+    </div>`);
+  const projete = ev.points.some((p) => p.source !== "dvf");
+  const lignes = ev.points.slice().reverse().map((p) => `
+    <tr><td>${echapper(libelleTrimestre(p.trimestre))}${p.source !== "dvf" ? " *" : ""}</td>
+      <td class="donnee">${euros(p.valeur)}</td>
+      <td class="donnee">${euros(p.bas)} – ${euros(p.haut)}</td></tr>`).join("");
+  const debut = v.depuis?.trimestre;
+  return `
+    <section class="estimation-evolution">
+      <h2>La valeur dans le temps</h2>
+      <p class="explication">
+        Ce que ce bien aurait valu chaque trimestre depuis ${echapper(libelleTrimestre(debut))}&nbsp;:
+        l'estimation reportée dans le temps par l'indice des prix des
+        ${r.bien.type === "maison" ? "maisons" : "appartements"} du département${ev.zone_insee
+          ? `, prolongé par l'indice Notaires-Insee (${echapper(ev.zone_insee)})` : ""}.
+        La bande est la fourchette.
+      </p>
+      <div class="tuiles">
+        ${tuile("Sur un an", v.un_an)}
+        ${tuile("Sur trois ans", v.trois_ans)}
+        ${tuile(`Depuis ${echapper(String(debut || "").slice(0, 4))}`, v.depuis?.taux)}
+        <div class="tuile">
+          <span class="tuile-libelle">Au plus haut</span>
+          <span class="tuile-valeur">${euros(ev.maximum.valeur)}</span>
+          <span class="tuile-detail">${echapper(libelleTrimestre(ev.maximum.trimestre))}</span>
+        </div>
+      </div>
+      <div class="courbe" id="courbe-valeur" tabindex="0"
+           aria-label="Courbe de la valeur estimée par trimestre ; les flèches parcourent les trimestres, le tableau ci-dessous donne toutes les valeurs."></div>
+      <ul class="courbe-legende">
+        <li><span class="cle cle-ligne" style="border-color:${COULEURS.valeur}"></span>Valeur estimée</li>
+        ${projete ? `<li><span class="cle cle-ligne cle-pointille" style="border-color:${COULEURS.valeur}"></span>Prolongée par l'indice officiel</li>` : ""}
+        ${ev.ventes?.length ? `<li><span class="cle cle-rond" style="background:${COULEURS.vente}"></span>Vente réelle du bien</li>` : ""}
+        ${ev.estimations?.length ? `<li><span class="cle cle-losange" style="background:${COULEURS.estimation}"></span>Estimation enregistrée</li>` : ""}
+      </ul>
+      ${ev.ventes?.length ? `<p class="aide">Les ventes réelles du bien sont posées à leur
+        date&nbsp;: si son état n'a pas changé depuis, elles devraient tomber dans la bande.</p>` : ""}
+      ${ev.criteres_dates?.length ? `<p class="aide">Datés dans le temps&nbsp;:
+        ${echapper(ev.criteres_dates.join(", "))} — leur effet a changé depuis 2021. Les autres
+        critères sont supposés constants&nbsp;: la prime au jardin, mesurée année par année
+        sur les maisons des Landes et de Gironde, n'a pas bougé de 2021 à 2025.</p>` : ""}
+      <details class="courbe-table">
+        <summary>Les valeurs, trimestre par trimestre</summary>
+        <div class="cadre-defilant"><table class="estimation-comparables">
+          <thead><tr><th>Trimestre</th><th>Valeur</th><th>Fourchette</th></tr></thead>
+          <tbody>${lignes}</tbody>
+        </table></div>
+        ${projete ? '<p class="aide">* prolongé par l\'indice Notaires-Insee, DVF ne couvrant pas encore ce trimestre.</p>' : ""}
+      </details>
+    </section>`;
 }
 
 // --------------------------------------------------------------------

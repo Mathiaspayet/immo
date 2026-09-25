@@ -159,6 +159,7 @@ Depuis la fiche d'un diagnostic ou d'une parcelle — donc depuis n'importe quel
 - **Les atouts et défauts se cochent** (vue, bruit, vis-à-vis, exposition, voisinage, risque naturel, standing, architecture, performance énergétique, domotique, piscine, mitoyenneté, étage, extérieur, copropriété), chacun avec un coefficient tiré de mesures publiées et pris dans le bas des fourchettes. Les critères contradictoires s'excluent et le total est borné entre −35 % et +40 %. Le bilan les confronte, critère par critère, aux prix payés.
 - **Le DPE n'entre pas dans le calcul** : mesuré sur 833 maisons, il n'améliore pas la précision. Son année de construction sert à la vétusté.
 - Le marché récent est projeté par l'indice Notaires-Insee de la zone officielle la plus proche ; le rendement brut est donné à titre indicatif d'après la carte des loyers.
+- Chaque estimation porte la courbe de la valeur du bien, trimestre par trimestre, sur la période couverte par les données (indice du département lissé, prolongé par l'indice Notaires-Insee), avec les ventes réelles du bien et ses estimations enregistrées. Les critères dont l'effet a varié (énergie, climatisation) sont datés.
 - Les estimations s'enregistrent, avec tout ce qui a été saisi. À chaque parution DVF, la vente de chaque bien estimé est recherchée, et un bilan confronte les estimations aux prix payés, par niveau d'état saisi.
 - **Tout est calculé sur le NAS.** Aucun service d'estimation ni moteur d'intelligence artificielle tiers : rien du bien estimé ne sort.
 

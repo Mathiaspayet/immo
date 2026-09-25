@@ -597,6 +597,14 @@ def test_le_bilan_se_lit_aussi_par_critere(departement):
     assert par_critere["piscine"]["ecart_median"] == pytest.approx(-5, abs=0.1)
 
 
+def test_les_coefficients_dates():
+    assert criteres.effet_en("passoire", 2021) == -0.07
+    assert criteres.effet_en("passoire", 2025) == -0.12          # celui du catalogue
+    assert criteres.effet_en("vue_mer", 2021) == 0.20            # non date : constant
+    assert criteres.facteur_en(["climatisation"], 2022) == 1.0
+    assert set(criteres.dates()) <= {c["cle"] for c in criteres.liste()}
+
+
 def test_le_catalogue_est_coherent():
     catalogue = criteres.liste()
     assert len({c["cle"] for c in catalogue}) == len(catalogue)
@@ -610,6 +618,72 @@ def test_le_catalogue_est_coherent():
         if c["groupe"]:
             groupes.setdefault(c["groupe"], set()).add(tuple(c["types"]))
     assert all(len(types) == 1 for types in groupes.values())
+
+
+# =====================================================================
+#  La valeur dans le temps
+# =====================================================================
+def test_la_courbe_part_de_l_estimation_et_suit_l_indice(departement):
+    resultat = estimation.estimer(_bien(), {})
+    courbe = resultat["evolution"]
+    points = {p["trimestre"]: p for p in courbe["points"]}
+    assert courbe["ancre"] == resultat["trimestre_de_reference"] == "2025-Q4"
+    # Au trimestre de reference, la courbe donne l'estimation elle-meme.
+    assert points["2025-Q4"]["valeur"] == pytest.approx(resultat["valeur"], abs=1)
+    assert points["2025-Q4"]["bas"] == pytest.approx(resultat["bas"], abs=1)
+    # Trois ans a +1,5 % par trimestre : la courbe remonte le temps d'autant.
+    assert points["2023-Q1"]["valeur"] / points["2025-Q4"]["valeur"] == pytest.approx(
+        math.exp(-11 * TENDANCE), rel=0.05)
+    assert courbe["variations"]["un_an"] == pytest.approx(math.exp(4 * TENDANCE) - 1, abs=0.03)
+    assert all(p["bas"] <= p["valeur"] <= p["haut"] for p in courbe["points"])
+
+
+def test_l_indice_officiel_prolonge_la_courbe(departement):
+    observations = [("PR", "maison", q, i) for q, i in
+                    (("2025-Q3", 130.0), ("2025-Q4", 130.6), ("2026-Q1", 129.4), ("2026-Q2", 127.7))]
+    with transaction() as conn:
+        conn.executemany("INSERT INTO indice_officiel VALUES (?,?,?,?)", observations)
+        conn.execute("INSERT INTO source_maj VALUES ('insee', ?, 'essai')",
+                     (datetime.datetime.now().isoformat(timespec="seconds"),))
+    resultat = estimation.estimer(_bien("99004"), {})
+    courbe = resultat["evolution"]
+    assert courbe["points"][-1]["trimestre"] == "2026-Q2" == courbe["ancre"]
+    assert courbe["points"][-1]["source"] == "insee"
+    assert courbe["points"][-1]["valeur"] == pytest.approx(resultat["valeur"], abs=1)
+
+
+def test_un_critere_date_change_la_forme_de_la_courbe(departement, monkeypatch):
+    """Une passoire perdait moins autrefois qu'aujourd'hui : sa valeur passee,
+    rapportee a aujourd'hui, est plus haute que celle d'un bien ordinaire.
+    Le departement fictif commence en 2023 : on y date l'effet."""
+    monkeypatch.setitem(criteres.PROFILS, "passoire", {2023: -0.07})
+    ordinaire = estimation.estimer(_bien(), {})["evolution"]["points"]
+    passoire = estimation.estimer(_bien(), {"criteres": ["passoire"]})["evolution"]["points"]
+    rapport = lambda points: points[0]["valeur"] / points[-1]["valeur"]
+    assert rapport(passoire) / rapport(ordinaire) == pytest.approx(0.93 / 0.88, rel=0.01)
+
+
+def test_la_courbe_porte_les_ventes_et_les_estimations_du_bien(departement):
+    revente = next(v for v in departement["ventes"] if v[1].startswith("R"))
+    bien = _bien(revente[2], surface=revente[7], terrain=revente[9], parcelle_id=revente[14])
+    premiere = estimation.estimer(bien, {})
+    ident = estimation.enregistrer(premiere)
+    ventes = premiere["evolution"]["ventes"]
+    assert [v["date"] for v in ventes][-1] == revente[3] and len(ventes) == 2
+    relue = estimation.enregistree(ident)
+    courbe = relue["resultat"]["evolution"]
+    assert [e["id"] for e in courbe["estimations"]] == [ident]
+    assert courbe["estimations"][0]["trimestre"] == premiere["trimestre_de_reference"]
+
+
+def test_une_estimation_ancienne_retrouve_son_trimestre(departement):
+    """Enregistree avant que le trimestre de reference ne soit garde : on le
+    deduit de la projection, ou de la fin des donnees."""
+    resultat = estimation.estimer(_bien(), {})
+    del resultat["trimestre_de_reference"]
+    assert estimation._ancre(resultat) == "2025-Q4"
+    resultat["projection"] = {"jusqu_a": "2026-Q1"}
+    assert estimation._ancre(resultat) == "2026-Q1"
 
 
 # =====================================================================

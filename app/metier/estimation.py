@@ -1122,10 +1122,13 @@ def estimer(bien, saisie=None):
     if proj is None:
         ne_sait_pas.append("Le marché depuis la fin des données DVF : aucun indice officiel n'a pu être lu.")
 
-    return {
+    resultat = {
         "departement": departement,
         "modele_du": m["entraine_le"],
         "donnees": {"periode": m["periode"], "ventes": m["ventes"].get(type_bien)},
+        # Le trimestre dont l'estimation donne le prix : le dernier de l'indice
+        # officiel quand il prolonge DVF, sinon le dernier de DVF.
+        "trimestre_de_reference": proj["jusqu_a"] if proj else ind["trimestres"][-1],
         "bien": {**bien, "pieces_estimees": pieces_estimees, "terrain_estime": terrain_estime},
         "saisie": {"etat": None if travaux else etat, "travaux": travaux, "ajustement": perso,
                    "raison": saisie.get("raison") or "",
@@ -1147,6 +1150,8 @@ def estimer(bien, saisie=None):
         "rendement": rendement,
         "ne_sait_pas": ne_sait_pas,
     }
+    resultat["evolution"] = evolution(resultat, m)
+    return resultat
 
 
 def etats():
@@ -1322,6 +1327,11 @@ def enregistrees():
 
 
 def enregistree(ident):
+    """
+    Une estimation gardee, avec sa courbe RECALCULEE : l'indice a pu
+    s'allonger depuis — un nouveau millesime DVF, un trimestre Insee de
+    plus — et la courbe suit alors le bien au-dela du jour de l'estimation.
+    """
     with connexion() as conn:
         ligne = conn.execute(
             f"SELECT {COLONNES_LISTE}, e.saisie_json, e.resultat_json FROM estimation e"
@@ -1329,15 +1339,189 @@ def enregistree(ident):
             (int(ident),)).fetchone()
     if ligne is None:
         return None
-    resultat = dict(ligne)
-    resultat["saisie"] = json.loads(resultat.pop("saisie_json"))
-    resultat["resultat"] = json.loads(resultat.pop("resultat_json"))
-    return resultat
+    gardee = dict(ligne)
+    gardee["saisie"] = json.loads(gardee.pop("saisie_json"))
+    gardee["resultat"] = json.loads(gardee.pop("resultat_json"))
+    try:
+        courbe = evolution(gardee["resultat"])
+    except Exception as erreur:                      # noqa: BLE001
+        logger.warning("courbe de l'estimation %s impossible : %s", ident, erreur)
+        courbe = None
+    if courbe is not None:
+        gardee["resultat"]["evolution"] = courbe
+    return gardee
 
 
 def supprimer(ident):
     with transaction() as conn:
         return conn.execute("DELETE FROM estimation WHERE id = ?", (int(ident),)).rowcount > 0
+
+
+# =====================================================================
+#  La valeur dans le temps
+# =====================================================================
+def serie_marche(departement, type_bien, m=None):
+    """
+    Le niveau du marche, trimestre par trimestre, en log : l'indice DVF du
+    departement, prolonge par l'indice Notaires-Insee au-dela de DVF.
+
+    L'indice DVF est LISSE sur trois trimestres. D'un trimestre a l'autre,
+    il bouge de plusieurs points par le seul hasard des biens vendus (les
+    Landes : 119 puis 113 puis 115 en 2024) ; une courbe qui zigzague ainsi
+    ferait lire des mouvements de marche qui n'existent pas. Son dernier
+    point lisse est exactement le niveau de reference de l'estimation.
+
+    Un indice local — les 1 500 ventes les plus proches de Mimizan — a ete
+    essaye : il suit celui du departement, en deux fois plus bruite.
+
+    Rend ({trimestre: log niveau}, {trimestre: "dvf" ou code de zone Insee}).
+    """
+    m = m or modele(departement)
+    ind = m["indices"][type_bien]
+    trimestres, effets = ind["trimestres"], np.array(ind["effets"], dtype=float)
+    serie, sources = {}, {}
+    for i, trimestre in enumerate(trimestres):
+        serie[trimestre] = float(effets[max(0, i - 1): i + 2].mean())
+        sources[trimestre] = "dvf"
+    references_q = trimestres[-2:]
+    with connexion() as conn:
+        for zone in insee.zones_candidates(departement):
+            table = {l["trimestre"]: l["indice"] for l in conn.execute(
+                "SELECT trimestre, indice FROM indice_officiel WHERE zone = ? AND type = ?",
+                (zone, type_bien))}
+            if not references_q or not all(q in table for q in references_q):
+                continue
+            base = sum(table[q] for q in references_q) / len(references_q)
+            for trimestre in sorted(q for q in table if q > trimestres[-1]):
+                serie[trimestre] = ind["reference"] + math.log(table[trimestre] / base)
+                sources[trimestre] = zone
+            break
+    return serie, sources
+
+
+def _ancre(resultat):
+    """Le trimestre dont une estimation donne le prix — y compris pour une
+    estimation enregistree avant que ce trimestre ne soit garde."""
+    if resultat.get("trimestre_de_reference"):
+        return resultat["trimestre_de_reference"]
+    if resultat.get("projection"):
+        return resultat["projection"]["jusqu_a"]
+    return references._trimestre(resultat["donnees"]["periode"][1])
+
+
+def ventes_du_bien(parcelle_id, type_bien, surface):
+    """Les ventes du MEME bien connues de DVF : meme parcelle, meme type, surface proche."""
+    if not parcelle_id:
+        return []
+    ecart = RAPPROCHEMENT_ECART_SURFACE.get(type_bien, 0.1)
+    with connexion() as conn:
+        lignes = conn.execute(
+            "SELECT date_vente, prix, surface FROM vente_reference WHERE parcelle_id = ?"
+            " AND type = ? ORDER BY date_vente", (str(parcelle_id), type_bien)).fetchall()
+    return [{"date": l["date_vente"], "trimestre": references._trimestre(l["date_vente"]),
+             "prix": l["prix"]}
+            for l in lignes if abs(math.log(l["surface"] / surface)) <= ecart]
+
+
+def estimations_du_bien(parcelle_id, n_dpe, type_bien):
+    """Toutes les estimations gardees de ce bien : c'est son estimation dans le temps."""
+    conditions, parametres = [], []
+    if parcelle_id:
+        conditions.append("parcelle_id = ?")
+        parametres.append(str(parcelle_id))
+    if n_dpe:
+        conditions.append("n_dpe = ?")
+        parametres.append(str(n_dpe))
+    if not conditions:
+        return []
+    with connexion() as conn:
+        lignes = conn.execute(
+            "SELECT id, cree_le, valeur, bas, haut,"
+            " coalesce(json_extract(resultat_json, '$.trimestre_de_reference'),"
+            "          json_extract(resultat_json, '$.projection.jusqu_a')) AS trimestre"
+            " FROM estimation"
+            f" WHERE type = ? AND ({' OR '.join(conditions)}) ORDER BY cree_le",
+            [type_bien, *parametres]).fetchall()
+    # Une estimation se pose au trimestre dont elle donne le prix, pas au jour
+    # ou elle a ete faite : DVF a six mois de retard sur le calendrier.
+    return [{**dict(l), "trimestre": l["trimestre"] or references._trimestre(l["cree_le"][:10])}
+            for l in lignes]
+
+
+def evolution(resultat, m=None):
+    """
+    Ce que ce bien aurait valu, trimestre par trimestre, sur toute la
+    periode que couvrent les donnees — et au-dela, a mesure qu'elles
+    s'allongent.
+
+    La valeur estimee est reportee dans le temps par l'indice de marche du
+    departement (la methode des notaires pour actualiser un prix). Les
+    criteres dont l'effet a change sont dates : une passoire thermique
+    perdait moins en 2021 qu'aujourd'hui. Pour un bien deja vendu, ils ne
+    portent, comme a l'estimation, que sur la part « bien type ».
+
+    Sur la courbe se posent les VENTES REELLES du bien, a leur date : le
+    meilleur controle qui soit, si l'etat n'a pas change entre-temps.
+    """
+    departement, bien = resultat["departement"], resultat["bien"]
+    type_bien = bien["type"]
+    m = m or modele(departement)
+    if m is None or type_bien not in m.get("indices", {}):
+        return None
+    serie, sources = serie_marche(departement, type_bien, m)
+    if not serie:
+        return None
+    ancre = _ancre(resultat)
+    if ancre not in serie:
+        anterieurs = [q for q in serie if q <= ancre]
+        ancre = max(anterieurs) if anterieurs else min(serie)
+
+    saisie = resultat.get("saisie") or {}
+    travaux = float(saisie.get("travaux") or 0)
+    centre = resultat["valeur"] + travaux
+    if centre <= 0:
+        return None
+    bas_r = (resultat["bas"] + travaux) / centre - 1
+    haut_r = (resultat["haut"] + travaux) / centre - 1
+    cles = saisie.get("criteres") or []
+    historique = resultat.get("historique") or {}
+    attenuation = 1 - historique["poids"] if historique.get("poids") else 1.0
+    criteres_ancre = criteres.facteur_en(cles, int(ancre[:4]))
+
+    points = []
+    for trimestre in sorted(serie):
+        facteur = (math.exp(serie[trimestre] - serie[ancre])
+                   * (criteres.facteur_en(cles, int(trimestre[:4])) / criteres_ancre) ** attenuation)
+        niveau = centre * facteur
+        points.append({"trimestre": trimestre,
+                       "valeur": round(max(niveau - travaux, 0)),
+                       "bas": round(max(niveau * (1 + bas_r) - travaux, 0)),
+                       "haut": round(max(niveau * (1 + haut_r) - travaux, 0)),
+                       "source": "dvf" if sources[trimestre] == "dvf" else "insee"})
+
+    derniere = points[-1]["valeur"]
+
+    def variation(recul):
+        if len(points) <= recul or not points[-1 - recul]["valeur"]:
+            return None
+        return derniere / points[-1 - recul]["valeur"] - 1
+
+    haut_point = max(points, key=lambda p: p["valeur"])
+    bas_point = min(points, key=lambda p: p["valeur"])
+    zone = next((z for z in sources.values() if z != "dvf"), None)
+    return {
+        "points": points,
+        "ancre": ancre,
+        "variations": {"un_an": variation(4), "trois_ans": variation(12),
+                       "depuis": {"trimestre": points[0]["trimestre"],
+                                  "taux": variation(len(points) - 1)}},
+        "maximum": {"trimestre": haut_point["trimestre"], "valeur": haut_point["valeur"]},
+        "minimum": {"trimestre": bas_point["trimestre"], "valeur": bas_point["valeur"]},
+        "zone_insee": ZONES_INDICE.get(zone, zone) if zone else None,
+        "criteres_dates": [criteres.libelle(c) for c in cles if c in criteres.PROFILS],
+        "ventes": ventes_du_bien(bien.get("parcelle_id"), type_bien, bien["surface"]),
+        "estimations": estimations_du_bien(bien.get("parcelle_id"), bien.get("n_dpe"), type_bien),
+    }
 
 
 # =====================================================================

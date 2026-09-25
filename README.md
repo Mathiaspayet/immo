@@ -515,6 +515,27 @@ s'excluent ne se cumulent pas, et le total est borné entre −35 et +40 %.
 Ce sont des repères nationaux : le bilan des estimations les confronte,
 critère par critère, aux prix réellement payés dans votre secteur.
 
+**La valeur dans le temps.** Chaque estimation porte sa courbe : ce que le
+bien aurait valu chaque trimestre depuis 2021, reporté par l'indice des prix
+du département (la méthode des notaires pour actualiser un prix), lissé sur
+trois trimestres — d'un trimestre à l'autre, l'indice bouge de plusieurs
+points par le seul hasard des biens vendus — et prolongé par l'indice
+Notaires-Insee au-delà de DVF, en pointillé. Les ventes réelles du bien et
+les estimations gardées se posent dessus. Rouverte plus tard, une
+estimation enregistrée voit sa courbe recalculée : elle suit le bien à
+mesure que les données paraissent.
+
+**Ce qui varie dans le temps — mesuré, pas supposé.** La prime au jardin,
+mesurée année par année sur les maisons des Landes et de Gironde, n'a pas
+bougé de 2021 à 2025. La décote des passoires thermiques, elle, s'est
+creusée (notaires : −10 % en 2022, −15 % en 2023 pour un appartement de
+Nouvelle-Aquitaine), et la climatisation — relevée dans 287 DPE de 1 716
+ventes du Born — est passée d'un effet négatif en 2021-2022 à neutre pour
+une maison et vers +6 % pour un appartement en 2023-2025. Ces critères sont
+donc datés sur la courbe ; les autres, faute de données, restent constants.
+Un indice local (les 1 500 ventes les plus proches de Mimizan) a été
+essayé : il suit celui du département, en deux fois plus bruité.
+
 **Le DPE n'entre pas dans le calcul.** Relié à 833 ventes de maisons, il ne
 réduit pas l'erreur (16,0 % sans, 16,2 % avec) : son effet est déjà dans
 l'âge et le secteur. L'année de construction, elle, sert à la vétusté.
@@ -726,7 +747,7 @@ app/
 │   ├── voisinage.py         F8 — plus proches voisins, exacts, en grille
 │   ├── estimation.py        F8 — méthodes, auto-évaluation, estimation, bilan
 │   ├── boosting.py          F8 — gradient boosting (LightGBM)
-│   ├── criteres.py          F8 — atouts et défauts, et leurs coefficients
+│   ├── criteres.py          F8 — atouts et défauts, coefficients datés
 ├── api/             routes HTTP — ne font que traduire en JSON
 └── web/             interface : HTML, CSS, modules ES natifs
 ```

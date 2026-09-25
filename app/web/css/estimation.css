@@ -267,3 +267,72 @@
   .estimation-calcul th { white-space: normal; }
   .estimation-verdict { padding: calc(var(--pas) * 4) calc(var(--pas) * 3) calc(var(--pas) * 1); }
 }
+
+/* --- La valeur dans le temps --------------------------------------- */
+.tuiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: calc(var(--pas) * 2);
+  margin: calc(var(--pas) * 3) 0 calc(var(--pas) * 4);
+}
+.tuile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: calc(var(--pas) * 2) calc(var(--pas) * 3);
+  background: var(--papier-carte);
+  border: 1px solid var(--trait);
+}
+.tuile-libelle { font-size: 0.72rem; color: var(--encre-douce); }
+.tuile-valeur { font-size: 1.15rem; font-weight: 600; color: var(--encre); }
+.tuile-detail { font-size: 0.72rem; color: var(--encre-douce); }
+
+/* Le conteneur prend toute la largeur : le graphique se trace à sa taille. */
+.courbe {
+  position: relative;
+  width: 100%;
+  min-height: 240px;
+  background: var(--papier-carte);
+  border: 1px solid var(--trait);
+  touch-action: pan-y;
+}
+.courbe:focus-visible { outline: 2px solid var(--atlantique); outline-offset: 2px; }
+.courbe-svg { display: block; }
+.courbe-bulle {
+  position: absolute;
+  top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 220px;
+  padding: calc(var(--pas) * 1.5) calc(var(--pas) * 2.5);
+  background: #FFF;
+  border: 1px solid var(--trait-fort);
+  border-radius: var(--rayon);
+  box-shadow: 0 2px 8px rgba(18, 38, 43, 0.12);
+  font-size: 0.76rem;
+  color: var(--encre-douce);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.courbe-bulle strong { font-size: 0.95rem; color: var(--encre); font-variant-numeric: tabular-nums; }
+.courbe-bulle-vente, .courbe-bulle-estimation { color: var(--encre); font-weight: 600; }
+
+.courbe-legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pas) * 2) calc(var(--pas) * 5);
+  margin: calc(var(--pas) * 2) 0 calc(var(--pas) * 3);
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--encre-douce);
+}
+.courbe-legende li { display: flex; align-items: center; gap: calc(var(--pas) * 2); }
+.cle { display: inline-block; flex: 0 0 auto; }
+.cle-ligne { width: 18px; height: 0; border-top: 2px solid; }
+.cle-pointille { border-top-style: dashed; }
+.cle-rond { width: 10px; height: 10px; border-radius: 50%; }
+.cle-losange { width: 8px; height: 8px; transform: rotate(45deg); }
+.courbe-table { margin-top: calc(var(--pas) * 3); font-size: 0.8rem; }
+.courbe-table summary { cursor: pointer; color: var(--atlantique); }

@@ -24,6 +24,26 @@ Les effets se multiplient, puis le total est BORNE : des atouts qui se
 cumulent se recouvrent en partie (une vue mer dit deja la lumiere, un
 standing eleve deja une partie du cachet), et au-dela de ces bornes le bien
 sort de ce que ses voisins permettent de juger.
+
+CE QUI VARIE DANS LE TEMPS. Les gouts changent, mais on ne date un
+coefficient que lorsqu'on l'a vu bouger :
+
+  - l'ENERGIE : la valeur verte se creuse depuis la loi Climat (2021) et le
+    calendrier d'interdiction de louer les passoires. Notaires, Nouvelle-
+    Aquitaine : un appartement F ou G se vendait 10 % sous un D en 2022,
+    15 % en 2023 ;
+  - la CLIMATISATION : mesuree sur 1 716 ventes du Born reliees a leur DPE
+    (287 climatisees), elle passe d'un effet negatif en 2021-2022 (-16 %
+    pour les maisons, sans doute des pompes a chaleur posees sur des biens
+    modestes) a un effet nul en 2023-2025 pour les maisons, et d'environ
+    +6 % pour les appartements (non significatif). La demande monte ; la
+    prime reste a venir ;
+  - le JARDIN, lui, n'a pas bouge : la prime au terrain, mesuree annee par
+    annee sur les maisons des Landes (34 000 ventes) et de Gironde, est
+    stable de 2021 a 2025 a la precision des donnees.
+
+Les autres criteres sont supposes constants : aucune donnee ne permet de
+dire qu'ils ont varie.
 """
 
 import math
@@ -76,12 +96,17 @@ CATALOGUE = [
     ("energie_performante", "Très performant en énergie : isolation parfaite, DPE A ou B",
      0.10, "energie", TOUS, "bati",
      "Notaires, à caractéristiques égales : une maison A vaut +17 % qu'une D "
-     "(2024) ; mesuré dans le Born, +10 % pour A ou B."),
+     "(2024) ; mesuré dans le Born, +10 % pour A ou B. Prime moindre avant 2023."),
     ("passoire", "Passoire thermique : DPE F ou G", -0.12, "energie", TOUS, "bati",
      "Notaires, Nouvelle-Aquitaine : −15 % pour un appartement F ou G face à "
-     "un D, davantage pour une maison ; une part relève de l'état, compté à part."),
+     "un D en 2023 (−10 % en 2022), davantage pour une maison ; une part relève "
+     "de l'état, compté à part."),
     ("domotique", "Domotique, équipements connectés", 0.01, None, TOUS, "bati",
      "Effet faible : les acheteurs le paient peu."),
+    ("climatisation", "Climatisation ou pompe à chaleur réversible", 0.02, None, TOUS, "bati",
+     "Mesuré sur 1 716 ventes du Born reliées à leur DPE : nul ou négatif en 2021-2022, "
+     "neutre pour une maison et vers +6 % pour un appartement en 2023-2025. La demande "
+     "monte ; retenu +2 % aujourd'hui, 0 avant 2023."),
 
     # --- Propre a une maison -------------------------------------------
     ("piscine", "Piscine", 0.10, None, ("maison",), "maison",
@@ -105,6 +130,17 @@ CATALOGUE = [
      ("appartement",), "appartement", "Repère d'expertise."),
 ]
 
+# Les coefficients DATES : l'effet d'une annee anterieure, quand on l'a vu
+# differer. Toute annee absente prend l'effet d'aujourd'hui (celui du
+# catalogue). Pour l'energie, la montee suit les notaires (-10 % en 2022,
+# -15 % en 2023 pour un appartement de Nouvelle-Aquitaine), ramenee a la
+# prudence du coefficient retenu.
+PROFILS = {
+    "passoire": {2021: -0.07, 2022: -0.09},
+    "energie_performante": {2021: 0.06, 2022: 0.08},
+    "climatisation": {2021: 0.0, 2022: 0.0},
+}
+
 THEMES = {
     "emplacement": "L'emplacement, à l'échelle du bien",
     "bati": "Le bâti et ses prestations",
@@ -120,6 +156,23 @@ def liste():
     return [{"cle": cle, "libelle": libelle, "effet": round(effet * 100), "groupe": groupe,
              "types": list(types), "theme": theme, "repere": repere}
             for cle, libelle, effet, groupe, types, theme, repere in CATALOGUE]
+
+
+def effet_en(cle, annee):
+    """L'effet d'un critere une annee donnee — celui du catalogue s'il n'est pas date."""
+    critere = _PAR_CLE[cle]
+    return PROFILS.get(cle, {}).get(int(annee), critere[2])
+
+
+def facteur_en(cles, annee):
+    """L'effet d'ensemble des criteres une annee donnee, avec les memes bornes."""
+    brut = math.prod(1 + effet_en(cle, annee) for cle in cles or [] if cle in _PAR_CLE)
+    return min(max(brut, PLANCHER), PLAFOND)
+
+
+def dates():
+    """Les criteres dont l'effet varie dans le temps, pour l'ecran."""
+    return sorted(PROFILS)
 
 
 def libelle(cle):
