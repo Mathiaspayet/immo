@@ -165,6 +165,13 @@ function extraitCadastral(bien, extrait) {
         Math.round(parcelle.contenance_m2 ?? 0))} m² ·
         bâti ${entierFr.format(Math.round(parcelle.emprise_batie_m2 ?? 0))} m²</span>
     </figcaption>
+    ${parcelle.approchee ? `
+      <p class="extrait-approche">
+        <span class="pastille pastille-lot">position approchée</span>
+        Le diagnostic est géocodé hors de toute parcelle, sur la voie, à
+        ${nombreFr.format(parcelle.distance_dpe_m ?? 0)}&nbsp;m de celle-ci&nbsp;— la plus
+        proche, sans autre à moins de 3&nbsp;m de plus.
+      </p>` : ""}
   </figure>`;
 }
 
@@ -181,8 +188,20 @@ function extraitCadastral(bien, extrait) {
  * Le second est le plus trompeur : le dessin paraît complet. On l'annonce
  * donc explicitement, et le bouton relance l'import dans les deux cas.
  */
-function inviteCadastre(bien, extrait) {
+function inviteCadastre(bien, extrait, cadastreCharge = false) {
   if (!bien.code_insee) return "";
+  // Le cadastre est là, mais aucune parcelle ne porte ce diagnostic : le
+  // recharger n'y changerait rien. Le message disait « pas encore chargé »
+  // à tort.
+  if (!extrait && cadastreCharge) {
+    return `
+      <p class="extrait-manquant">
+        Ce diagnostic n'est rattaché à aucune parcelle&nbsp;: l'ADEME l'a géocodé
+        à l'écart de tout contour — au milieu de la voie quand l'adresse n'a pas
+        de numéro, ou à égale distance de deux parcelles. Ses ventes ne peuvent
+        donc pas lui être rattachées sans risquer celles du voisin.
+      </p>`;
+  }
   const commune = echapper(bien.commune || "cette commune");
   const attributs = `data-charger-cadastre data-insee="${echapper(bien.code_insee)}"
                      data-commune="${echapper(bien.commune || "")}"`;
@@ -297,7 +316,12 @@ function blocVentes(ventes) {
               ? `<span class="pastille">${entierFr.format(v.prix_m2)} €/m²</span>`
               : ""}
             <span class="pastille">${echapper(v.nature || "vente")}</span>
+            ${v.adresse_concordante === true
+              ? '<span class="pastille pastille-concordante">même adresse que le diagnostic</span>' : ""}
+            ${v.adresse_concordante === false
+              ? '<span class="pastille pastille-retire">autre adresse : à vérifier</span>' : ""}
           </div>
+          ${v.adresse ? `<p class="explication">${echapper(v.adresse)}</p>` : ""}
           ${detail.length
             ? `<p class="explication">${echapper(detail.join(" · "))}</p>` : ""}
           ${v.prix_m2 == null && v.surface_bati_m2 ? `
@@ -316,6 +340,13 @@ function blocVentes(ventes) {
       Ne couvre que les cinq derniers millésimes publiés, et jamais
       l'Alsace-Moselle ni Mayotte.
     </p>
+    ${ventes.some((v) => v.parcelle_approchee) ? `
+      <p class="explication">
+        Le diagnostic n'est pas posé sur une parcelle mais devant, à
+        ${nombreFr.format(ventes[0].distance_dpe_m ?? 0)}&nbsp;m&nbsp;: ces ventes sont celles de
+        la parcelle la plus proche. L'adresse de chaque vente est comparée à
+        celle du diagnostic pour écarter la vente d'un voisin.
+      </p>` : ""}
     <ol class="ventes">${lignes}</ol>`;
 }
 
@@ -490,7 +521,11 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
     api.extraitCadastral(principal.n_dpe),
     api.ventes(principal.n_dpe),
   ]);
-  if (reponseExtrait.status === "fulfilled") extrait = reponseExtrait.value.extrait;
+  let cadastreCharge = false;
+  if (reponseExtrait.status === "fulfilled") {
+    extrait = reponseExtrait.value.extrait;
+    cadastreCharge = Boolean(reponseExtrait.value.cadastre_charge);
+  }
   if (reponseVentes.status === "fulfilled") ventes = reponseVentes.value.ventes || [];
   const parcelle = extrait?.parcelle ?? null;
 
@@ -524,7 +559,7 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
         ${boutonEstimer()}
       </div>
     </div>
-    ${inviteCadastre(principal, extrait)}
+    ${inviteCadastre(principal, extrait, cadastreCharge)}
 
     ${reponse.plusieurs_logements ? `
       <p class="message message-travail">

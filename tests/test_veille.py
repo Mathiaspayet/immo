@@ -232,13 +232,22 @@ def test_un_code_insee_stocke_comme_nom_ne_prime_sur_rien(base):
     assert veille.communes_en_cache()[0]["nom"] == "STE EULALIE EN BORN"
 
 
+def _recent(jours=20):
+    """Une date dans la fenetre des filtres, quel que soit le jour du test.
+
+    Ecrite en dur (« 2026-08-01 »), elle sortait de la fenetre de 120 jours
+    fin novembre 2026 : le test aurait echoue de lui-meme, sans que le code
+    ait change."""
+    return (datetime.date.today() - datetime.timedelta(days=jours)).isoformat()
+
+
 def test_filtre_par_code_insee_insensible_aux_variantes(base):
     inserer_dpe(n_dpe="A", adresse="1 rue", commune="STE EULALIE EN BORN",
-                code_insee="40257", date_etablissement="2026-08-01")
+                code_insee="40257", date_etablissement=_recent())
     inserer_dpe(n_dpe="B", adresse="2 rue", commune="Sainte-Eulalie-en-Born",
-                code_insee="40257", date_etablissement="2026-08-01")
+                code_insee="40257", date_etablissement=_recent())
     inserer_dpe(n_dpe="C", adresse="3 rue", commune="Mimizan",
-                code_insee="40184", date_etablissement="2026-08-01")
+                code_insee="40184", date_etablissement=_recent())
 
     filtres = {**FILTRES, "code_insee": "40257"}
     assert {l["n_dpe"] for l in veille.lister(filtres)} == {"A", "B"}
@@ -250,7 +259,7 @@ def test_filtre_par_code_insee_insensible_aux_variantes(base):
 
 def test_le_code_insee_prime_sur_le_nom(base):
     inserer_dpe(n_dpe="A", adresse="1 rue", commune="Mimizan", code_insee="40184",
-                date_etablissement="2026-08-01")
+                date_etablissement=_recent())
     filtres = {**FILTRES, "code_insee": "40184", "commune": "Aureilhan"}
     assert [l["n_dpe"] for l in veille.lister(filtres)] == ["A"]
 

@@ -247,8 +247,11 @@ def rattacher_approche(code_insee, index=None,
     Rapproche d'une parcelle les diagnostics qu'aucune ne contient.
 
     C'est une ESTIMATION, et elle est rangee a part de `parcelle_id` :
-    l'ecran doit pouvoir dire « position approchee », et la fiche continuer
-    a lire l'historique des ventes sur la seule parcelle certaine.
+    l'ecran doit pouvoir dire « position approchee ». La fiche, qui ne
+    lisait d'abord que la parcelle certaine, lit aussi celle-ci depuis
+    qu'un vrai cas l'a montre — un DPE a 1,8 m de la parcelle de sa vente,
+    muet sur la fiche quand la carte les reunissait —, en le signalant et
+    en comparant l'adresse de la vente a celle du diagnostic.
 
     Deux conditions, toutes deux necessaires :
 
@@ -321,12 +324,29 @@ def _depuis_la_ligne(ligne):
 
 
 def parcelle_de(n_dpe):
-    """La parcelle qui porte ce DPE, geometrie comprise — pour la fiche."""
+    """
+    La parcelle qui porte ce DPE, geometrie comprise — pour la fiche.
+
+    A defaut d'appartenance stricte, la parcelle APPROCHEE : celle devant
+    laquelle l'ADEME l'a geocode, sur la chaussee (voir `rattacher_approche`),
+    signalee par `approchee` et sa distance. La fiche lisait jusqu'ici la
+    seule parcelle certaine, et se taisait la ou la carte montrait le
+    diagnostic et sa vente sur la meme parcelle : au 13 rue des Ecoles a
+    Mimizan, un DPE pose a 1,8 m de sa parcelle — l'autre la plus proche
+    est a 10,6 m — n'avait ni extrait ni vente, et un message pretendait le
+    cadastre absent. Mieux vaut montrer, et dire que c'est une approche.
+    """
     with connexion() as conn:
-        return _depuis_la_ligne(conn.execute(
-            "SELECT p.* FROM parcelle p "
-            "JOIN dpe d ON d.parcelle_id = p.id WHERE d.n_dpe = ?",
+        parcelle = _depuis_la_ligne(conn.execute(
+            "SELECT p.*, d.parcelle_id IS NULL AS approchee,"
+            "       d.distance_parcelle_m AS distance_dpe_m"
+            "  FROM parcelle p JOIN dpe d ON d.parcelle_carte = p.id WHERE d.n_dpe = ?",
             (str(n_dpe),)).fetchone())
+    if parcelle is not None:
+        parcelle["approchee"] = bool(parcelle["approchee"])
+        if not parcelle["approchee"]:
+            parcelle["distance_dpe_m"] = None
+    return parcelle
 
 
 def parcelle(identifiant):

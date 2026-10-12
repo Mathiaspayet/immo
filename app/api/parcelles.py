@@ -178,8 +178,22 @@ def extrait(n_dpe: str = Query(...)):
     """
     De quoi dessiner l'extrait cadastral d'un bien : sa parcelle, les
     parcelles voisines, et les batiments du cadre.
+
+    `cadastre_charge` dit pourquoi il n'y a pas d'extrait. La fiche
+    annoncait « cadastre pas encore charge » pour tout diagnostic sans
+    parcelle — y compris ceux d'une commune dont le cadastre est la, et que
+    l'ADEME a simplement geocodes a l'ecart de tout contour.
     """
-    return {"extrait": parcelles.extrait(n_dpe)}
+    contenu = parcelles.extrait(n_dpe)
+    charge = True
+    if contenu is None:
+        with connexion() as conn:
+            ligne = conn.execute("SELECT code_insee FROM dpe WHERE n_dpe = ?",
+                                 (str(n_dpe),)).fetchone()
+            charge = bool(ligne and ligne["code_insee"] and conn.execute(
+                "SELECT 1 FROM parcelle WHERE code_insee = ? LIMIT 1",
+                (ligne["code_insee"],)).fetchone())
+    return {"extrait": contenu, "cadastre_charge": charge}
 
 
 @routeur.get("/du-dpe")

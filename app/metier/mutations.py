@@ -9,17 +9,20 @@ et 35 % des parcelles portant un DPE ont une vente connue sur cinq ans.
 
 Le regroupement par mutation est la piece essentielle. Le fichier source
 repete `valeur_fonciere` sur chaque ligne d'une meme vente — une par
-parcelle et par local. Additionner ces lignes multiplie le prix : une vente
-a 400 000 EUR sur quatre lignes en annoncerait 1 600 000. Sur Mimizan, 1 118
-mutations sur 2 054 tiennent sur plusieurs lignes.
+parcelle, par local et par nature de culture. Additionner ces lignes
+multiplie le prix : une vente a 400 000 EUR sur quatre lignes en
+annoncerait 1 600 000. Sur Mimizan, 1 118 mutations sur 2 054 tiennent sur
+plusieurs lignes.
 """
 
 import collections
 import datetime
 import json
 import logging
+import threading
 
 from app.base.connexion import connexion, transaction
+from app.metier.valeurs import meme_adresse
 from app.sources import dvf, dvf_archive
 from app.sources.client_http import ErreurSource
 
@@ -55,6 +58,44 @@ def _position(groupe):
     return {"latitude": None, "longitude": None}
 
 
+def _locaux(groupe):
+    """
+    Les locaux d'une mutation, chacun une fois.
+
+    DVF ecrit une ligne par local ET par nature de culture de sa parcelle :
+    une maison sur une parcelle « sols » de 500 m2 et « terrain d'agrement »
+    de 590 m2 tient sur deux lignes, qui repetent la maison. Les compter
+    toutes doublait la surface et faisait d'une maison « plusieurs biens »,
+    sans prix au m2 — c'etait le cas du 13 rue des Ecoles a Mimizan.
+
+    Sur une parcelle, un local se compte donc autant de fois qu'il apparait
+    dans UNE nature de culture — le maximum d'une culture a l'autre, pas la
+    somme. Deux dependances identiques d'une meme culture restent deux : ce
+    sont deux biens, que rien d'autre ne distingue dans le fichier.
+    """
+    par_parcelle = collections.defaultdict(
+        lambda: collections.defaultdict(collections.Counter))
+    exemplaire = {}
+    for ligne in groupe:
+        type_local = (ligne.get("type_local") or "").strip()
+        if not type_local:
+            continue
+        parcelle = (ligne.get("id_parcelle") or "").strip()
+        cle = (type_local, (ligne.get("surface_reelle_bati") or "").strip(),
+               (ligne.get("nombre_pieces_principales") or "").strip(),
+               (ligne.get("lot1_numero") or "").strip())
+        culture = (ligne.get("code_nature_culture") or "").strip()
+        par_parcelle[parcelle][culture][cle] += 1
+        exemplaire.setdefault((parcelle, cle), ligne)
+
+    locaux = []
+    for parcelle, cultures in par_parcelle.items():
+        for cle in dict.fromkeys(c for compte in cultures.values() for c in compte):
+            fois = max(compte[cle] for compte in cultures.values())
+            locaux.extend([exemplaire[(parcelle, cle)]] * fois)
+    return locaux
+
+
 def _regrouper(lignes):
     """
     Une entree par mutation, avec ses parcelles et ses locaux.
@@ -76,17 +117,21 @@ def _regrouper(lignes):
         if not parcelles:
             continue        # sans parcelle, on ne saurait la rattacher
 
-        locaux = [l for l in groupe if (l.get("type_local") or "").strip()]
-        # Les surfaces, elles, s'additionnent : chaque ligne de local
-        # decrit un bien distinct de la vente.
+        locaux = _locaux(groupe)
+        # Les surfaces, elles, s'additionnent : chaque local decrit un bien
+        # distinct de la vente.
         surface_bati = sum(_nombre(l.get("surface_reelle_bati")) or 0 for l in locaux)
-        # Le terrain se compte par parcelle, pas par ligne : une parcelle
-        # portant deux locaux apparait deux fois.
+        # Le terrain se somme sur les couples DISTINCTS (parcelle, nature de
+        # culture, surface) : une parcelle portant deux locaux repete sa
+        # surface sur chaque ligne, et une parcelle « sols » + « jardin »
+        # a deux surfaces qui s'ajoutent.
         terrains = {}
         for ligne in groupe:
             cle = (ligne.get("id_parcelle") or "").strip()
             if cle:
-                terrains[cle] = _nombre(ligne.get("surface_terrain")) or 0
+                surface = _nombre(ligne.get("surface_terrain")) or 0
+                culture = (ligne.get("code_nature_culture") or "").strip()
+                terrains[(cle, culture, surface)] = surface
 
         mutations.append({
             "id": identifiant,
@@ -329,13 +374,33 @@ def pour_parcelle(parcelle_id):
 
 
 def pour_dpe(n_dpe):
-    """Les ventes de la parcelle qui porte ce DPE."""
+    """
+    Les ventes de la parcelle qui porte ce DPE — ou, a defaut, de la
+    parcelle APPROCHEE devant laquelle il est geocode, comme sur la carte.
+
+    Une vente ainsi rattachee le dit (`parcelle_approchee`), avec la
+    distance du diagnostic a la parcelle, et dit si son adresse est celle du
+    diagnostic (`adresse_concordante` : vrai, faux, ou inconnu). C'est ce qui
+    retient d'attribuer au bien la vente du voisin : la regle d'approche
+    (moins de 6 m, aucune rivale a moins de 3 m de plus) la rend rare,
+    l'adresse permet de la reconnaitre.
+    """
     with connexion() as conn:
         ligne = conn.execute(
-            "SELECT parcelle_id FROM dpe WHERE n_dpe = ?", (str(n_dpe),)).fetchone()
-    if ligne is None or not ligne["parcelle_id"]:
+            "SELECT parcelle_id, parcelle_approchee, distance_parcelle_m, adresse"
+            "  FROM dpe WHERE n_dpe = ?", (str(n_dpe),)).fetchone()
+    if ligne is None:
         return []
-    return pour_parcelle(ligne["parcelle_id"])
+    parcelle = ligne["parcelle_id"] or ligne["parcelle_approchee"]
+    if not parcelle:
+        return []
+    ventes = pour_parcelle(parcelle)
+    if not ligne["parcelle_id"]:
+        for vente in ventes:
+            vente["parcelle_approchee"] = True
+            vente["distance_dpe_m"] = ligne["distance_parcelle_m"]
+            vente["adresse_concordante"] = meme_adresse(ligne["adresse"], vente.get("adresse"))
+    return ventes
 
 
 def manquantes(code_insee):
@@ -583,3 +648,129 @@ def _millesimes_servis(code_insee):
         return calcules
     servis = [annee for annee, signature in releve.items() if signature]
     return servis or calcules
+
+
+# =====================================================================
+#  Remise a niveau des ventes deja en base
+# =====================================================================
+# A changer quand la facon de composer une vente change. Une vente est
+# composee a l'import, et la base n'en garde que le resultat : corriger
+# `_regrouper` ne corrige que les imports suivants. Version 2 : un local
+# n'est plus compte une fois par nature de culture de sa parcelle.
+REGROUPEMENT = "ventes-regroupement-2"
+
+# Ce que `_regrouper`, `_adresse`, `_position` et l'empreinte lisent. Une
+# annee de Gironde, c'est cent mille lignes : les garder entieres, a
+# quarante champs chacune, couterait des centaines de megaoctets au NAS.
+CHAMPS_UTILES = (
+    "id_mutation", "date_mutation", "nature_mutation", "valeur_fonciere",
+    "code_commune", "id_parcelle", "type_local", "surface_reelle_bati",
+    "nombre_pieces_principales", "lot1_numero", "code_nature_culture",
+    "surface_terrain", "adresse_numero", "adresse_suffixe",
+    "adresse_nom_voie", "latitude", "longitude")
+
+_REMISE_EN_COURS = threading.Lock()
+
+
+def a_remettre_a_niveau():
+    """
+    Vrai si des ventes en base ont ete composees par un ancien regroupement.
+
+    Une base sans vente est a jour par construction : on le note, sans quoi
+    le premier import, deja fait a la nouvelle maniere, serait ensuite
+    recompose pour rien.
+    """
+    with connexion() as conn:
+        if conn.execute("SELECT 1 FROM source_maj WHERE source = ?",
+                        (REGROUPEMENT,)).fetchone():
+            return False
+        if conn.execute("SELECT 1 FROM mutation LIMIT 1").fetchone() is not None:
+            return True
+    _noter_remise("aucune vente en base : rien a recomposer")
+    return False
+
+
+def _noter_remise(detail):
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO source_maj (source, maj_le, detail) VALUES (?,?,?)"
+            " ON CONFLICT(source) DO UPDATE SET maj_le = excluded.maj_le,"
+            " detail = excluded.detail",
+            (REGROUPEMENT, datetime.datetime.now().isoformat(timespec="seconds"),
+             detail))
+
+
+def _recomposer(lignes, codes):
+    """Reecrit, commune par commune, les ventes de `codes` que portent ces lignes."""
+    gardees = [{c: l.get(c) for c in CHAMPS_UTILES} for l in lignes
+               if (l.get("code_commune") or "").strip() in codes]
+    total = 0
+    for commune, siennes in sorted(_repartir(gardees).items()):
+        if commune in codes:
+            total += importer(commune, lignes=siennes, signaler=False)["mutations"]
+    return total
+
+
+def remettre_a_niveau(progression=None):
+    """
+    Recompose UNE fois les ventes deja en base apres un changement de
+    `_regrouper`.
+
+    DVF ne republie une commune qu'a ses parutions, et l'archive jamais :
+    sans cela, les ventes importees avant la correction garderaient leur
+    erreur des mois, ou pour toujours pour 2018-2020. On relit donc la
+    source, departement par departement — le fichier par millesime que
+    l'estimation lit deja —, precede de l'archive la ou la base garde des
+    ventes plus anciennes que ce que la source sert encore. L'archive passe
+    d'abord : sur 2021-2022, ou les deux se recouvrent, c'est la source
+    vivante qui a le dernier mot, comme a l'import ordinaire.
+
+    Seules les communes deja en base sont reecrites : la remise a niveau
+    corrige, elle n'etend pas. Rien n'est signale : ce sont des ventes deja
+    connues, et une vente vraiment neuve est prise avant par le guet de la
+    publication, qui passe le premier.
+
+    Une panne arrete tout SANS marquer la remise a niveau comme faite : la
+    suivante la reprend, et chaque ecriture etant un upsert, rien ne double.
+    Rend None quand il n'y a rien a faire, ou qu'elle tourne deja.
+    """
+    if not _REMISE_EN_COURS.acquire(blocking=False):
+        return None
+    try:
+        if not a_remettre_a_niveau():
+            return None
+        with connexion() as conn:
+            depuis = {l["code_insee"]: l["depuis"] for l in conn.execute(
+                "SELECT code_insee, min(date_mutation) AS depuis FROM mutation"
+                " WHERE code_insee IS NOT NULL GROUP BY code_insee")}
+        par_departement = collections.defaultdict(set)
+        for code in depuis:
+            if not dvf.indisponible(code):
+                par_departement[dvf_archive.departement(code)].add(code)
+
+        premier_servi = str(min(dvf.millesimes()))
+        recomposees = 0
+        for departement, codes in sorted(par_departement.items()):
+            if any(depuis[c] < premier_servi for c in codes):
+                if progression:
+                    progression(f"remise a niveau — archive {departement}")
+                try:
+                    archive = dvf_archive.telecharger(dep=departement)
+                    recomposees += _recomposer(archive.lignes, codes)
+                except dvf_archive.ArchiveIntrouvable:
+                    pass        # rien d'archive pour ce departement
+            for annee in dvf.millesimes():
+                if progression:
+                    progression(f"remise a niveau — {departement} {annee}")
+                lignes = dvf.lignes_departement(departement, annee)
+                if lignes is not None:
+                    recomposees += _recomposer(lignes, codes)
+
+        detail = (f"{recomposees} vente(s) recomposee(s) sur {len(depuis)} commune(s),"
+                  f" {len(par_departement)} departement(s)")
+        _noter_remise(detail)
+        logger.info("remise a niveau des ventes : %s", detail)
+        return {"communes": len(depuis), "departements": len(par_departement),
+                "recomposees": recomposees, "message": detail}
+    finally:
+        _REMISE_EN_COURS.release()

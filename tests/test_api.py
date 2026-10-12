@@ -276,6 +276,17 @@ def test_parcelle_du_dpe(client):
                       params={"n_dpe": "X"}).json()["parcelle"] is None
 
 
+def test_l_extrait_dit_si_le_cadastre_manque_vraiment(client):
+    """Sans parcelle pour ce diagnostic, la fiche doit savoir si le cadastre
+    de la commune est la : « pas encore charge » etait affiche a tort."""
+    inserer_dpe(n_dpe="SANS", adresse="1 rue", code_insee="31282")
+    reponse = client.get("/api/parcelles/extrait", params={"n_dpe": "SANS"}).json()
+    assert reponse == {"extrait": None, "cadastre_charge": False}
+    _parcelle(client, "P1", 800, 120)
+    reponse = client.get("/api/parcelles/extrait", params={"n_dpe": "SANS"}).json()
+    assert reponse == {"extrait": None, "cadastre_charge": True}
+
+
 def test_preparer_une_commune_pour_le_cadastre(client, monkeypatch):
     """
     Choisir « Chercher par le terrain » doit suffire a declencher le

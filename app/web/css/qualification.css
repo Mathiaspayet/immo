@@ -600,3 +600,17 @@
   gap: calc(var(--pas) * 3);
   margin-top: calc(var(--pas) * 4);
 }
+
+
+/* Une parcelle rattachee par approche, et les ventes qu'elle apporte :
+   on montre, et on dit que c'est une approche. */
+.extrait-approche {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--pas) * 2);
+  margin: calc(var(--pas) * 2) 0 0;
+  font-size: 0.74rem;
+  color: var(--encre-douce);
+}
+.pastille-concordante { background: #E4EDE8; border-color: var(--pin); color: var(--pin); text-transform: none; letter-spacing: 0.02em; }

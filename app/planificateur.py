@@ -9,6 +9,7 @@ Le fuseau est explicite. Sans lui, la tache se declencherait en UTC, soit
 deux heures plus tot en ete — d'ou le TZ=Europe/Paris du compose.
 """
 
+import datetime
 import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 _planificateur = None
 IDENTIFIANT = "import-quotidien"
+DELAI_REMISE = datetime.timedelta(minutes=2)
 
 
 def _tache():
@@ -49,6 +51,7 @@ def _tache():
         logger.error("alerte en echec : %s", erreur)
 
     _ventes()
+    _remise_a_niveau()
     _estimation()
     _sauvegarder()
 
@@ -119,6 +122,23 @@ def _ventes():
             logger.info("pas d'alerte ventes (%s)", resultat["raison"])
     except Exception as erreur:                     # noqa: BLE001
         logger.error("alerte ventes en echec : %s", erreur)
+
+
+def _remise_a_niveau():
+    """
+    Recompose les ventes deja en base quand la facon de les composer a
+    change — une fois, puis plus jamais jusqu'au changement suivant.
+
+    Apres le guet des ventes : une vente vraiment neuve doit etre prise,
+    et signalee, par le guet ; la remise a niveau ne signale rien.
+    """
+    try:
+        resultat = mutations.remettre_a_niveau()
+        if resultat:
+            logger.info("ventes remises a niveau : %s", resultat["message"])
+    except Exception as erreur:                     # noqa: BLE001
+        logger.error("remise a niveau des ventes en echec, reprise au prochain"
+                     " passage : %s", erreur)
 
 
 def _estimation():
@@ -203,6 +223,19 @@ def demarrer():
         misfire_grace_time=3600,
         max_instances=1,
     )
+    # Une mise a jour qui recompose les ventes ne doit pas attendre le
+    # prochain import : la fiche les montrerait fausses jusque-la. On la
+    # lance donc peu apres le demarrage — pas pendant : Watchtower relance
+    # le conteneur, et l'interface doit repondre d'abord.
+    try:
+        if mutations.a_remettre_a_niveau():
+            _planificateur.add_job(
+                _remise_a_niveau, "date", id="remise-a-niveau-ventes",
+                run_date=datetime.datetime.now(datetime.timezone.utc) + DELAI_REMISE,
+                name="Remise a niveau des ventes", misfire_grace_time=3600,
+                replace_existing=True)
+    except Exception as erreur:                      # noqa: BLE001
+        logger.error("remise a niveau des ventes non planifiee : %s", erreur)
     _planificateur.start()
     logger.info("import planifie : jours=%s heure=%dh00 (%s)",
                 jour, heure, config.FUSEAU)

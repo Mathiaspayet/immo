@@ -250,6 +250,27 @@ porte sur un seul local et une seule parcelle. Sinon on rapporterait le
 prix d'une maison, d'un garage et d'un terrain à la seule surface bâtie —
 un chiffre faux, et flatteur. La fiche écrit alors pourquoi elle se tait.
 
+**Un local se répète aussi par nature de culture.** Une maison sur une
+parcelle « sols » de 500 m² et « terrain d'agrément » de 590 m² tient sur
+deux lignes qui la répètent. Les compter toutes doublait sa surface et en
+faisait « plusieurs biens », sans prix au m² : c'était le cas du 13 rue des
+Écoles, à Mimizan — 35 ventes de la commune avaient ainsi une surface bâtie
+doublée, 54 un terrain faux. Un local compte désormais autant de fois qu'il
+paraît dans *une* culture, et le terrain se somme sur les couples distincts
+(parcelle, culture, surface). Les ventes déjà en base, composées à
+l'ancienne, sont recomposées une fois, deux minutes après le démarrage de
+la nouvelle version : la source est relue département par département
+(et l'archive là où la base garde plus ancien), sans rien signaler de
+nouveau. Une panne laisse la remise à niveau à refaire au passage suivant.
+
+**Un DPE posé devant sa parcelle.** L'ADEME géocode parfois un diagnostic
+sur la chaussée, à un ou deux mètres de sa parcelle. La carte l'y
+rattachait déjà, en position *approchée* (à moins de 6 m, sans autre
+parcelle à moins de 3 m de plus) ; la fiche, elle, ne lisait que la
+parcelle certaine, et taisait les ventes. Elle les montre maintenant, en le
+disant, et compare l'adresse de chaque vente à celle du diagnostic pour
+signaler celle d'un voisin.
+
 Deux limites de la source, annoncées sur la fiche : elle ne couvre que les
 cinq derniers millésimes publiés, et **jamais l'Alsace-Moselle (57, 67, 68)
 ni Mayotte**, qui tiennent leur propre livre foncier.

@@ -12,7 +12,7 @@ import pytest
 
 from app.base.connexion import connexion, transaction
 from app.metier import mutations
-from app.sources import dvf
+from app.sources import dvf, dvf_archive
 from app.sources.client_http import ErreurSource
 from tests.conftest import inserer_dpe
 
@@ -129,6 +129,218 @@ def test_les_ventes_se_retrouvent_depuis_un_dpe(base, monkeypatch):
     inserer_dpe(n_dpe="D2", adresse="ailleurs")
     assert mutations.pour_dpe("D2") == []
     assert mutations.pour_dpe("INEXISTANT") == []
+
+
+def test_un_dpe_pose_devant_sa_parcelle_retrouve_sa_vente(base, monkeypatch):
+    """
+    Le cas reel du 13 rue des Ecoles, a Mimizan : l'ADEME a geocode le
+    diagnostic sur la chaussee, a 1,8 m de la parcelle AB0180 — l'autre la
+    plus proche est a 10,6 m. La carte les reunissait ; la fiche, qui ne
+    lisait que la parcelle certaine, ne montrait pas la vente de 2022.
+    """
+    vente_2022 = dict(date_mutation="2022-06-23", type_local="Maison",
+                      surface_reelle_bati="160", nombre_pieces_principales="6",
+                      adresse_numero="13", adresse_nom_voie="RUE DES ECOLES")
+    lignes = [
+        # Les deux lignes reelles de DVF : la maison est repetee pour
+        # chaque nature de culture de sa parcelle.
+        _ligne("2022-685985", "40184000AB0180", 557142, code_nature_culture="S",
+               surface_terrain="500", **vente_2022),
+        _ligne("2022-685985", "40184000AB0180", 557142, code_nature_culture="AG",
+               surface_terrain="590", **vente_2022),
+        _ligne("2023-VOISIN", "40184000AB0180", 210000, date_mutation="2023-03-02",
+               type_local="Maison", surface_reelle_bati="90",
+               adresse_numero="15", adresse_nom_voie="RUE DES ECOLES"),
+    ]
+    monkeypatch.setattr("app.sources.dvf.telecharger", lambda code, progression=None: lignes)
+    _parcelle("40184000AB0180")
+    mutations.importer("40184")
+    inserer_dpe(n_dpe="2440E1909752R", adresse="13 Rue des Ecoles 40200 Mimizan")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_approchee = '40184000AB0180',"
+                     " distance_parcelle_m = 1.8 WHERE n_dpe = '2440E1909752R'")
+
+    ventes = {v["id"]: v for v in mutations.pour_dpe("2440E1909752R")}
+    assert set(ventes) == {"2022-685985", "2023-VOISIN"}
+    assert ventes["2022-685985"]["parcelle_approchee"] is True
+    assert ventes["2022-685985"]["distance_dpe_m"] == 1.8
+    assert ventes["2022-685985"]["adresse_concordante"] is True
+    # Une maison de 160 m2 sur 1 090 m2 de terrain — et non deux maisons
+    # pour 320 m2, sans prix au m2.
+    assert ventes["2022-685985"]["nb_locaux"] == 1
+    assert ventes["2022-685985"]["surface_bati_m2"] == 160
+    assert ventes["2022-685985"]["surface_terrain_m2"] == 1090
+    assert ventes["2022-685985"]["prix_m2"] == 3482
+    # Une autre adresse sur la meme parcelle : signalee, pas cachee.
+    assert ventes["2023-VOISIN"]["adresse_concordante"] is False
+
+
+def test_un_dpe_sur_sa_parcelle_ne_porte_pas_de_mention_d_approche(base, monkeypatch):
+    lignes = [_ligne("M1", "40184000AT0148", 261030, type_local="Maison",
+                     surface_reelle_bati="62")]
+    monkeypatch.setattr("app.sources.dvf.telecharger", lambda code, progression=None: lignes)
+    _parcelle("40184000AT0148")
+    mutations.importer("40184")
+    inserer_dpe(n_dpe="D1", adresse="53 Chemin des Roseaux")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = '40184000AT0148',"
+                     " parcelle_approchee = 'AUTRE' WHERE n_dpe = 'D1'")
+    (vente,) = mutations.pour_dpe("D1")
+    assert "parcelle_approchee" not in vente
+
+
+def test_un_local_repete_par_culture_ne_compte_qu_une_fois():
+    """
+    DVF ecrit une ligne par local ET par nature de culture. La maison du
+    13 rue des Ecoles, sur « sols » 500 m2 et « terrain d'agrement » 590 m2,
+    devenait deux maisons de 160 m2 — sans prix au m2.
+    """
+    maison = dict(type_local="Maison", surface_reelle_bati="160",
+                  nombre_pieces_principales="6")
+    vente, = mutations._regrouper([
+        _ligne("M1", "P1", 557142, code_nature_culture="S", surface_terrain="500", **maison),
+        _ligne("M1", "P1", 557142, code_nature_culture="AG", surface_terrain="590", **maison),
+    ])
+    assert vente["nb_locaux"] == 1
+    assert vente["surface_bati_m2"] == 160
+    assert vente["surface_terrain_m2"] == 1090
+
+
+def test_deux_locaux_identiques_restent_deux():
+    """
+    Deux dependances sans surface, sur une meme culture : rien ne les
+    distingue dans le fichier, mais ce sont deux biens. Repetees sur deux
+    cultures, elles restent deux — pas quatre.
+    """
+    dependance = dict(type_local="Dépendance", nombre_pieces_principales="0")
+    maison = dict(type_local="Maison", surface_reelle_bati="90",
+                  nombre_pieces_principales="4")
+    lignes = [_ligne("M1", "P1", 300000, code_nature_culture=culture,
+                     surface_terrain=surface, **local)
+              for culture, surface in (("S", "400"), ("J", "200"))
+              for local in (maison, dependance, dependance)]
+    vente, = mutations._regrouper(lignes)
+    assert vente["nb_locaux"] == 3
+    assert vente["surface_bati_m2"] == 90
+    assert vente["surface_terrain_m2"] == 600
+
+
+def test_un_local_present_sur_une_seule_culture_est_garde():
+    """Le fichier n'est pas toujours un produit croise : 19 parcelles sur 843
+    dans les Landes en 2025. Un local vu sur une seule culture compte."""
+    vente, = mutations._regrouper([
+        _ligne("M1", "P1", 150000, code_nature_culture="J", surface_terrain="300",
+               type_local="Maison", surface_reelle_bati="33", lot1_numero="5"),
+        _ligne("M1", "P1", 150000, code_nature_culture="",
+               type_local="Dépendance", lot1_numero="4"),
+    ])
+    assert vente["nb_locaux"] == 2
+    assert vente["types_locaux"] == ["Dépendance", "Maison"]
+
+
+def _vente_des_ecoles(**champs):
+    maison = dict(date_mutation="2022-06-23", type_local="Maison",
+                  surface_reelle_bati="160", nombre_pieces_principales="6",
+                  code_commune="40184")
+    maison.update(champs)
+    identifiant = maison.pop("id_mutation", "2022-685985")
+    return [_ligne(identifiant, "40184000AB0180", 557142,
+                   code_nature_culture=culture, surface_terrain=surface, **maison)
+            for culture, surface in (("S", "500"), ("AG", "590"))]
+
+
+def _composee_a_l_ancienne(monkeypatch, lignes):
+    """Une vente en base telle que l'ancien regroupement l'avait ecrite."""
+    monkeypatch.setattr("app.sources.dvf.telecharger", lambda code, progression=None: lignes)
+    mutations.importer("40184")
+    with transaction() as conn:
+        conn.execute("DELETE FROM source_maj")
+        conn.execute("UPDATE mutation SET nb_locaux = 2, surface_bati_m2 = 320,"
+                     " surface_terrain_m2 = 590, alerte_le = '2022-07-01T07:00:00'")
+
+
+def test_les_ventes_deja_en_base_sont_recomposees_une_fois(base, monkeypatch):
+    """
+    Corriger `_regrouper` ne corrige que les imports suivants : DVF ne
+    republie une commune qu'a ses parutions. Les ventes deja en base sont
+    donc relues une fois — sans etre signalees de nouveau.
+    """
+    monkeypatch.setattr(dvf, "millesimes", lambda *a, **n: tuple(range(2021, 2027)))
+    _composee_a_l_ancienne(monkeypatch, _vente_des_ecoles())
+    assert mutations.a_remettre_a_niveau() is True
+
+    lus = []
+    def departement(dep, annee):
+        lus.append((dep, annee))
+        # Une vente d'une commune absente de la base : la remise a niveau
+        # corrige, elle n'etend pas.
+        autre = _vente_des_ecoles(id_mutation="AILLEURS", code_commune="40065")
+        return iter(_vente_des_ecoles() + autre) if annee == 2022 else None
+    monkeypatch.setattr(dvf, "lignes_departement", departement)
+    monkeypatch.setattr("app.sources.dvf_archive.telecharger",
+                        lambda **n: pytest.fail("rien d'ancien : pas d'archive"))
+
+    resultat = mutations.remettre_a_niveau()
+    assert resultat["communes"] == 1
+    assert resultat["recomposees"] == 1
+    assert {dep for dep, _ in lus} == {"40"}
+
+    vente, = mutations.pour_parcelle("40184000AB0180")
+    assert (vente["nb_locaux"], vente["surface_bati_m2"], vente["surface_terrain_m2"]) \
+        == (1, 160, 1090)
+    assert vente["prix_m2"] == 3482
+    assert vente["alerte_le"] == "2022-07-01T07:00:00"     # pas re-signalee
+    with connexion() as conn:
+        assert conn.execute("SELECT count(*) FROM mutation").fetchone()[0] == 1
+
+    # Une fois, pas davantage.
+    monkeypatch.setattr(dvf, "lignes_departement",
+                        lambda dep, annee: pytest.fail("deja remise a niveau"))
+    assert mutations.a_remettre_a_niveau() is False
+    assert mutations.remettre_a_niveau() is None
+
+
+def test_l_archive_est_relue_quand_la_base_garde_plus_ancien(base, monkeypatch):
+    """2018-2020 ne viennent plus que de l'archive : sans elle, ces ventes
+    garderaient leur erreur pour toujours."""
+    monkeypatch.setattr(dvf, "millesimes", lambda *a, **n: tuple(range(2021, 2027)))
+    ancienne = _vente_des_ecoles(id_mutation="ARCH-1", date_mutation="2019-03-14")
+    _composee_a_l_ancienne(monkeypatch, ancienne)
+
+    ordre = []
+    def archive(dep=None, code_insee=None, progression=None):
+        ordre.append("archive")
+        return dvf_archive.Archive(lignes=ancienne, departement=dep, titre="t", url="u")
+    monkeypatch.setattr("app.sources.dvf_archive.telecharger", archive)
+    monkeypatch.setattr(dvf, "lignes_departement",
+                        lambda dep, annee: ordre.append(annee))
+
+    mutations.remettre_a_niveau()
+    assert ordre[0] == "archive"          # la source vivante a le dernier mot
+    vente, = mutations.pour_parcelle("40184000AB0180")
+    assert vente["surface_bati_m2"] == 160
+
+
+def test_une_panne_laisse_la_remise_a_niveau_a_refaire(base, monkeypatch):
+    monkeypatch.setattr(dvf, "millesimes", lambda *a, **n: tuple(range(2021, 2027)))
+    _composee_a_l_ancienne(monkeypatch, _vente_des_ecoles())
+
+    def panne(dep, annee):
+        raise ErreurSource("DVF injoignable")
+    monkeypatch.setattr(dvf, "lignes_departement", panne)
+    with pytest.raises(ErreurSource):
+        mutations.remettre_a_niveau()
+    assert mutations.a_remettre_a_niveau() is True
+
+
+def test_une_base_sans_vente_n_a_rien_a_recomposer(base, monkeypatch):
+    """Sinon le premier import, deja fait a la nouvelle maniere, serait
+    recompose pour rien le lendemain."""
+    assert mutations.a_remettre_a_niveau() is False
+    monkeypatch.setattr("app.sources.dvf.telecharger",
+                        lambda code, progression=None: _vente_des_ecoles())
+    mutations.importer("40184")
+    assert mutations.a_remettre_a_niveau() is False
 
 
 def test_le_reimport_remplace_sans_doubler(base, monkeypatch):

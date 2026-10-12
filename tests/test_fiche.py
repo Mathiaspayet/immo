@@ -294,3 +294,19 @@ def test_deux_diagnostics_le_meme_jour_font_deux_logements(base):
     resultat = fiche.historique(adresse="8 Avenue de Woolsack 40200 Mimizan")
     assert resultat["logements_estimes"] == 2
     assert resultat["plusieurs_logements"] is True
+
+
+
+def test_deux_adresses_se_reconnaissent_malgre_les_abreviations():
+    """DVF abrege les voies, la Base Adresse Nationale non : c'est pourtant
+    la meme adresse, et c'est elle qui confirme une vente rattachee par
+    approche."""
+    from app.metier.valeurs import meme_adresse
+    assert meme_adresse("13 Rue des Ecoles 40200 Mimizan", "13 RUE DES ECOLES") is True
+    assert meme_adresse("66 Place de l'Océan 40600 Biscarrosse", "66 PL DE L OCEAN") is True
+    assert meme_adresse("8bis Cité des Tilleuls", "8 B CITE DES TILLEULS") is True
+    assert meme_adresse("13 Rue des Ecoles", "15 RUE DES ECOLES") is False
+    assert meme_adresse("8 rue X", "8 B RUE X") is False
+    # Sans numero, ou sans adresse : on ne juge pas.
+    assert meme_adresse("Résidence Les Pins 40200 Mimizan", "3 RUE X") is None
+    assert meme_adresse("13 Rue des Ecoles", None) is None

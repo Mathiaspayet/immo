@@ -130,7 +130,20 @@ def test_parcelle_d_un_dpe_pour_la_fiche(cadastre):
     parcelle = parcelles.parcelle_de("D1")
     assert parcelle["id"] == "P-BONNE"
     assert parcelle["geometrie"]["type"] == "Polygon"
+    assert parcelle["approchee"] is False and parcelle["distance_dpe_m"] is None
     assert parcelles.parcelle_de("INCONNU") is None
+
+
+def test_la_fiche_lit_aussi_la_parcelle_approchee(cadastre):
+    """Un diagnostic pose devant sa parcelle a un extrait, signale comme approche."""
+    inserer_dpe(n_dpe="D2", adresse="2 rue", code_insee="31282")
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_approchee = 'P-BONNE', distance_parcelle_m = 1.8"
+                     " WHERE n_dpe = 'D2'")
+    parcelle = parcelles.parcelle_de("D2")
+    assert parcelle["id"] == "P-BONNE"
+    assert parcelle["approchee"] is True and parcelle["distance_dpe_m"] == 1.8
+    assert parcelles.extrait("D2")["parcelle"]["approchee"] is True
 
 
 
@@ -710,10 +723,12 @@ def test_le_seuil_suit_les_criteres_de_l_ecran(base):
     mais un seul dans la fenetre demandee revendique bien, pour l'ecran
     affiche, toute sa surface pour ce seul diagnostic.
     """
+    import datetime
     import json as _json
     from app.base.connexion import transaction
     from app.metier import parcelles as metier_parcelles
 
+    recent = (datetime.date.today() - datetime.timedelta(days=5)).isoformat()
     anneau = [[-1.2286, 44.2030], [-1.1986, 44.2030],
               [-1.1986, 44.2330], [-1.2286, 44.2330], [-1.2286, 44.2030]]
     with transaction() as conn:
@@ -731,7 +746,9 @@ def test_le_seuil_suit_les_criteres_de_l_ecran(base):
                 " parcelle_id) VALUES (?,'40184',?,'Mimizan','40200',?,"
                 " 'existant','2026-08-01T10:00:00',44.21,-1.21,'40184AB0009')",
                 (f"V-{numero}", f"{numero} rue",
-                 "2026-09-01" if numero == 0 else "2015-01-01"))
+                 # Dans la fenetre de 30 jours, quel que soit le jour du test :
+                 # ecrite en dur, la date en est sortie le 1er octobre 2026.
+                 recent if numero == 0 else "2015-01-01"))
 
     cadre = (-1.30, 44.19, -1.10, 44.25)
     # Sans filtre : 40 diagnostics pour 60 000 m², soit 1 500 m² chacun.

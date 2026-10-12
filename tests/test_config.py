@@ -168,3 +168,34 @@ def test_un_horaire_refuse_ne_replanifie_rien(base):
         reponse = client.put("/api/reglages", json={"import_jour": "lundi"})
     assert reponse.status_code == 400
     assert reglages.lire("import_jour") == "mon"
+
+
+def test_une_remise_a_niveau_des_ventes_part_peu_apres_le_demarrage(base, monkeypatch):
+    """
+    Watchtower deploie une correction du regroupement des ventes : la fiche
+    ne doit pas les montrer fausses jusqu'au prochain import. La remise a
+    niveau part donc apres le demarrage — pas pendant, l'interface d'abord.
+    """
+    import datetime
+
+    from app import planificateur
+
+    monkeypatch.setattr("app.config.PLANIFICATEUR_ACTIF", True)
+    monkeypatch.setattr("app.planificateur._planificateur", None)
+    monkeypatch.setattr("app.metier.mutations.a_remettre_a_niveau", lambda: True)
+    assert planificateur.demarrer() is not None
+    try:
+        tache = planificateur._planificateur.get_job("remise-a-niveau-ventes")
+        assert tache is not None
+        delai = tache.next_run_time - datetime.datetime.now(datetime.timezone.utc)
+        assert datetime.timedelta(minutes=1) < delai <= planificateur.DELAI_REMISE
+    finally:
+        planificateur.arreter()
+
+    # Rien a recomposer : rien de planifie.
+    monkeypatch.setattr("app.metier.mutations.a_remettre_a_niveau", lambda: False)
+    planificateur.demarrer()
+    try:
+        assert planificateur._planificateur.get_job("remise-a-niveau-ventes") is None
+    finally:
+        planificateur.arreter()
