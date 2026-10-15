@@ -33,11 +33,21 @@ COLONNES = [
 ]
 
 _MAJ = ", ".join(f"{c} = excluded.{c}" for c in COLONNES if c != "id")
+# Une parcelle republiee n'est plus retiree — le cas d'un identifiant qui
+# reparait apres une erreur de publication.
 SQL_UPSERT = (
     f"INSERT INTO parcelle ({', '.join(COLONNES)}, importe_le) "
     f"VALUES ({', '.join('?' * len(COLONNES))}, ?) "
-    f"ON CONFLICT(id) DO UPDATE SET {_MAJ}, importe_le = excluded.importe_le"
+    f"ON CONFLICT(id) DO UPDATE SET {_MAJ}, importe_le = excluded.importe_le,"
+    " retiree_le = NULL"
 )
+
+# Une parcelle divisee, fusionnee ou renumerotee laisse des HERITIERES : de
+# nouvelles parcelles couvrent son terrain. Celles qui disparaissent sans
+# heritiere signent un fichier incomplet plutot qu'un cadastre qui change —
+# une emprise de voirie en fait disparaitre une ou deux, un telechargement
+# tronque des centaines. Au-dela de ce seuil, on ne retire rien.
+SANS_HERITIERE_MAX = 3
 
 
 def _maintenant():
@@ -133,9 +143,19 @@ def importer_cadastre(code_insee, progression=None):
         progression(f"cadastre — enregistrement de {len(fiches)} parcelles")
     maintenant = _maintenant()
     with transaction() as conn:
+        actives = {ligne["id"]: ligne["geometrie_json"] for ligne in conn.execute(
+            "SELECT id, geometrie_json FROM parcelle"
+            " WHERE code_insee = ? AND retiree_le IS NULL", (code_insee,))}
+        revenues = [ligne["id"] for ligne in conn.execute(
+            "SELECT id FROM parcelle WHERE code_insee = ? AND retiree_le IS NOT NULL",
+            (code_insee,)) if ligne["id"] in fiches]
         for fiche in fiches.values():
             fiche["emprise_batie_m2"] = round(fiche["emprise_batie_m2"], 1)
             conn.execute(SQL_UPSERT, [fiche[c] for c in COLONNES] + [maintenant])
+        for paquet in _par_paquets(revenues):
+            conn.execute("DELETE FROM parcelle_filiation WHERE ancienne IN"
+                         f" ({', '.join('?' * len(paquet))})", paquet)
+        retirees = _retirer(conn, code_insee, actives, fiches, index, maintenant)
 
         # Les batiments se remplacent en bloc : le cadastre republie la
         # commune entiere, et leurs identifiants ne sont pas stables.
@@ -150,18 +170,94 @@ def importer_cadastre(code_insee, progression=None):
                      (maintenant, code_insee))
 
     rattaches = rattacher_dpe(code_insee, index=index)
+    # Les diagnostics des parcelles retirees ont perdu leur rattachement :
+    # la passe approchee les reprend avec les autres.
+    approches = rattacher_approche(code_insee, index)["rattaches"]
 
-    logger.info("cadastre %s : %d parcelles, %d batiments orphelins, %d DPE rattaches",
-                code_insee, len(fiches), orphelins, rattaches)
+    logger.info("cadastre %s : %d parcelles, %d retiree(s), %d batiments orphelins,"
+                " %d DPE rattaches, %d approches", code_insee, len(fiches), len(retirees),
+                orphelins, rattaches, approches)
     return {
         "code_insee": code_insee,
         "parcelles": len(fiches),
+        "retirees": len(retirees),
         "batiments": len(objets_batiments),
         "batiments_orphelins": orphelins,
         "dpe_rattaches": rattaches,
         "message": (f"{len(fiches)} parcelles, {len(objets_batiments)} bâtiments, "
-                    f"{rattaches} DPE rattachés"),
+                    f"{rattaches} DPE rattachés"
+                    + (f", {len(retirees)} parcelle(s) retirée(s)" if retirees else "")),
     }
+
+
+def _par_paquets(elements, taille=400):
+    for debut in range(0, len(elements), taille):
+        yield elements[debut:debut + taille]
+
+
+def _retirer(conn, code_insee, actives, fiches, index, maintenant):
+    """
+    Retire les parcelles que le cadastre ne publie plus, et note leur filiation.
+
+    Une parcelle divisee ou fusionnee change d'identifiant. L'ancienne
+    restait en base, chevauchant ses heritieres sur la carte et captant des
+    diagnostics. Elle n'est pas supprimee : DVF cite les parcelles telles
+    qu'elles etaient au jour de la vente. Ses diagnostics, eux, sont
+    detaches — le rattachement qui suit l'import les repose sur la bonne.
+    """
+    disparues = [ident for ident in actives if ident not in fiches]
+    if not disparues:
+        return []
+
+    filiation, sans_heritiere = [], 0
+    for ident in disparues:
+        try:
+            anneaux = geometrie.anneaux_exterieurs(json.loads(actives[ident]))
+        except (TypeError, ValueError):
+            anneaux = []
+        heritieres = sorted(_heritieres(anneaux, fiches, index))
+        sans_heritiere += not heritieres
+        filiation.extend((ident, nouvelle, maintenant) for nouvelle in heritieres)
+    if sans_heritiere >= max(SANS_HERITIERE_MAX, 0.02 * len(actives)):
+        logger.error("cadastre %s : %d parcelle(s) disparue(s) sans heritiere sur %d connues"
+                     " — telechargement incomplet ? Aucune n'est retiree.",
+                     code_insee, sans_heritiere, len(actives))
+        return []
+
+    conn.executemany("UPDATE parcelle SET retiree_le = ? WHERE id = ?",
+                     [(maintenant, ident) for ident in disparues])
+    conn.executemany("INSERT OR IGNORE INTO parcelle_filiation (ancienne, nouvelle, notee_le)"
+                     " VALUES (?, ?, ?)", filiation)
+    for paquet in _par_paquets(disparues):
+        marques = ", ".join("?" * len(paquet))
+        conn.execute(f"UPDATE dpe SET parcelle_id = NULL WHERE parcelle_id IN ({marques})",
+                     paquet)
+        conn.execute("UPDATE dpe SET parcelle_approchee = NULL, distance_parcelle_m = NULL"
+                     f" WHERE parcelle_approchee IN ({marques})", paquet)
+    logger.info("cadastre %s : %d parcelle(s) retiree(s), %d filiation(s)",
+                code_insee, len(disparues), len(filiation))
+    return disparues
+
+
+def _heritieres(anneaux, fiches, index):
+    """
+    Les parcelles nouvelles issues d'une ancienne : celles dont le centre
+    tombe dans son contour — une division —, et celle qui contient son
+    propre centre — une fusion.
+    """
+    if not anneaux:
+        return set()
+    trouvees = set()
+    voisines = {ident for case in geometrie.cases_couvertes(geometrie.boite_englobante(anneaux))
+                for ident in index.grille.get(case, ())}
+    for ident in voisines:
+        fiche = fiches[ident]
+        if geometrie.dans_geometrie(fiche["longitude"], fiche["latitude"], anneaux):
+            trouvees.add(ident)
+    contenante = index.trouver(*geometrie.centre(anneaux[0]))
+    if contenante:
+        trouvees.add(contenante)
+    return trouvees
 
 
 # ---------------------------------------------------------------------
@@ -184,8 +280,8 @@ def _index_depuis_la_base(code_insee):
     index = geometrie.IndexSpatial()
     with connexion() as conn:
         for ligne in conn.execute(
-                "SELECT id, geometrie_json FROM parcelle WHERE code_insee = ?",
-                (code_insee,)):
+                "SELECT id, geometrie_json FROM parcelle"
+                " WHERE code_insee = ? AND retiree_le IS NULL", (code_insee,)):
             try:
                 forme = json.loads(ligne["geometrie_json"])
             except (TypeError, ValueError):
@@ -356,6 +452,32 @@ def parcelle(identifiant):
             "SELECT * FROM parcelle WHERE id = ?", (str(identifiant),)).fetchone())
 
 
+def ascendance(identifiant, profondeur=5):
+    """
+    Les parcelles d'origine d'une parcelle — divisee puis redivisee, s'il le
+    faut —, de la plus proche a la plus ancienne.
+    """
+    with connexion() as conn:
+        return [ligne["id"] for ligne in conn.execute(
+            "WITH RECURSIVE origine(id, rang) AS ("
+            "   SELECT ancienne, 1 FROM parcelle_filiation WHERE nouvelle = ?"
+            "   UNION"
+            "   SELECT f.ancienne, o.rang + 1 FROM parcelle_filiation f"
+            "     JOIN origine o ON f.nouvelle = o.id WHERE o.rang < ?)"
+            " SELECT id, min(rang) AS rang FROM origine GROUP BY id ORDER BY rang, id",
+            (str(identifiant), int(profondeur)))]
+
+
+def heritieres(identifiant):
+    """Les parcelles issues d'une parcelle retiree."""
+    with connexion() as conn:
+        return [{"id": ligne["id"], "reference": f"{ligne['section'] or ''}{ligne['numero'] or ''}"}
+                for ligne in conn.execute(
+                    "SELECT p.id, p.section, p.numero FROM parcelle_filiation f"
+                    "  JOIN parcelle p ON p.id = f.nouvelle"
+                    " WHERE f.ancienne = ? ORDER BY p.id", (str(identifiant),))]
+
+
 def a_la_position(code_insee, latitude, longitude):
     """
     La parcelle qui contient ce point, ou None.
@@ -387,7 +509,8 @@ def a_la_position(code_insee, latitude, longitude):
     with connexion() as conn:
         candidates = conn.execute(
             "SELECT id, geometrie_json FROM parcelle"
-            " WHERE code_insee = ? AND lat_min <= ? AND lat_max >= ?"
+            " WHERE code_insee = ? AND retiree_le IS NULL"
+            "   AND lat_min <= ? AND lat_max >= ?"
             "   AND lon_min <= ? AND lon_max >= ?",
             (str(code_insee), latitude, latitude, longitude, longitude)).fetchall()
 
@@ -444,9 +567,12 @@ def _degres(metres, latitude):
 def _dans_le_cadre(conn, table, code_insee, cadre, colonnes):
     """Objets dont la boite englobante croise le cadre."""
     lon_min, lat_min, lon_max, lat_max = cadre
+    # Les parcelles retirees ne sont plus du voisinage : elles chevauchent
+    # leurs heritieres.
+    actives = " AND retiree_le IS NULL" if table == "parcelle" else ""
     return conn.execute(
         f"SELECT {colonnes} FROM {table} "
-        "WHERE code_insee = ? AND lat_max >= ? AND lat_min <= ? "
+        f"WHERE code_insee = ?{actives} AND lat_max >= ? AND lat_min <= ? "
         "  AND lon_max >= ? AND lon_min <= ?",
         (code_insee, lat_min, lat_max, lon_min, lon_max)).fetchall()
 
@@ -629,7 +755,8 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None,
             "                           THEN d.n_dpe END) AS dpe_approche,"
             "       max(d.date_etablissement) AS dpe_dernier,"
             "       min(d.n_dpe) AS n_dpe,"
-            "       count(DISTINCT mp.mutation_id) AS ventes"
+            "       count(DISTINCT mp.mutation_id) AS ventes,"
+            "       count(DISTINCT mo.mutation_id) AS ventes_origine"
             "  FROM parcelle p"
             # `parcelle_carte` est une colonne GENEREE, et indexee :
             # le meme calcul ecrit en clair dans la jointure privait la
@@ -637,13 +764,19 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None,
             "  LEFT JOIN dpe d ON d.parcelle_carte = p.id"
             f"   AND {ou_dpe}"
             "  LEFT JOIN mutation_parcelle mp ON mp.parcelle_id = p.id"
-            " WHERE p.code_insee = ?"
+            # Les ventes de la parcelle d'origine, quand celle-ci a ete
+            # divisee ou fusionnee : retiree de la carte, elle ne doit pas
+            # emporter son historique avec elle.
+            "  LEFT JOIN parcelle_filiation f ON f.nouvelle = p.id"
+            "  LEFT JOIN mutation_parcelle mo ON mo.parcelle_id = f.ancienne"
+            " WHERE p.code_insee = ? AND p.retiree_le IS NULL"
             "   AND p.lat_max >= ? AND p.lat_min <= ?"
             "   AND p.lon_max >= ? AND p.lon_min <= ?"
             " GROUP BY p.id"
             # Rien de connu, rien a envoyer.
             " HAVING count(DISTINCT d.n_dpe) > 0"
             "     OR count(DISTINCT mp.mutation_id) > 0"
+            "     OR count(DISTINCT mo.mutation_id) > 0"
             # Si le plafond mord, autant qu'il morde sur les ventes seules :
             # un diagnostic est ce qu'on vient chercher ici.
             " ORDER BY (count(DISTINCT d.n_dpe) > 0) DESC, p.id"
@@ -673,7 +806,8 @@ def pour_carte(code_insee, cadre, limite=MAX_CARTE, filtres_dpe=None,
             entree["longitude"] = _arrondir(entree["longitude"])
         entree["dpe"] = entree["dpe"] or 0
         entree["dpe_approche"] = entree["dpe_approche"] or 0
-        entree["ventes"] = entree["ventes"] or 0
+        entree["ventes_origine"] = entree["ventes_origine"] or 0
+        entree["ventes"] = (entree["ventes"] or 0) + entree["ventes_origine"]
         # Trop vaste pour que sa couleur veuille dire quelque chose. La
         # carte la laissera en retrait et posera les diagnostics la ou ils
         # sont vraiment. Sans contour il n'y a rien a peindre : la
@@ -806,7 +940,7 @@ def chercher_sur_carte(code_insee, texte, combien=8):
         with connexion() as conn:
             for ligne in conn.execute(
                     "SELECT id, section, numero, latitude, longitude"
-                    "  FROM parcelle WHERE code_insee = ?"
+                    "  FROM parcelle WHERE code_insee = ? AND retiree_le IS NULL"
                     "   AND (upper(section) || upper(numero) LIKE ?"
                     "        OR upper(id) LIKE ?) LIMIT ?",
                     (code_insee, f"%{compact}%", f"%{compact}%", combien)):
@@ -863,7 +997,8 @@ def batiments_manquants(code_insee):
     """
     with connexion() as conn:
         attendus = conn.execute(
-            "SELECT coalesce(sum(nb_batiments), 0) FROM parcelle WHERE code_insee = ?",
+            "SELECT coalesce(sum(nb_batiments), 0) FROM parcelle"
+            " WHERE code_insee = ? AND retiree_le IS NULL",
             (str(code_insee),)).fetchone()[0]
         batis = conn.execute(
             "SELECT count(*) FROM batiment WHERE code_insee = ?",

@@ -233,6 +233,10 @@ def lieu(n_dpe=None, parcelle_id=None, adresse=None):
         extrait = parcelles.extrait_parcelle(parcelle["id"])
         ventes = mutations.pour_parcelle(parcelle["id"])
     pose = parcelles.diagnostics_de(parcelle["id"]) if parcelle else []
+    if parcelle:
+        ventes = _avec_les_ventes_d_origine(ventes, parcelle["id"])
+        if parcelle.get("retiree_le"):
+            parcelle["heritieres"] = parcelles.heritieres(parcelle["id"])
 
     logements = _logements_du_lieu([depart] if depart else [], pose,
                                    parcelle["id"] if parcelle else None)
@@ -263,6 +267,31 @@ def lieu(n_dpe=None, parcelle_id=None, adresse=None):
         "en_tete": tete is not None,
         "dernier_import": dernier,
     }
+
+
+def _avec_les_ventes_d_origine(ventes, parcelle_id):
+    """
+    Ajoute les ventes de la parcelle d'origine, quand celle-ci a ete
+    divisee ou fusionnee.
+
+    DVF cite les parcelles telles qu'elles etaient au jour de la vente : la
+    maison vendue en 2022 sur AB0180 n'apparaissait plus nulle part une
+    fois AB0180 divisee en AB0450 et AB0451. Chaque vente ainsi reprise
+    dit sur quelle parcelle elle portait — tout le terrain d'alors, pas le
+    seul lot d'aujourd'hui.
+    """
+    connues = {vente["id"] for vente in ventes}
+    for ancienne in parcelles.ascendance(parcelle_id):
+        origine = parcelles.parcelle(ancienne) or {}
+        reference = f"{origine.get('section') or ''}{origine.get('numero') or ''}" or ancienne
+        for vente in mutations.pour_parcelle(ancienne):
+            if vente["id"] in connues:
+                continue
+            connues.add(vente["id"])
+            vente["parcelle_d_origine"] = ancienne
+            vente["reference_d_origine"] = reference
+            ventes.append(vente)
+    return sorted(ventes, key=lambda v: str(v.get("date_mutation") or ""), reverse=True)
 
 
 def _logements_du_lieu(depart, pose, parcelle_id):

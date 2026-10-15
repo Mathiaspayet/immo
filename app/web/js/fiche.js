@@ -321,6 +321,8 @@ function blocVentes(ventes) {
               ? '<span class="pastille pastille-concordante">même adresse que le diagnostic</span>' : ""}
             ${v.adresse_concordante === false
               ? '<span class="pastille pastille-retire">autre adresse : à vérifier</span>' : ""}
+            ${v.parcelle_d_origine
+              ? `<span class="pastille pastille-lot">parcelle d'origine ${echapper(v.reference_d_origine)}</span>` : ""}
           </div>
           ${v.adresse ? `<p class="explication">${echapper(v.adresse)}</p>` : ""}
           ${detail.length
@@ -341,6 +343,12 @@ function blocVentes(ventes) {
       Ne couvre que les cinq derniers millésimes publiés, et jamais
       l'Alsace-Moselle ni Mayotte.
     </p>
+    ${ventes.some((v) => v.parcelle_d_origine) ? `
+      <p class="explication">
+        Certaines ventes portent sur la parcelle d'origine, avant sa division
+        ou sa fusion&nbsp;: elles concernent tout le terrain d'alors, pas le
+        seul lot d'aujourd'hui.
+      </p>` : ""}
     ${ventes.some((v) => v.parcelle_approchee) ? `
       <p class="explication">
         Le diagnostic n'est pas posé sur une parcelle mais devant, à
@@ -570,6 +578,7 @@ function afficherLieu(reponse, entree) {
             ${parcelle ? `· parcelle ${echapper(reference)}` : ""}`
           : echapper(parcelle?.id || "")}
         </p>
+        ${parcelle?.retiree_le ? noteRetiree(parcelle) : ""}
         ${principal ? mesuresLogement(principal) : mesuresParcelle(parcelle)}
         <div class="liens">${liensExternes(principal ?? {
           ...centre, adresse: logements[0]?.adresse })}</div>
@@ -614,12 +623,31 @@ function afficherLieu(reponse, entree) {
   $("#fiche-contenu").querySelectorAll("[data-chaine]").forEach((bouton) => {
     bouton.addEventListener("click", () => remonterChaine(bouton.dataset.chaine));
   });
+  $("#fiche-contenu").querySelectorAll("[data-parcelle]").forEach((bouton) => {
+    bouton.addEventListener("click", () =>
+      ouvrirFiche({ parcelle_id: bouton.dataset.parcelle, retour: dernierRetour }));
+  });
   $("#fiche-contenu").querySelectorAll("[data-en-tete]").forEach((bouton) => {
     bouton.addEventListener("click", () =>
       ouvrirFiche({ n_dpe: bouton.dataset.enTete, retour: dernierRetour }));
   });
 }
 
+
+/**
+ * Une parcelle que le cadastre ne publie plus : on n'y arrive que par un
+ * lien ancien ou l'historique. Elle dit ce qu'elle est devenue.
+ */
+function noteRetiree(parcelle) {
+  const heritieres = (parcelle.heritieres || []).map((h) =>
+    `<button type="button" class="bouton-lien" data-parcelle="${echapper(h.id)}">${
+      echapper(h.reference || h.id)}</button>`).join(", ");
+  return `
+    <p class="message message-travail">
+      Parcelle retirée du cadastre le ${dateFr(parcelle.retiree_le)} — divisée ou
+      fusionnée.${heritieres ? ` Elle est devenue ${heritieres}.` : ""}
+    </p>`;
+}
 
 /** Les mesures du logement en tête, telles que son dernier DPE les donne. */
 function mesuresLogement(principal) {

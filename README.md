@@ -87,7 +87,22 @@ rattachés en 6 secondes, **10 orphelins** (0,14 %).
 
 Les DPE sont rattachés à leur parcelle par la même mécanique, une fois pour
 toutes à l'import — 2 560 sur 2 878 pour Launaguet, les autres n'ayant pas
-de position exploitable.
+de position exploitable. Un DPE que l'ADEME regéocode perd son
+rattachement et le retrouve à sa nouvelle position.
+
+**Les parcelles que le cadastre ne publie plus.** Une parcelle divisée ou
+fusionnée change d'identifiant : AB0180 devient AB0450 et AB0451. Le
+rafraîchissement mensuel procède par mise à jour, et l'ancienne restait en
+base pour toujours — chevauchant ses héritières sur la carte, captant des
+diagnostics. Elle est désormais **retirée** : absente de la carte, de la
+recherche et du rattachement, ses diagnostics reposés sur la bonne
+parcelle. Elle n'est pas supprimée : DVF cite les parcelles telles qu'elles
+étaient au jour de la vente. Sa **filiation** est notée — les parcelles
+nouvelles qui couvrent son terrain —, et la fiche d'une héritière montre
+les ventes de la parcelle d'origine, marquées comme telles ; sur la carte,
+elles allument encore l'héritière. Un garde-fou distingue un cadastre qui
+change d'un fichier tronqué : des parcelles qui disparaissent sans
+héritière, au-delà de quelques-unes, et rien n'est retiré.
 
 ### Ce que fait la fiche (F4)
 
@@ -998,13 +1013,29 @@ lesquels la cartographie exigée au §3 ne peut pas fonctionner :
 
 | Domaine | Usage | Quand |
 |---|---|---|
-| `data.ademe.fr` | DPE | import seulement |
-| `geo.api.gouv.fr` | code INSEE des communes | import seulement |
+| `data.ademe.fr` | DPE | import, et « Remonter la chaîne » d'une fiche |
+| `geo.api.gouv.fr` | communes : nom, code INSEE, recherche | import, recherche d'une commune, « Me localiser » |
+| `api-adresse.data.gouv.fr` | géocodage des DPE sans position (BAN) | import |
+| `cadastre.data.gouv.fr` | parcelles et bâtiments | import du cadastre |
+| `files.data.gouv.fr` | ventes DVF, par commune et par département | import, guet quotidien (requêtes HEAD) |
+| `www.data.gouv.fr`, `static.data.gouv.fr` | archive DVF, carte des loyers | reprise d'archive, estimation |
+| `bdm.insee.fr` | indice Notaires-Insee | estimation (relu au plus une fois par mois) |
 | `data.geopf.fr` | fonds de plan et parcellaire IGN | affichage de la carte |
 | `tile.openstreetmap.org` | fond OpenStreetMap | affichage de la carte |
-| `cadastre.data.gouv.fr` | parcelles et bâtiments | import du cadastre |
+| `maps.googleapis.com` | cliché de rue, par le NAS (option, écart assumé) | ouverture d'une fiche, si une clé est posée |
 
-Aucune autre. Ni CDN, ni police distante, ni mesure d'audience.
+Aucune autre. Ni CDN, ni police distante, ni mesure d'audience. Les liens
+Satellite, Street View et Géoportail d'une fiche ouvrent un nouvel onglet :
+rien ne part tant qu'on ne clique pas.
+
+L'application n'a pas d'authentification — elle vit sur le réseau local
+(CDC 9). Une page d'un **autre site**, ouverte dans le même navigateur,
+pouvait pourtant déclencher ses actions : une requête POST sans corps part
+sans contrôle préalable du navigateur. Les navigateurs disent d'où vient
+une requête (`Sec-Fetch-Site`) ; celles d'un autre site sont refusées, sauf
+les simples lectures, et la vue de rue — facturée — l'est aussi. Le
+contrôle porte sur ce que voit le navigateur, il tient donc derrière un
+proxy inverse.
 
 ---
 
