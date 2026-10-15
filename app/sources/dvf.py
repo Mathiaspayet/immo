@@ -25,9 +25,8 @@ import gzip
 import io
 import logging
 import urllib.error
-import urllib.request
 
-from app.sources.client_http import CONTEXTE, ENTETES, ErreurSource
+from app.sources.client_http import ErreurSource, ouvrir
 
 logger = logging.getLogger(__name__)
 
@@ -117,9 +116,8 @@ def _telecharger_annee(code_insee, annee):
     """Le CSV d'une annee, ou None si ce millesime ne concerne pas la commune."""
     url = url_annee(code_insee, annee)
     try:
-        requete = urllib.request.Request(url, headers=ENTETES)
-        with urllib.request.urlopen(requete, timeout=DELAI, context=CONTEXTE) as reponse:
-            return reponse.read().decode("utf-8")
+        corps, _ = ouvrir(url, delai=DELAI)
+        return corps.decode("utf-8")
     except urllib.error.HTTPError as erreur:
         if erreur.code in (403, 404):
             logger.info("dvf %s : pas de millesime %s", code_insee, annee)
@@ -143,10 +141,8 @@ def signature_annee(code_insee, annee):
     """
     url = url_annee(code_insee, annee)
     try:
-        requete = urllib.request.Request(url, headers=ENTETES, method="HEAD")
-        with urllib.request.urlopen(requete, timeout=DELAI, context=CONTEXTE) as reponse:
-            return (reponse.headers.get("ETag")
-                    or reponse.headers.get("Last-Modified"))
+        _, entetes = ouvrir(url, delai=DELAI, methode="HEAD", silencieux=True)
+        return entetes.get("ETag") or entetes.get("Last-Modified")
     except urllib.error.HTTPError as erreur:
         if erreur.code in (403, 404):
             return None
@@ -187,28 +183,22 @@ def lignes_departement(departement, annee):
     rien — l'appelant les agrege au fil de l'eau.
     """
     url = url_departement(departement, annee)
-    derniere = None
-    for essai in range(TENTATIVES_DEPARTEMENT):
-        try:
-            requete = urllib.request.Request(url, headers=ENTETES)
-            with urllib.request.urlopen(requete, timeout=DELAI_DEPARTEMENT,
-                                        context=CONTEXTE) as reponse:
-                brut = reponse.read()
-            # On garde le fichier COMPRESSE en memoire (quelques Mo) et on le
-            # decompresse au fil de la lecture : le texte entier d'une annee
-            # de Gironde, c'est trente megaoctets de plus pour rien.
-            flux = io.TextIOWrapper(gzip.GzipFile(fileobj=io.BytesIO(brut)), encoding="utf-8")
-            return csv.DictReader(flux)
-        except urllib.error.HTTPError as erreur:
-            if erreur.code in (403, 404):
-                logger.info("dvf departement %s : pas de millesime %s", departement, annee)
-                return None
-            raise ErreurSource(f"DVF : HTTP {erreur.code} sur {departement}/{annee}") from erreur
-        except Exception as erreur:                  # noqa: BLE001
-            derniere = f"{type(erreur).__name__}"
-            logger.info("dvf departement %s/%s : nouvel essai apres %s", departement, annee, derniere)
-    raise ErreurSource(f"DVF injoignable pour le département {departement} ({derniere}) : "
-                       "réessayez dans quelques minutes.")
+    try:
+        brut, _ = ouvrir(url, delai=DELAI_DEPARTEMENT, tentatives=TENTATIVES_DEPARTEMENT)
+    except urllib.error.HTTPError as erreur:
+        if erreur.code in (403, 404):
+            logger.info("dvf departement %s : pas de millesime %s", departement, annee)
+            return None
+        raise ErreurSource(f"DVF : HTTP {erreur.code} sur {departement}/{annee}") from erreur
+    except Exception as erreur:                      # noqa: BLE001
+        raise ErreurSource(f"DVF injoignable pour le département {departement}"
+                           f" ({type(erreur).__name__}) : réessayez dans quelques minutes."
+                           ) from erreur
+    # On garde le fichier COMPRESSE en memoire (quelques Mo) et on le
+    # decompresse au fil de la lecture : le texte entier d'une annee de
+    # Gironde, c'est trente megaoctets de plus pour rien.
+    flux = io.TextIOWrapper(gzip.GzipFile(fileobj=io.BytesIO(brut)), encoding="utf-8")
+    return csv.DictReader(flux)
 
 
 def signatures_departement(departement, annees=None):
@@ -218,10 +208,8 @@ def signatures_departement(departement, annees=None):
     for annee in annees:
         url = url_departement(departement, annee)
         try:
-            requete = urllib.request.Request(url, headers=ENTETES, method="HEAD")
-            with urllib.request.urlopen(requete, timeout=DELAI, context=CONTEXTE) as reponse:
-                resultat[annee] = (reponse.headers.get("ETag")
-                                   or reponse.headers.get("Last-Modified"))
+            _, entetes = ouvrir(url, delai=DELAI, methode="HEAD", silencieux=True)
+            resultat[annee] = entetes.get("ETag") or entetes.get("Last-Modified")
         except urllib.error.HTTPError as erreur:
             if erreur.code in (403, 404):
                 resultat[annee] = None

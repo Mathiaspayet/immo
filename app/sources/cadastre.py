@@ -12,9 +12,8 @@ import gzip
 import json
 import logging
 import urllib.error
-import urllib.request
 
-from app.sources.client_http import CONTEXTE, ENTETES, ErreurSource
+from app.sources.client_http import ErreurSource, ouvrir
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +49,7 @@ def telecharger_couche(code_insee, couche, progression=None):
         progression(f"cadastre — téléchargement des {couche}")
 
     try:
-        requete = urllib.request.Request(url, headers=ENTETES)
-        with urllib.request.urlopen(requete, timeout=DELAI, context=CONTEXTE) as reponse:
-            compresse = reponse.read()
+        compresse, _ = ouvrir(url, delai=DELAI)
     except urllib.error.HTTPError as erreur:
         if erreur.code == 404:
             raise ErreurSource(

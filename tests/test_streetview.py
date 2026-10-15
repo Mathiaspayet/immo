@@ -220,3 +220,39 @@ def test_une_parcelle_a_aussi_sa_vue_de_rue(client, monkeypatch):
 
     assert client.get("/api/parcelles/vue-rue",
                       params={"parcelle_id": "INCONNUE"}).status_code == 404
+
+
+def test_un_autre_site_ne_peut_rien_declencher(client, monkeypatch):
+    """
+    Une page d'un autre site, ouverte dans le meme navigateur, pouvait
+    lancer une moisson ou faire facturer des cliches de rue : l'API n'a pas
+    d'authentification, et un POST sans corps part sans controle prealable.
+    """
+    lancees = []
+    monkeypatch.setattr("app.metier.import_dpe.lancer_en_tache_de_fond",
+                        lambda **nommes: lancees.append(nommes))
+    reglages.ecrire({"streetview_cle": CLE})
+    inserer_dpe(n_dpe="D1", adresse="1 rue", latitude=44.2, longitude=-1.23)
+    monkeypatch.setattr("app.sources.streetview._demander",
+                        lambda *a, **k: pytest.fail("cliche demande par un autre site"))
+
+    ailleurs = {"Sec-Fetch-Site": "cross-site"}
+    assert client.post("/api/import", headers=ailleurs).status_code == 403
+    assert client.get("/api/parcelles/vue-rue", params={"n_dpe": "D1"},
+                      headers=ailleurs).status_code == 403
+    assert lancees == []
+    # Une simple lecture reste permise : un lien suivi depuis ailleurs
+    # ouvre toujours l'application.
+    assert client.get("/api/sante", headers=ailleurs).status_code == 200
+    # Depuis l'application elle-meme, ou sans l'en-tete (curl), rien ne change.
+    assert client.post("/api/import", headers={"Sec-Fetch-Site": "same-origin"}
+                       ).status_code != 403
+    assert client.post("/api/import").status_code != 403
+
+
+def test_la_vue_de_rue_ne_vise_que_des_biens_connus(client):
+    """Des coordonnees libres permettaient de faire facturer n'importe quel
+    point du globe."""
+    reglages.ecrire({"streetview_cle": CLE})
+    assert client.get("/api/parcelles/vue-rue",
+                      params={"latitude": 48.85, "longitude": 2.35}).status_code == 400

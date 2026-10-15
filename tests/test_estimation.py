@@ -596,6 +596,18 @@ def test_les_coefficients_dates():
     assert set(criteres.dates()) <= {c["cle"] for c in criteres.liste()}
 
 
+def test_l_ecran_recoit_les_themes_dans_l_ordre(base):
+    """Les themes etaient recopies dans le JavaScript : une seule liste,
+    servie avec le catalogue."""
+    from fastapi.testclient import TestClient
+    from app.main import application
+
+    with TestClient(application) as client:
+        corps = client.get("/api/estimation/etats").json()
+    assert [t["cle"] for t in corps["themes"]] == ["emplacement", "bati", "maison", "appartement"]
+    assert {c["theme"] for c in corps["criteres"]} <= {t["cle"] for t in corps["themes"]}
+
+
 def test_le_catalogue_est_coherent():
     catalogue = criteres.liste()
     assert len({c["cle"] for c in catalogue}) == len(catalogue)

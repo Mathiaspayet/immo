@@ -23,16 +23,10 @@ import threading
 
 from app.base.connexion import connexion, transaction
 from app.metier.valeurs import meme_adresse
+from app.metier.valeurs import nombre as _nombre
 from app.sources import dvf, dvf_archive
 
 logger = logging.getLogger(__name__)
-
-def _nombre(valeur):
-    try:
-        return float(valeur)
-    except (TypeError, ValueError):
-        return None
-
 
 def _adresse(ligne):
     """L'adresse telle que DVF la donne, en une chaine lisible."""

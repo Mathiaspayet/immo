@@ -141,6 +141,9 @@ PROFILS = {
     "climatisation": {2021: 0.0, 2022: 0.0},
 }
 
+# Dans l'ordre ou l'ecran les presente : on parcourt un bien comme on le
+# visite, du dehors vers le dedans. L'ecran les lit ici — ils etaient
+# recopies dans le JavaScript, et les deux listes auraient fini par diverger.
 THEMES = {
     "emplacement": "L'emplacement, à l'échelle du bien",
     "bati": "Le bâti et ses prestations",
@@ -149,6 +152,11 @@ THEMES = {
 }
 
 _PAR_CLE = {c[0]: c for c in CATALOGUE}
+
+
+def themes():
+    """Les themes, dans l'ordre de l'ecran : [{cle, titre}]."""
+    return [{"cle": cle, "titre": titre} for cle, titre in THEMES.items()]
 
 
 def liste():

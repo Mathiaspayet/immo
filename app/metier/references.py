@@ -35,6 +35,7 @@ import logging
 import numpy as np
 
 from app.base.connexion import connexion, transaction
+from app.metier.valeurs import nombre as _nombre
 from app.sources import dvf, dvf_archive
 
 logger = logging.getLogger(__name__)
@@ -46,13 +47,6 @@ ACTIVITE = "Local industriel. commercial ou assimilé"
 
 def departement_de(code_insee):
     return dvf_archive.departement(code_insee)
-
-
-def _nombre(valeur):
-    try:
-        return float(str(valeur).replace(",", "."))
-    except (TypeError, ValueError):
-        return None
 
 
 def _trimestre(date_texte):

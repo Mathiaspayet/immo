@@ -259,3 +259,17 @@ def test_une_panne_de_l_ademe_n_empeche_pas_la_sauvegarde(monkeypatch):
         monkeypatch.setattr(planificateur, nom, lambda nom=nom: faits.append(nom))
     planificateur._tache()
     assert faits == ["_ventes", "_remise_a_niveau", "_estimation", "_sauvegarder"]
+
+
+def test_une_surface_seule_est_comparee_a_l_autre_enregistree(base):
+    """Une minimale de 500 passait contre la maximale de 400 deja en base :
+    l'ecran Veille se vidait sans que rien ne l'explique."""
+    from app.base import reglages
+
+    reglages.ecrire({"surface_max": 400})
+    with pytest.raises(ValueError, match="minimale"):
+        reglages.ecrire({"surface_min": 500})
+    with pytest.raises(ValueError, match="minimale"):
+        reglages.ecrire({"surface_max": 50})
+    reglages.ecrire({"surface_min": 120})
+    assert reglages.lire("surface_min") == 120

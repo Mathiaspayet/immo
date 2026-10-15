@@ -21,6 +21,7 @@ import math
 
 from app.base.connexion import connexion, transaction
 from app.metier import geometrie, veille
+from app.metier.valeurs import nombre as _nombre
 from app.sources import cadastre
 
 logger = logging.getLogger(__name__)
@@ -161,13 +162,6 @@ def importer_cadastre(code_insee, progression=None):
         "message": (f"{len(fiches)} parcelles, {len(objets_batiments)} bâtiments, "
                     f"{rattaches} DPE rattachés"),
     }
-
-
-def _nombre(valeur):
-    try:
-        return float(valeur)
-    except (TypeError, ValueError):
-        return None
 
 
 # ---------------------------------------------------------------------
@@ -824,15 +818,18 @@ def chercher_sur_carte(code_insee, texte, combien=8):
                     "latitude": ligne["latitude"], "longitude": ligne["longitude"],
                 })
 
-    # Adresses : celles des DPE de la commune, qui portent une position.
+    # Adresses : celles des DPE de la commune, qui portent une position. Une
+    # adresse en regroupe plusieurs, sur des parcelles qui peuvent differer :
+    # on n'en designe aucune — la reponse en prenait une au hasard. La carte
+    # va a la position ; c'est elle qui montre les parcelles.
     reste = combien - len(resultats)
     if reste > 0:
         motif = f"%{recherche.lower()}%"
         with connexion() as conn:
             for ligne in conn.execute(
-                    "SELECT adresse, parcelle_id,"
+                    "SELECT adresse,"
                     "       avg(latitude) AS latitude, avg(longitude) AS longitude,"
-                    "       count(*) AS diagnostics, min(n_dpe) AS n_dpe"
+                    "       count(*) AS diagnostics"
                     "  FROM dpe"
                     " WHERE code_insee = ? AND adresse IS NOT NULL"
                     "   AND lower(adresse) LIKE ?"
@@ -844,8 +841,6 @@ def chercher_sur_carte(code_insee, texte, combien=8):
                 resultats.append({
                     "type": "adresse",
                     "libelle": ligne["adresse"],
-                    "parcelle_id": ligne["parcelle_id"],
-                    "n_dpe": ligne["n_dpe"],
                     "diagnostics": ligne["diagnostics"],
                     "latitude": ligne["latitude"], "longitude": ligne["longitude"],
                 })

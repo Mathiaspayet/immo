@@ -22,6 +22,7 @@ import logging
 
 from app.base import reglages
 from app.base.connexion import connexion
+from app.metier.valeurs import nombre as _nombre
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +45,6 @@ CRITERES_ETIQUETTES = [
     ("etiquette_dpe", "etiquette_dpe", "classe énergie"),
     ("etiquette_ges", "etiquette_ges", "classe GES"),
 ]
-
-
-def _nombre(valeur):
-    try:
-        return float(str(valeur).replace(",", "."))
-    except (TypeError, ValueError):
-        return None
 
 
 def _candidats(filtres):

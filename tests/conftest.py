@@ -47,6 +47,9 @@ def sans_reseau(monkeypatch):
                      "https_proxy", "http_proxy", "all_proxy"):
         monkeypatch.delenv(variable, raising=False)
     monkeypatch.setattr("app.sources.client_http.ATTENTE", (0, 0, 0))
+    # Un schema ADEME garde en memoire par un test fuirait dans le suivant.
+    from app.sources import ademe
+    ademe.oublier_schemas()
 
 
 # Toutes les tables que l'application remplit. Une table oubliee ici fuit

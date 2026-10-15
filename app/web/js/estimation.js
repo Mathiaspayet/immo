@@ -25,6 +25,7 @@ const ecran = {
   departement: null,     // ventes chargées, modèle appris, précision
   etats: [],             // l'échelle d'état du bâti
   criteres: [],          // les atouts et défauts, avec leur coefficient
+  themes: [],            // leurs thèmes, dans l'ordre de l'écran (servis par l'API)
   resultat: null,        // la dernière estimation
   enregistree: null,     // l'identifiant, si elle a été gardée
   retour: "carte",
@@ -39,15 +40,6 @@ const PRINCIPES = {
   hedonique: "régression sur les ventes du département : surface, terrain, pièces, commune",
   sol_construction: "terrains à bâtir voisins + bâti à neuf moins son usure, calé sur le marché",
   boosting: "des centaines d'arbres de décision appris sur le département, nourris des prix voisins",
-};
-
-// Les atouts et défauts, par thème : on les parcourt comme on visite, du
-// dehors vers le dedans.
-const THEMES_CRITERES = {
-  emplacement: "L'emplacement, à l'échelle du bien",
-  bati: "Le bâti et ses prestations",
-  maison: "Pour une maison",
-  appartement: "Pour un appartement",
 };
 
 const LIBELLES_ETATS = {
@@ -94,7 +86,7 @@ export async function ouvrirEstimation({ n_dpe = null, parcelle_id = null,
   }
   Object.assign(ecran, {
     bien: reponse.bien, departement: reponse.departement, etats: reponse.etats,
-    criteres: reponse.criteres || [],
+    criteres: reponse.criteres || [], themes: reponse.themes || [],
     saisie: { etat: "assez_bon", travaux: 0, ajustement: 0, raison: "", criteres: [] },
     resultat: null, enregistree: null,
   });
@@ -130,7 +122,8 @@ export async function ouvrirEstimationEnregistree(ident, { sansHistorique = fals
             terrain_m2: resultat.bien.terrain_estime ? null : resultat.bien.terrain_m2 },
     saisie: { etat: "assez_bon", travaux: 0, ajustement: 0, raison: "", criteres: [],
               ...gardee.saisie },
-    departement, etats: etats.etats, criteres: etats.criteres || [], resultat, enregistree: gardee,
+    departement, etats: etats.etats, criteres: etats.criteres || [], themes: etats.themes || [],
+    resultat, enregistree: gardee,
   });
   dessiner();
 }
@@ -227,6 +220,15 @@ function blocDepartement() {
 function brancherDepartement() {
   const bouton = $("#preparer-departement");
   if (!bouton) return;
+  const departement = ecran.departement.departement;
+  // Revenu sur l'écran pendant que la préparation tourne : on la suit de
+  // nouveau, au lieu de proposer un bouton qui répondrait « déjà en cours ».
+  api.etatPreparation().then((etat) => {
+    if (etat.en_cours && etat.departement === departement) {
+      bouton.disabled = true;
+      suivrePreparation(departement);
+    }
+  }).catch(() => {});
   bouton.addEventListener("click", async () => {
     bouton.disabled = true;
     masquerErreur();
@@ -240,25 +242,38 @@ function brancherDepartement() {
         return;
       }
     }
-    suivrePreparation();
+    suivrePreparation(departement);
   });
 }
 
-async function suivrePreparation() {
+/**
+ * Suit la préparation d'un département, tant qu'on regarde son écran.
+ *
+ * Le suivi continuait après qu'on avait quitté l'estimation : il
+ * interrogeait le serveur toutes les secondes et demie, puis redessinait
+ * à la fin un écran caché — ou celui d'un autre bien — en annonçant un
+ * succès sur l'écran où l'on était passé. La préparation, elle, continue
+ * sur le serveur ; revenir sur l'estimation en reprend le suivi.
+ */
+async function suivrePreparation(departement) {
+  const plusRegarde = () => $("#vue-estimation").hidden
+    || ecran.departement?.departement !== departement;
+  if (plusRegarde()) return;
   const boite = $("#preparation-etat");
   let etat;
   try {
     etat = await api.etatPreparation();
   } catch (erreur) {
-    setTimeout(suivrePreparation, 3000);
+    setTimeout(() => suivrePreparation(departement), 3000);
     return;
   }
+  if (plusRegarde()) return;
   if (boite) {
     boite.hidden = false;
     boite.innerHTML = `${echapper(etat.etape || "préparation")}…<span class="jauge"><span></span></span>`;
   }
   if (etat.en_cours) {
-    setTimeout(suivrePreparation, 1500);
+    setTimeout(() => suivrePreparation(departement), 1500);
     return;
   }
   if (etat.erreur) {
@@ -268,13 +283,16 @@ async function suivrePreparation() {
     afficherErreur("Les ventes du département n'ont pas pu être chargées.", etat.erreur);
     return;
   }
+  let relu;
   try {
-    ecran.departement = await api.etatDepartement(ecran.departement.departement);
+    relu = await api.etatDepartement(departement);
   } catch (erreur) {
     afficherErreur("Préparation terminée, mais son état n'a pas pu être relu.", erreur.message);
     return;
   }
-  if (ecran.departement.pret) afficherSucces("Département prêt : vous pouvez estimer.");
+  if (plusRegarde()) return;
+  ecran.departement = relu;
+  if (relu.pret) afficherSucces("Département prêt : vous pouvez estimer.");
   // On garde ce qui a déjà été saisi dans le formulaire.
   lireFormulaire();
   dessiner();
@@ -423,12 +441,12 @@ function formulaire() {
  */
 function sectionsCriteres(b, s) {
   const coches = new Set(s.criteres || []);
-  return Object.entries(THEMES_CRITERES).map(([theme, titre]) => {
+  return ecran.themes.map(({ cle: theme, titre }) => {
     const liste = ecran.criteres.filter((c) => c.theme === theme);
     if (!liste.length) return "";
     return `
       <fieldset class="criteres" data-theme="${theme}">
-        <legend>${titre}</legend>
+        <legend>${echapper(titre)}</legend>
         ${liste.map((c) => `
           <label class="critere-choix" data-types="${c.types.join(" ")}">
             <input type="checkbox" name="critere" value="${c.cle}"

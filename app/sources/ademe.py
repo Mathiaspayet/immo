@@ -133,8 +133,25 @@ def sans_accents(texte):
     return texte
 
 
+# Le schema d'une base change rarement — quelques fois l'an. Il etait
+# pourtant relu a chaque import et a chaque recherche par numero : trois
+# appels pour remonter une chaine de remplacements, avant meme la premiere
+# ligne. Garde une journee, un renommage de colonne est vu le lendemain.
+DUREE_SCHEMA = 24 * 3600
+_schemas = {}
+
+
+def oublier_schemas():
+    """Vide le cache des schemas (tests, ou pour forcer une relecture)."""
+    _schemas.clear()
+
+
 def lire_schema(jeu="existant"):
     """Liste des champs du jeu de donnees : [(cle, libelle, forme_normalisee)]."""
+    connu = _schemas.get(jeu)
+    if connu and time.monotonic() - connu[0] < DUREE_SCHEMA:
+        return list(connu[1])
+
     dataset = JEUX[jeu]
     schema = appeler(f"{RACINE}/{dataset}/schema")
     if not schema:
@@ -146,7 +163,8 @@ def lire_schema(jeu="existant"):
         libelle = champ.get("x-originalName", cle)
         champs.append((cle, libelle, sans_accents(f"{cle} {libelle}")))
     logger.info("%s : %d champs disponibles", dataset, len(champs))
-    return champs
+    _schemas[jeu] = (time.monotonic(), champs)
+    return list(champs)
 
 
 def associer_champs(champs):

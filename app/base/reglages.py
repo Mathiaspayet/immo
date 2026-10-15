@@ -358,10 +358,13 @@ def valider(valeurs):
             if not (mini <= nombre <= maxi):
                 raise ValueError(f"{cle} doit etre compris entre {mini} et {maxi}.")
 
-    surface_min = valeurs.get("surface_min")
-    surface_max = valeurs.get("surface_max")
-    if surface_min is not None and surface_max is not None:
-        if float(surface_min) > float(surface_max):
+    # Comparees aussi quand UNE seule change : l'autre est celle deja
+    # enregistree. Sans cela, une minimale de 500 passait contre une
+    # maximale de 400 en base, et l'ecran Veille se vidait sans raison.
+    if "surface_min" in valeurs or "surface_max" in valeurs:
+        bas = float(valeurs.get("surface_min", lire("surface_min")))
+        haut = float(valeurs.get("surface_max", lire("surface_max")))
+        if bas > haut:
             raise ValueError("La surface minimale depasse la surface maximale.")
 
     if "smtp_port" in valeurs:

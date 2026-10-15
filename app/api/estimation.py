@@ -37,7 +37,8 @@ def bien(n_dpe: str = Query(None), parcelle_id: str = Query(None)):
                    if description["code_insee"] else None)
     return {"bien": description,
             "departement": estimation.etat_departement(departement) if departement else None,
-            "etats": estimation.etats(), "criteres": criteres.liste()}
+            "etats": estimation.etats(), "criteres": criteres.liste(),
+            "themes": criteres.themes()}
 
 
 @routeur.get("/departement/{departement}")
@@ -108,7 +109,8 @@ def estimer(corps: dict = Body(...)):
 @routeur.get("/etats")
 def etats():
     """L'echelle d'etat du bati, et les atouts et defauts, avec l'effet de chacun."""
-    return {"etats": estimation.etats(), "criteres": criteres.liste()}
+    return {"etats": estimation.etats(), "criteres": criteres.liste(),
+            "themes": criteres.themes()}
 
 
 @routeur.get("/enregistrees")

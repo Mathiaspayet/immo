@@ -92,8 +92,7 @@ def a_la_position(code_insee: str = Query(...),
 
 
 @routeur.get("/vue-rue")
-def vue_rue(n_dpe: str = Query(None), parcelle_id: str = Query(None),
-            latitude: float = Query(None), longitude: float = Query(None)):
+def vue_rue(n_dpe: str = Query(None), parcelle_id: str = Query(None)):
     """
     Le cliche de rue d'un bien, servi par le NAS.
 
@@ -107,25 +106,26 @@ def vue_rue(n_dpe: str = Query(None), parcelle_id: str = Query(None),
 
     Pour une parcelle, on vise son centre : la prise de vue la plus proche
     est sur la voie, tournee vers le terrain.
+
+    Un diagnostic ou une parcelle connus, jamais des coordonnees libres :
+    chaque cliche se facture, et n'importe quel point du globe aurait pu
+    etre demande — la ou ceux des biens en base sont en nombre fini, et
+    gardes sur disque une fois payes.
     """
     if not streetview.active():
         raise HTTPException(status_code=404, detail="Vue de rue desactivee.")
+    if not (n_dpe or parcelle_id):
+        raise HTTPException(status_code=400, detail="Indiquez un diagnostic ou une parcelle.")
 
-    if n_dpe or parcelle_id:
-        with connexion() as conn:
-            ligne = conn.execute(
-                "SELECT latitude, longitude FROM dpe WHERE n_dpe = ?", (str(n_dpe),)
-            ).fetchone() if n_dpe else conn.execute(
-                "SELECT latitude, longitude FROM parcelle WHERE id = ?", (str(parcelle_id),)
-            ).fetchone()
-        if ligne is None or ligne["latitude"] is None:
-            raise HTTPException(status_code=404, detail="Bien sans position connue.")
-        latitude, longitude = ligne["latitude"], ligne["longitude"]
-
-    if latitude is None or longitude is None:
-        raise HTTPException(status_code=400,
-                            detail="Indiquez un n_dpe, une parcelle, ou une latitude"
-                                   " et une longitude.")
+    with connexion() as conn:
+        ligne = conn.execute(
+            "SELECT latitude, longitude FROM dpe WHERE n_dpe = ?", (str(n_dpe),)
+        ).fetchone() if n_dpe else conn.execute(
+            "SELECT latitude, longitude FROM parcelle WHERE id = ?", (str(parcelle_id),)
+        ).fetchone()
+    if ligne is None or ligne["latitude"] is None:
+        raise HTTPException(status_code=404, detail="Bien sans position connue.")
+    latitude, longitude = ligne["latitude"], ligne["longitude"]
 
     try:
         cliche = streetview.image(latitude, longitude)

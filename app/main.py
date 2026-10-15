@@ -13,7 +13,8 @@ import logging
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config, planificateur
@@ -62,6 +63,39 @@ application = FastAPI(
     docs_url="/api/documentation",
     redoc_url=None,
 )
+
+# Ce qu'un autre site ne doit pas pouvoir declencher, meme en simple
+# lecture : la vue de rue se facture a chaque cliche, sur la cle de
+# l'utilisateur.
+LECTURES_PROTEGEES = {"/api/parcelles/vue-rue"}
+
+
+@application.middleware("http")
+async def refuser_les_autres_sites(requete: Request, suite):
+    """
+    Une page d'un AUTRE site, ouverte dans le meme navigateur, pouvait
+    declencher les actions de l'application : l'API n'a pas
+    d'authentification — elle vit sur le reseau local (CDC 9) — et une
+    requete POST sans corps JSON part sans controle prealable du
+    navigateur. Lancer une moisson, reprendre 34 Mo d'archive, faire une
+    sauvegarde, ou faire facturer des cliches de rue.
+
+    Les navigateurs disent d'ou vient une requete (`Sec-Fetch-Site`) : on
+    refuse celles d'un autre site, sauf les simples lectures. Un lien
+    suivi depuis ailleurs ouvre toujours l'application. Sans cet en-tete —
+    curl, la sonde de sante, un tres vieux navigateur —, rien ne change.
+    Le controle porte sur la vue du navigateur, pas sur l'adresse du
+    serveur : il tient derriere un proxy inverse.
+    """
+    if (requete.headers.get("sec-fetch-site") == "cross-site"
+            and (requete.method not in ("GET", "HEAD", "OPTIONS")
+                 or requete.url.path in LECTURES_PROTEGEES)):
+        logger.warning("requete d'un autre site refusee : %s %s",
+                       requete.method, requete.url.path)
+        return JSONResponse(status_code=403,
+                            content={"detail": "Requête refusée : elle vient d'un autre site."})
+    return await suite(requete)
+
 
 application.include_router(api_veille.routeur)
 application.include_router(api_communes.routeur)
