@@ -1,0 +1,54 @@
+# Verification ponctuelle, branche temporaire : les sources de l'application
+# se valident-elles avec la nouvelle liste d'autorites (certifi 2026.7.22) ?
+name: Verification des certificats
+on:
+  push:
+    branches: [verif-certificats]
+jobs:
+  certificats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: |
+          python -m venv ancien && ancien/bin/pip -q install certifi==2024.12.14
+          python -m venv neuf && neuf/bin/pip -q install certifi==2026.7.22
+          cat > verif.py <<'PY'
+          import socket, ssl, sys, certifi
+          HOTES = ["data.ademe.fr", "geo.api.gouv.fr", "api-adresse.data.gouv.fr",
+                   "cadastre.data.gouv.fr", "files.data.gouv.fr", "www.data.gouv.fr",
+                   "static.data.gouv.fr", "bdm.insee.fr", "maps.googleapis.com",
+                   "data.geopf.fr", "tile.openstreetmap.org"]
+          ctx = ssl.create_default_context(cafile=certifi.where())
+          echecs = 0
+          for hote in HOTES:
+              try:
+                  with socket.create_connection((hote, 443), timeout=20) as brut:
+                      with ctx.wrap_socket(brut, server_hostname=hote) as tls:
+                          chaine = tls.get_verified_chain()
+                          racine = dict(x[0] for x in chaine[-1].get_info()["subject"]) if hasattr(chaine[-1], "get_info") else None
+                          from cryptography import x509  # noqa
+              except ModuleNotFoundError:
+                  pass
+              except Exception as erreur:
+                  echecs += 1
+                  print(f"ECHEC {hote:28s} {type(erreur).__name__}: {erreur}")
+                  continue
+              try:
+                  with socket.create_connection((hote, 443), timeout=20) as brut:
+                      with ctx.wrap_socket(brut, server_hostname=hote) as tls:
+                          chaine = tls.get_verified_chain()
+                          pem = chaine[-1].public_bytes()
+                          import subprocess
+                          sujet = subprocess.run(["openssl", "x509", "-noout", "-subject"],
+                                                 input=pem.encode() if isinstance(pem, str) else pem,
+                                                 capture_output=True).stdout.decode().strip()
+                  print(f"ok    {hote:28s} racine : {sujet}")
+              except Exception as erreur:
+                  echecs += 1
+                  print(f"ECHEC {hote:28s} {type(erreur).__name__}: {erreur}")
+          print("certifi", certifi.__version__, "-", echecs, "echec(s)")
+          PY
+          echo "=== ancienne liste ===" && ancien/bin/python verif.py
+          echo "=== nouvelle liste ===" && neuf/bin/python verif.py
