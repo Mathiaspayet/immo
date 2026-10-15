@@ -7,8 +7,10 @@
 #  de certification renouvelee aurait fait echouer les appels aux sources
 #  sans que rien dans le code n'ait change.
 #
-#  Dependabot propose chaque mois une pull request par mise a jour. La
-#  CI la teste ; rien n'atteint le NAS sans etre fusionne a la main.
+#  UNE proposition par mois et par famille, toutes mises a jour reunies :
+#  le premier passage en avait ouvert dix, et chacune envoyait ses
+#  courriels a l'ouverture puis a la fermeture. La CI teste chaque
+#  proposition ; rien n'atteint le NAS sans etre fusionne a la main.
 #
 #  L'image de base n'y figure pas : `python:3.12-slim` suit deja les
 #  correctifs de Python 3.12 a chaque construction, et un passage a 3.13
@@ -20,14 +22,14 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 5
     groups:
-      # Les trois bibliotheques de calcul avancent ensemble : les mettre a
-      # jour une a une ferait echouer les roues precompilees.
-      calcul:
-        patterns: ["numpy", "scipy", "lightgbm"]
+      bibliotheques:
+        patterns: ["*"]
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: monthly
+    groups:
+      outils-github:
+        patterns: ["*"]
