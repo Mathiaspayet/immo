@@ -31,6 +31,25 @@ def lire(n_dpe: str = Query(None), adresse: str = Query(None)):
     return resultat
 
 
+@routeur.get("/lieu")
+def lieu(n_dpe: str = Query(None), parcelle_id: str = Query(None),
+         adresse: str = Query(None)):
+    """
+    La fiche d'un lieu : parcelle, ventes, et chaque logement avec sa
+    chronologie. On y entre par un diagnostic, une parcelle ou une adresse.
+    """
+    if not (n_dpe or parcelle_id or adresse):
+        raise HTTPException(status_code=400,
+                            detail="Indiquez un numéro de DPE, une parcelle ou une adresse.")
+    resultat = metier_fiche.lieu(n_dpe=n_dpe, parcelle_id=parcelle_id, adresse=adresse)
+    if resultat is None:
+        raise HTTPException(status_code=404, detail=f"Parcelle {parcelle_id} inconnue.")
+    if not resultat["trouve"] and adresse:
+        # Plutot qu'un « aucun résultat » sec, on propose des voies proches.
+        resultat["suggestions"] = metier_fiche.voisinage(adresse)
+    return resultat
+
+
 @routeur.get("/chaine")
 def chaine(n_dpe: str = Query(...),
            interroger_ademe: bool = Query(True)):

@@ -101,11 +101,11 @@ export const api = {
     }),
 
 
-  /** Parcelle, voisines et bâtiments : de quoi dessiner un extrait. */
-  extraitCadastral: (n_dpe) =>
-    demander(`/api/parcelles/extrait?${versParametres({ n_dpe })}`),
-
-  fiche: (parametres) => demander(`/api/fiche?${versParametres(parametres)}`),
+  /**
+   * La fiche d'un lieu — parcelle, extrait, ventes, et chaque logement
+   * avec sa chronologie —, par un diagnostic, une parcelle ou une adresse.
+   */
+  lieu: (parametres) => demander(`/api/fiche/lieu?${versParametres(parametres)}`),
 
   chaine: (n_dpe) => demander(`/api/fiche/chaine?${versParametres({ n_dpe })}`),
 
@@ -153,12 +153,6 @@ export const api = {
   parcelleALaPosition: (code_insee, latitude, longitude) =>
     demander(`/api/parcelles/a-la-position?${versParametres(
       { code_insee, latitude, longitude })}`),
-
-  ficheParcelle: (parcelle_id) =>
-    demander(`/api/parcelles/fiche-parcelle?parcelle_id=${encodeURIComponent(parcelle_id)}`),
-
-  ventes: (n_dpe) =>
-    demander(`/api/parcelles/ventes?n_dpe=${encodeURIComponent(n_dpe)}`),
 
   etatAlerte: () => demander("/api/alertes"),
 

@@ -91,6 +91,31 @@ de position exploitable.
 
 ### Ce que fait la fiche (F4)
 
+**Une seule fiche, celle du lieu.** Il y en avait deux, celle d'un
+diagnostic et celle d'une parcelle ; elles se recouvraient aux trois
+quarts — même extrait, mêmes ventes — et renvoyaient l'une à l'autre. On y
+entre désormais par un diagnostic (les listes), une parcelle (la carte) ou
+une adresse (l'écran Identifier), et l'on y trouve :
+
+- l'extrait cadastral et la vue aérienne au même cadrage, terrain, bâti et
+  nombre de bâtiments sous l'extrait ;
+- l'identité du **logement en tête** — celui du diagnostic d'entrée, ou le
+  seul de la parcelle — avec les mesures de son dernier DPE, les liens
+  Satellite / Street View / Géoportail et « Estimer ce bien » ; sans
+  logement en tête, les mesures du terrain ;
+- la photo de rue, les ventes connues ;
+- **chaque logement** de la parcelle, c'est-à-dire chaque adresse, avec la
+  chronologie complète de ses DPE. Un seul : sa chronologie directement.
+  Plusieurs : un bloc repliable par adresse — adresse, classe, surface,
+  nombre de DPE —, celui en tête ouvert, et « Mettre ce logement en tête »
+  pour les autres. Une chronologie garde les DPE de l'adresse que l'ADEME a
+  géocodés ailleurs ou nulle part, en le disant (« géocodé hors de cette
+  parcelle », « position approchée ») : la fusion ne perd rien de ce que
+  montrait la fiche d'un diagnostic.
+
+Rien n'a disparu, deux choses sont repliées : le guide « Lire une
+chronologie », et les logements qui ne sont pas en tête.
+
 Chronologie de tous les DPE connus pour une adresse, les trois bases
 confondues, et remontée de la chaîne des remplacements.
 
@@ -158,12 +183,12 @@ Sur l'écran **Les DPE récents**, un repère mène lui aussi à la fiche du
 bien — c'est là qu'on allait de toute façon. Le sens inverse est conservé :
 cliquer une ligne de la liste la situe sur la carte sans quitter l'écran.
 
-**Sur la carte d'exploration, un clic ouvre la fiche, directement.** Les deux chemins y mènent : quand
-la parcelle porte un diagnostic, c'est la fiche du bien avec sa
-chronologie ; sinon c'est celle de la parcelle — contour, voisinage, bâti,
-et ses ventes s'il y en a. Le second cas est de loin le plus fréquent, 468
-parcelles sur 550 dans une vue courante, et sans lui la carte mènerait à
-une impasse presque partout.
+**Sur la carte d'exploration, un clic ouvre la fiche, directement.** C'est
+la fiche du lieu : contour, voisinage, bâti, ventes, et les logements de
+la parcelle avec leurs chronologies quand elle en porte. Une parcelle sans
+diagnostic — de loin le cas le plus fréquent, 468 parcelles sur 550 dans
+une vue courante — a la même fiche, qui dit ce qui manque : sans elle la
+carte mènerait à une impasse presque partout.
 
 La boîte de recherche accepte indifféremment une adresse ou une référence
 cadastrale — distinguer les deux champs obligerait à savoir lequel remplir.
@@ -475,7 +500,7 @@ test au passage — il enverrait un courriel absurde le jour de la parution.
 
 ### L'estimation (F8)
 
-« Estimer ce bien », sur la fiche d'un diagnostic ou d'une parcelle : une
+« Estimer ce bien », sur la fiche — le logement en tête, ou la parcelle : une
 valeur, une fourchette, une fiabilité — et surtout de quoi les juger. Les
 choix viennent d'une étude sur les ventes 2021-2025 de seize départements,
 chaque méthode apprise sur le passé et jugée sur l'année suivante.

@@ -163,7 +163,8 @@ function extraitCadastral(bien, extrait) {
       <span class="donnee">${reference}</span>
       <span class="donnee coordonnees">terrain ${entierFr.format(
         Math.round(parcelle.contenance_m2 ?? 0))} m² ·
-        bâti ${entierFr.format(Math.round(parcelle.emprise_batie_m2 ?? 0))} m²</span>
+        bâti ${entierFr.format(Math.round(parcelle.emprise_batie_m2 ?? 0))} m² ·
+        ${entierFr.format(parcelle.nb_batiments ?? 0)} bât.</span>
     </figcaption>
     ${parcelle.approchee ? `
       <p class="extrait-approche">
@@ -395,7 +396,23 @@ function brancherVueDeRue() {
   });
 }
 
-function ligneChronologie(diagnostic) {
+/**
+ * Où ce diagnostic est posé, quand ce n'est pas sur la parcelle de la
+ * fiche. Sur une fiche sans parcelle, rien à dire : aucun ne l'est.
+ */
+function pastillePose(diagnostic, aUneParcelle) {
+  if (!aUneParcelle) return "";
+  if (diagnostic.lieu_du_diagnostic === "approchee") {
+    return '<span class="pastille pastille-lot">position approchée</span>';
+  }
+  if (diagnostic.lieu_du_diagnostic === "ailleurs"
+      || diagnostic.lieu_du_diagnostic === "sans_parcelle") {
+    return '<span class="pastille pastille-lot">géocodé hors de cette parcelle</span>';
+  }
+  return "";
+}
+
+function ligneChronologie(diagnostic, aUneParcelle) {
   const retire = !diagnostic.encore_publie;
   return `
   <li class="jalon ${retire ? "jalon-retire" : ""}">
@@ -406,10 +423,13 @@ function ligneChronologie(diagnostic) {
         <span class="donnee">${echapper(diagnostic.n_dpe)}</span>
         <span class="pastille">${echapper(diagnostic.jeu_libelle || diagnostic.jeu_de_donnees)}</span>
         ${retire ? '<span class="pastille pastille-retire">retiré de la base active</span>' : ""}
+        ${pastillePose(diagnostic, aUneParcelle)}
       </div>
       <dl class="mesures">
         ${diagnostic.surface_habitable != null
           ? `<div><dt>surface</dt><dd>${nombreFr.format(diagnostic.surface_habitable)} m²</dd></div>` : ""}
+        ${diagnostic.type_batiment
+          ? `<div><dt>type</dt><dd>${echapper(diagnostic.type_batiment.toLowerCase())}</dd></div>` : ""}
         ${diagnostic.conso_ep_m2 != null
           ? `<div><dt>énergie ép.</dt><dd>${entierFr.format(diagnostic.conso_ep_m2)} kWh/m²</dd></div>` : ""}
         ${diagnostic.ges_m2 != null
@@ -427,17 +447,19 @@ function ligneChronologie(diagnostic) {
   </li>`;
 }
 
-/** Ce que la chronologie apprend — écrit une fois, pas à chaque bien. */
+/** Ce que la chronologie apprend — écrit une fois, replié : on le sait vite. */
 const LECTURE = `
-  <h2>Lecture</h2>
-  <ul class="explication liste-lecture">
-    <li>Plusieurs DPE espacés de quelques années : le bien a déjà été proposé
-        à la vente ou à la location.</li>
-    <li>Deux DPE très rapprochés : correction du diagnostic.</li>
-    <li>Une classe qui s'améliore : des travaux ont eu lieu entre les deux.</li>
-    <li>Un DPE est valable dix ans ; ceux établis avant juillet 2021 ont
-        toutefois été invalidés par la réforme.</li>
-  </ul>`;
+  <details class="lecture">
+    <summary>Lire une chronologie</summary>
+    <ul class="explication liste-lecture">
+      <li>Plusieurs DPE espacés de quelques années : le bien a déjà été proposé
+          à la vente ou à la location.</li>
+      <li>Deux DPE très rapprochés : correction du diagnostic.</li>
+      <li>Une classe qui s'améliore : des travaux ont eu lieu entre les deux.</li>
+      <li>Un DPE est valable dix ans ; ceux établis avant juillet 2021 ont
+          toutefois été invalidés par la réforme.</li>
+    </ul>
+  </details>`;
 
 // Le retour arrière ramène sur une fiche : il faut savoir laquelle.
 // `sansHistorique` évite d'empiler une entrée en la rouvrant.
@@ -459,6 +481,17 @@ function revenir() {
 }
 
 
+/**
+ * La fiche d'un lieu : on y entre par un diagnostic (les listes), une
+ * parcelle (la carte) ou une adresse (l'écran Identifier).
+ *
+ * Il y avait deux fiches, celle d'un diagnostic et celle d'une parcelle.
+ * Elles se recouvraient aux trois quarts — même extrait, mêmes ventes — et
+ * renvoyaient l'une à l'autre. Il n'en reste qu'une : la parcelle et ses
+ * ventes, puis chaque logement avec la chronologie de ses diagnostics. Le
+ * diagnostic d'entrée désigne le logement mis en tête, dont l'identité
+ * montre les mesures.
+ */
 export async function ouvrirFiche({ n_dpe = null, adresse = null,
                                     parcelle_id = null, retour = null,
                                     sansHistorique = false } = {}) {
@@ -471,25 +504,16 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
   }
   $("#fiche-contenu").innerHTML = '<p class="message message-travail">Chargement de la fiche…</p>';
 
-  // Une parcelle sans aucun DPE n'a pas de chronologie à montrer, mais
-  // elle a une identité : son contour, son voisinage, son bâti, et ses
-  // ventes s'il y en a. C'est le cas le plus fréquent sur la carte — 468
-  // parcelles sur 550 dans une vue courante de Mimizan.
-  if (parcelle_id && !n_dpe && !adresse) {
-    await ouvrirFicheParcelle(parcelle_id);
-    return;
-  }
-
   let reponse;
   try {
-    reponse = await api.fiche({ n_dpe, adresse });
+    reponse = await api.lieu({ n_dpe, parcelle_id, adresse });
   } catch (erreur) {
     $("#fiche-contenu").innerHTML = "";
     afficherErreur("Impossible d'ouvrir la fiche.", erreur.message);
     return;
   }
 
-  if (!reponse.diagnostics.length) {
+  if (!reponse.trouve) {
     const suggestions = (reponse.suggestions || []).map((voie) =>
       `<li><button type="button" class="bouton-lien" data-adresse="${echapper(voie)}">${echapper(voie)}</button></li>`
     ).join("");
@@ -511,28 +535,23 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
     return;
   }
 
-  // Le plus récent porte les caractéristiques affichées en tête.
-  const diagnostics = reponse.diagnostics;
-  const principal = diagnostics[diagnostics.length - 1];
+  afficherLieu(reponse, { n_dpe, parcelle_id, adresse });
+}
 
-  // L'extrait vient du cadastre : parcelle, voisines et bâti. Absent tant
-  // que le cadastre n'est pas chargé, ce que le dessin dit alors
-  // franchement, en proposant de le charger.
-  let extrait = null;
-  let ventes = [];
-  // Les deux appels partent ensemble : ils ne dépendent pas l'un de
-  // l'autre, et les enchaîner doublerait l'attente avant l'affichage.
-  const [reponseExtrait, reponseVentes] = await Promise.allSettled([
-    api.extraitCadastral(principal.n_dpe),
-    api.ventes(principal.n_dpe),
-  ]);
-  let cadastreCharge = false;
-  if (reponseExtrait.status === "fulfilled") {
-    extrait = reponseExtrait.value.extrait;
-    cadastreCharge = Boolean(reponseExtrait.value.cadastre_charge);
-  }
-  if (reponseVentes.status === "fulfilled") ventes = reponseVentes.value.ventes || [];
-  const parcelle = extrait?.parcelle ?? null;
+
+function afficherLieu(reponse, entree) {
+  const { parcelle, extrait, ventes = [], logements = [] } = reponse;
+  // Le logement en tête, et son diagnostic le plus récent : c'est lui qui
+  // porte les mesures de l'identité, comme sur l'ancienne fiche du bien.
+  const tete = reponse.en_tete ? logements[0] : null;
+  const principal = tete ? tete.diagnostics[tete.diagnostics.length - 1] : null;
+  const centre = parcelle
+    ? { latitude: parcelle.latitude, longitude: parcelle.longitude }
+    : { latitude: null, longitude: null };
+  const reference = parcelle ? `${parcelle.section ?? ""}${parcelle.numero ?? ""}` : "";
+  const titre = tete
+    ? (tete.adresse || principal.adresse || "Adresse inconnue")
+    : `Parcelle ${reference}`;
 
   $("#fiche-contenu").innerHTML = `
   <div class="fiche-barre">
@@ -541,49 +560,33 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
     </button>
   </div>
     <div class="fiche-entete">
-      ${extraitCadastral(principal, extrait)}
+      ${extraitCadastral(principal ?? centre, extrait)}
       ${panneauSatellite(extrait)}
       <div class="fiche-identite">
-        <h1>${echapper(reponse.adresse || "Adresse inconnue")}</h1>
+        <h1>${echapper(titre)}</h1>
         <p class="explication">
-          ${echapper(principal.commune || "")} ${echapper(principal.code_postal || "")}
-          ${principal.zone ? `· secteur ${echapper(principal.zone)}` : ""}
+          ${principal ? `${echapper(principal.commune || "")} ${echapper(principal.code_postal || "")}
+            ${principal.zone ? `· secteur ${echapper(principal.zone)}` : ""}
+            ${parcelle ? `· parcelle ${echapper(reference)}` : ""}`
+          : echapper(parcelle?.id || "")}
         </p>
-        <dl class="mesures mesures-colonne">
-          <div><dt>surface</dt><dd>${principal.surface_habitable != null
-            ? nombreFr.format(principal.surface_habitable) + " m²" : "—"}</dd></div>
-          <div><dt>classe énergie</dt><dd>${etiquetteHtml(principal.etiquette_dpe)}</dd></div>
-          <div><dt>classe GES</dt><dd>${etiquetteHtml(principal.etiquette_ges)}</dd></div>
-          <div><dt>énergie primaire</dt><dd>${principal.conso_ep_m2 != null
-            ? entierFr.format(principal.conso_ep_m2) + " kWh/m²" : "—"}</dd></div>
-          <div><dt>coût annuel</dt><dd>${principal.cout_annuel != null
-            ? entierFr.format(principal.cout_annuel) + " €" : "—"}</dd></div>
-          <div><dt>construit</dt><dd>${principal.annee_construction ?? "—"}</dd></div>
-        </dl>
-        <div class="liens">${liensExternes(principal)}</div>
+        ${principal ? mesuresLogement(principal) : mesuresParcelle(parcelle)}
+        <div class="liens">${liensExternes(principal ?? {
+          ...centre, adresse: logements[0]?.adresse })}</div>
         ${boutonEstimer()}
       </div>
     </div>
-    ${inviteCadastre(principal, extrait, cadastreCharge)}
+    ${inviteCadastre(principal ?? { code_insee: parcelle?.code_insee }, extrait,
+                     reponse.cadastre_charge)}
 
-    ${reponse.plusieurs_logements ? `
-      <p class="message message-travail">
-        Jusqu'à ${entierFr.format(reponse.logements_estimes)} diagnostics portent
-        la même date à cette adresse : elle couvre donc plusieurs logements —
-        immeuble, ou voie sans numéro. La chronologie ci-dessous les mélange.
-      </p>` : ""}
-
-    ${vueDeRue(principal)}
+    ${vueDeRue(principal ?? { ...centre, parcelle_id: parcelle?.id })}
 
     ${blocVentes(ventes)}
 
-    <h2>Chronologie — ${entierFr.format(diagnostics.length)} diagnostic(s)</h2>
-    <ol class="chronologie">
-      ${diagnostics.map((d) => ligneChronologie(d)).join("")}
-    </ol>
+    ${blocLogements(logements, Boolean(tete), Boolean(parcelle), ventes.length)}
 
     <div id="chaine-remplacements"></div>
-    ${LECTURE}`;
+    ${logements.length ? LECTURE : ""}`;
 
   // La photo aérienne attend que la mise en page soit posée : Leaflet
   // mesure son conteneur à la création, et `aspect-ratio` ne lui donne sa
@@ -593,159 +596,149 @@ export async function ouvrirFiche({ n_dpe = null, adresse = null,
       if (!document.getElementById("satellite-fiche")) return;
       const satellite = creerVueSatellite("satellite-fiche",
                                           cadrerPourSatellite(extrait.cadre));
-      satellite.tracer(parcelle.geometrie, { couleur: "#FFFFFF", epaisseur: 2.5 });
+      satellite.tracer(extrait.parcelle.geometrie, { couleur: "#FFFFFF", epaisseur: 2.5 });
     });
   }
 
   $("#fiche-retour").addEventListener("click", revenir);
   $("#fiche-estimer")?.addEventListener("click", () =>
-    ouvrirEstimation({ n_dpe: principal.n_dpe, retour: "fiche" }));
+    ouvrirEstimation(principal
+      ? { n_dpe: principal.n_dpe, retour: "fiche" }
+      : { parcelle_id: parcelle.id, retour: "fiche" }));
   brancherVueDeRue();
 
   const chargeur = $("#fiche-contenu").querySelector("[data-charger-cadastre]");
   if (chargeur) {
-    chargeur.addEventListener("click", () => chargerLeCadastre(chargeur, principal));
+    chargeur.addEventListener("click", () => chargerLeCadastre(chargeur, entree));
   }
   $("#fiche-contenu").querySelectorAll("[data-chaine]").forEach((bouton) => {
     bouton.addEventListener("click", () => remonterChaine(bouton.dataset.chaine));
   });
+  $("#fiche-contenu").querySelectorAll("[data-en-tete]").forEach((bouton) => {
+    bouton.addEventListener("click", () =>
+      ouvrirFiche({ n_dpe: bouton.dataset.enTete, retour: dernierRetour }));
+  });
 }
 
-/**
- * La fiche d'une parcelle qui ne porte aucun diagnostic.
- *
- * Elle reprend l'en-tête de la fiche d'un bien — extrait cadastral et vue
- * aérienne au même cadrage — et dit franchement ce qui manque. Sans elle,
- * cliquer sur une parcelle de la carte mènerait à une impasse dans la
- * grande majorité des cas.
- */
-/**
- * Les diagnostics portés par une parcelle.
- *
- * Cliquer une parcelle qui en portait plusieurs n'en montrait qu'UN —
- * celui dont le numéro vient le premier par ordre alphabétique — et rien
- * ne disait que les autres existaient. Ce n'est pas un cas rare :
- * beaucoup d'adresses de l'ADEME n'ont pas de numéro de rue et sont
- * géocodées au centre de la voie. Sur Mimizan, 2 420 diagnostics
- * partagent leur position avec un autre, et un seul point en porte 180.
- */
-function blocDiagnostics(diagnostics) {
-  const lignes = diagnostics.map((d) => {
-    const detail = [];
-    if (d.surface_habitable != null) {
-      detail.push(`${nombreFr.format(d.surface_habitable)} m²`);
-    }
-    if (d.type_batiment) detail.push(d.type_batiment.toLowerCase());
-    if (d.conso_ep_m2 != null) {
-      detail.push(`${entierFr.format(d.conso_ep_m2)} kWh/m²`);
-    }
-    return `
-      <li class="vente">
-        <div class="vente-date donnee">${dateFr(d.date_etablissement)}</div>
-        <div class="vente-corps">
-          <div class="vente-tete">
-            <span class="vente-prix">${echapper(d.adresse || "adresse absente")}</span>
-            ${etiquetteHtml(d.etiquette_dpe)}
-            ${d.position_approchee
-              ? '<span class="pastille pastille-lot">position approchée</span>' : ""}
-            <button type="button" class="bouton-lien"
-                    data-diagnostic="${echapper(d.n_dpe)}">Ouvrir la fiche</button>
-          </div>
-          ${detail.length
-            ? `<p class="explication">${echapper(detail.join(" · "))}</p>` : ""}
-        </div>
-      </li>`;
-  }).join("");
 
+/** Les mesures du logement en tête, telles que son dernier DPE les donne. */
+function mesuresLogement(principal) {
   return `
-    <h2>Diagnostics sur cette parcelle — ${entierFr.format(diagnostics.length)}</h2>
-    <p class="explication">
-      Beaucoup d'adresses de l'ADEME n'ont pas de numéro de rue et sont
-      géocodées au centre de la voie ou de la résidence&nbsp;: une parcelle
-      peut donc en porter plusieurs qui ne s'y trouvent pas tous.
-    </p>
-    <ul class="ventes">${lignes}</ul>`;
+    <dl class="mesures mesures-colonne">
+      <div><dt>surface</dt><dd>${principal.surface_habitable != null
+        ? nombreFr.format(principal.surface_habitable) + " m²" : "—"}</dd></div>
+      <div><dt>classe énergie</dt><dd>${etiquetteHtml(principal.etiquette_dpe)}</dd></div>
+      <div><dt>classe GES</dt><dd>${etiquetteHtml(principal.etiquette_ges)}</dd></div>
+      <div><dt>énergie primaire</dt><dd>${principal.conso_ep_m2 != null
+        ? entierFr.format(principal.conso_ep_m2) + " kWh/m²" : "—"}</dd></div>
+      <div><dt>coût annuel</dt><dd>${principal.cout_annuel != null
+        ? entierFr.format(principal.cout_annuel) + " €" : "—"}</dd></div>
+      <div><dt>construit</dt><dd>${principal.annee_construction ?? "—"}</dd></div>
+    </dl>`;
+}
+
+/**
+ * Les mesures du terrain, quand aucun logement n'est en tête. Sinon elles
+ * restent sous l'extrait : terrain, bâti et bâtiments y sont déjà écrits.
+ */
+function mesuresParcelle(parcelle) {
+  if (!parcelle) return "";
+  return `
+    <dl class="mesures mesures-colonne">
+      <div><dt>terrain</dt><dd>${parcelle.contenance_m2 != null
+        ? entierFr.format(parcelle.contenance_m2) + " m²" : "—"}</dd></div>
+      <div><dt>emprise bâtie</dt><dd>${parcelle.emprise_batie_m2
+        ? entierFr.format(parcelle.emprise_batie_m2) + " m²" : "—"}</dd></div>
+      <div><dt>bâtiments</dt><dd>${entierFr.format(parcelle.nb_batiments ?? 0)}</dd></div>
+    </dl>`;
 }
 
 
-async function ouvrirFicheParcelle(identifiant) {
-  let reponse;
-  try {
-    reponse = await api.ficheParcelle(identifiant);
-  } catch (erreur) {
-    $("#fiche-contenu").innerHTML = "";
-    afficherErreur("Impossible d'ouvrir cette parcelle.", erreur.message);
-    return;
-  }
+/** L'avertissement d'une adresse qui couvre plusieurs logements. */
+function avertissementPlusieurs(logement) {
+  if (!logement.plusieurs_logements) return "";
+  return `
+    <p class="message message-travail">
+      Jusqu'à ${entierFr.format(logement.logements_estimes)} diagnostics portent
+      la même date à cette adresse : elle couvre donc plusieurs logements —
+      immeuble, ou voie sans numéro. La chronologie ci-dessous les mélange.
+    </p>`;
+}
 
-  const { parcelle, extrait, ventes, diagnostics = [] } = reponse;
-  const reference = `${parcelle.section ?? ""}${parcelle.numero ?? ""}`;
-
-  $("#fiche-contenu").innerHTML = `
-  <div class="fiche-barre">
-    <button type="button" class="bouton bouton-retour" id="fiche-retour">
-      ← Retour
-    </button>
-  </div>
-    <div class="fiche-entete">
-      ${extraitCadastral({ latitude: parcelle.latitude,
-                           longitude: parcelle.longitude }, extrait)}
-      ${panneauSatellite(extrait)}
-      <div class="fiche-identite">
-        <h1>Parcelle ${echapper(reference)}</h1>
-        <p class="explication">
-          ${echapper(parcelle.id)}
-        </p>
-        <dl class="mesures mesures-colonne">
-          <div><dt>terrain</dt><dd>${parcelle.contenance_m2 != null
-            ? entierFr.format(parcelle.contenance_m2) + " m²" : "—"}</dd></div>
-          <div><dt>emprise bâtie</dt><dd>${parcelle.emprise_batie_m2
-            ? entierFr.format(parcelle.emprise_batie_m2) + " m²" : "—"}</dd></div>
-          <div><dt>bâtiments</dt><dd>${entierFr.format(parcelle.nb_batiments ?? 0)}</dd></div>
-        </dl>
-        <div class="liens">${liensExternes({
-          latitude: parcelle.latitude, longitude: parcelle.longitude,
-          adresse: diagnostics[0]?.adresse })}</div>
-        ${boutonEstimer()}
-      </div>
-    </div>
-
-    ${vueDeRue({ latitude: parcelle.latitude, longitude: parcelle.longitude,
-                 parcelle_id: parcelle.id })}
-
-    ${blocVentes(ventes)}
-
-    ${diagnostics.length ? blocDiagnostics(diagnostics) : `
+/**
+ * Les logements du lieu, chacun avec sa chronologie.
+ *
+ * Un seul : sa chronologie directement, comme l'ancienne fiche du bien.
+ * Plusieurs : un bloc repliable par adresse, celui en tête ouvert. C'est
+ * ce qui remplace la liste « Diagnostics sur cette parcelle » et ses
+ * renvois : rien n'oblige plus à changer de fiche pour lire un logement.
+ */
+function blocLogements(logements, enTete, aUneParcelle, nbVentes) {
+  if (!logements.length) {
+    return `
     <div class="vide">
       <h3>Aucun diagnostic connu sur cette parcelle</h3>
       <p>
         Cela ne veut pas dire qu'il n'y a rien à voir&nbsp;: un logement peut
         n'avoir jamais été diagnostiqué, ou l'avoir été sous une adresse que
-        l'ADEME rattache ailleurs. ${ventes.length
+        l'ADEME rattache ailleurs. ${nbVentes
           ? "La ou les ventes ci-dessus, elles, sont attestées."
           : "Aucune vente n'est connue non plus sur les cinq derniers millésimes."}
       </p>
-    </div>`}
-`;
-
-  $("#fiche-contenu").querySelectorAll("[data-diagnostic]").forEach((bouton) => {
-    bouton.addEventListener("click", () =>
-      ouvrirFiche({ n_dpe: bouton.dataset.diagnostic, retour: "carte" }));
-  });
-
-  if (extrait) {
-    requestAnimationFrame(() => {
-      if (!document.getElementById("satellite-fiche")) return;
-      const satellite = creerVueSatellite("satellite-fiche",
-                                          cadrerPourSatellite(extrait.cadre));
-      satellite.tracer(extrait.parcelle.geometrie,
-                       { couleur: "#FFFFFF", epaisseur: 2.5 });
-    });
+    </div>`;
   }
-  $("#fiche-retour").addEventListener("click", revenir);
-  $("#fiche-estimer")?.addEventListener("click", () =>
-    ouvrirEstimation({ parcelle_id: parcelle.id, retour: "fiche" }));
-  brancherVueDeRue();
+
+  if (logements.length === 1) {
+    const [logement] = logements;
+    return `
+    <h2>Chronologie — ${entierFr.format(logement.diagnostics.length)} diagnostic(s)</h2>
+    ${avertissementPlusieurs(logement)}
+    <ol class="chronologie">
+      ${logement.diagnostics.map((d) => ligneChronologie(d, aUneParcelle)).join("")}
+    </ol>`;
+  }
+
+  const total = logements.reduce((somme, l) => somme + l.diagnostics.length, 0);
+  return `
+    <h2>Logements — ${entierFr.format(logements.length)}</h2>
+    <p class="explication">
+      ${entierFr.format(total)} diagnostics, rangés par adresse.
+      Beaucoup d'adresses de l'ADEME n'ont pas de numéro de rue et sont
+      géocodées au centre de la voie ou de la résidence&nbsp;: une parcelle
+      peut donc en porter qui ne s'y trouvent pas.
+    </p>
+    <div class="logements">
+      ${logements.map((l, rang) => blocLogement(l, enTete && rang === 0, aUneParcelle)).join("")}
+    </div>`;
+}
+
+function blocLogement(logement, enTete, aUneParcelle) {
+  const dernier = logement.diagnostics[logement.diagnostics.length - 1];
+  const resume = [];
+  if (dernier.surface_habitable != null) {
+    resume.push(`${nombreFr.format(dernier.surface_habitable)} m²`);
+  }
+  if (dernier.type_batiment) resume.push(dernier.type_batiment.toLowerCase());
+  resume.push(`${entierFr.format(logement.diagnostics.length)} diagnostic(s)`);
+  return `
+    <details class="logement" ${enTete ? "open" : ""}>
+      <summary>
+        <span class="logement-adresse">${echapper(logement.adresse || dernier.adresse
+                                                   || "adresse absente")}</span>
+        ${etiquetteHtml(dernier.etiquette_dpe)}
+        <span class="logement-resume">${echapper(resume.join(" · "))}</span>
+        ${enTete ? '<span class="pastille pastille-concordante">en tête</span>' : ""}
+      </summary>
+      ${avertissementPlusieurs(logement)}
+      <ol class="chronologie">
+        ${logement.diagnostics.map((d) => ligneChronologie(d, aUneParcelle)).join("")}
+      </ol>
+      ${enTete ? "" : `
+        <p class="logement-actions">
+          <button type="button" class="bouton-lien"
+                  data-en-tete="${echapper(dernier.n_dpe)}">Mettre ce logement en tête</button>
+        </p>`}
+    </details>`;
 }
 
 
@@ -770,7 +763,7 @@ function boutonEstimer() {
  * l'extrait annonçait une parcelle absente sans offrir de moyen de
  * l'obtenir, et il fallait deviner qu'il fallait ressortir par l'accueil.
  */
-async function chargerLeCadastre(bouton, bien) {
+async function chargerLeCadastre(bouton, entree) {
   const commune = bouton.dataset.commune || "cette commune";
   // Le bouton dit « charger » ou « compléter » selon le manque : on le
   // retient pour le rétablir tel quel si la demande échoue.
@@ -791,7 +784,7 @@ async function chargerLeCadastre(bouton, bien) {
 
   if (!etat.lance) {
     // Déjà là, ou une moisson occupe la place : on retente l'affichage.
-    ouvrirFiche({ n_dpe: bien.n_dpe, retour: dernierRetour });
+    ouvrirFiche({ ...entree, retour: dernierRetour, sansHistorique: true });
     return;
   }
 
@@ -799,7 +792,7 @@ async function chargerLeCadastre(bouton, bien) {
   suivreImport();
   auProchainTerme(() => {
     masquerTravail();
-    ouvrirFiche({ n_dpe: bien.n_dpe, retour: dernierRetour });
+    ouvrirFiche({ ...entree, retour: dernierRetour, sansHistorique: true });
   });
 }
 

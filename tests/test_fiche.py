@@ -310,3 +310,146 @@ def test_deux_adresses_se_reconnaissent_malgre_les_abreviations():
     # Sans numero, ou sans adresse : on ne juge pas.
     assert meme_adresse("Résidence Les Pins 40200 Mimizan", "3 RUE X") is None
     assert meme_adresse("13 Rue des Ecoles", None) is None
+
+
+# ---------------------------------------------------------------------
+#  La fiche d'un lieu : une seule fiche pour un diagnostic et sa parcelle
+# ---------------------------------------------------------------------
+
+def _parcelle(identifiant="40184000AB0180", latitude=44.2144, longitude=-1.2897, cote=0.0004):
+    from app.base.connexion import transaction
+    lat0, lon0 = latitude - cote / 2, longitude - cote / 2
+    anneau = [[lon0, lat0], [lon0 + cote, lat0], [lon0 + cote, lat0 + cote],
+              [lon0, lat0 + cote], [lon0, lat0]]
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO parcelle (id, code_insee, section, numero, contenance_m2,"
+            "  emprise_batie_m2, nb_batiments, latitude, longitude,"
+            "  lat_min, lat_max, lon_min, lon_max, geometrie_json, importe_le)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (identifiant, "40184", "AB", identifiant[-4:], 1090.0, 182.0, 3,
+             latitude, longitude, lat0, lat0 + cote, lon0, lon0 + cote,
+             json.dumps({"type": "Polygon", "coordinates": [anneau]}),
+             "2026-10-01T07:00:00"))
+
+
+def _poser(n_dpe, parcelle_id=None, approchee=None):
+    from app.base.connexion import transaction
+    with transaction() as conn:
+        conn.execute("UPDATE dpe SET parcelle_id = ?, parcelle_approchee = ?,"
+                     " distance_parcelle_m = ? WHERE n_dpe = ?",
+                     (parcelle_id, approchee, 1.8 if approchee else None, n_dpe))
+
+
+@pytest.fixture()
+def deux_logements(base):
+    """
+    Le 13 et le 13bis d'une meme parcelle. Le 13 a un DPE pose devant la
+    parcelle, et un ancien que l'ADEME n'a geocode nulle part ; le 13bis
+    deux DPE poses dessus, le second remplacant le premier.
+    """
+    _parcelle()
+    inserer_dpe(n_dpe="TREIZE-2024", adresse="13 Rue des Ecoles 40200 Mimizan",
+                date_etablissement="2024-05-29", etiquette_dpe="C", surface_habitable=204.0)
+    inserer_dpe(n_dpe="TREIZE-2018", adresse="13 RUE DES ÉCOLES 40200 Mimizan",
+                date_etablissement="2018-05-22", etiquette_dpe="E", jeu_de_donnees="ancien",
+                latitude=None, longitude=None)
+    inserer_dpe(n_dpe="BIS-2021", adresse="13bis Rue des Ecoles 40200 Mimizan",
+                date_etablissement="2021-09-14", etiquette_dpe="F", surface_habitable=62.0)
+    inserer_dpe(n_dpe="BIS-2025", adresse="13bis Rue des Ecoles 40200 Mimizan",
+                date_etablissement="2025-03-02", etiquette_dpe="D", surface_habitable=62.0,
+                n_dpe_remplace="BIS-2021")
+    _poser("TREIZE-2024", approchee="40184000AB0180")
+    _poser("BIS-2021", parcelle_id="40184000AB0180")
+    _poser("BIS-2025", parcelle_id="40184000AB0180")
+
+
+def _par_adresse(resultat):
+    return {l["adresse"]: [(d["n_dpe"], d["lieu_du_diagnostic"]) for d in l["diagnostics"]]
+            for l in resultat["logements"]}
+
+
+def test_un_diagnostic_ouvre_le_lieu_avec_son_logement_en_tete(deux_logements):
+    """
+    Une seule fiche : on y entre par un diagnostic, et l'on y trouve aussi
+    l'autre logement de la parcelle — qu'il fallait auparavant aller
+    chercher par la fiche de la parcelle.
+    """
+    lieu = fiche.lieu(n_dpe="TREIZE-2024")
+    assert lieu["trouve"] and lieu["en_tete"]
+    assert lieu["parcelle"]["id"] == "40184000AB0180"
+    assert lieu["extrait"]["parcelle"]["approchee"] is True
+    assert [l["adresse"] for l in lieu["logements"]] == [
+        "13 Rue des Ecoles 40200 Mimizan", "13bis Rue des Ecoles 40200 Mimizan"]
+    # Rien de perdu : l'ancien DPE du 13, geocode nulle part, reste dans sa
+    # chronologie, comme sur l'ancienne fiche du bien — et dit ou il est.
+    assert _par_adresse(lieu) == {
+        "13 Rue des Ecoles 40200 Mimizan": [("TREIZE-2018", "sans_parcelle"),
+                                            ("TREIZE-2024", "approchee")],
+        "13bis Rue des Ecoles 40200 Mimizan": [("BIS-2021", "sur_la_parcelle"),
+                                               ("BIS-2025", "sur_la_parcelle")],
+    }
+
+
+def test_la_parcelle_ouvre_la_meme_fiche(deux_logements):
+    """Par la carte : les memes logements, aucun en tete quand il y en a deux."""
+    lieu = fiche.lieu(parcelle_id="40184000AB0180")
+    assert lieu["trouve"] and not lieu["en_tete"]
+    assert _par_adresse(lieu) == _par_adresse(fiche.lieu(n_dpe="TREIZE-2024"))
+    # Le plus recemment diagnostique d'abord.
+    assert lieu["logements"][0]["adresse"] == "13bis Rue des Ecoles 40200 Mimizan"
+    assert lieu["logements"][0]["plusieurs_logements"] is False
+
+
+def test_une_parcelle_d_un_seul_logement_le_met_en_tete(base):
+    _parcelle()
+    inserer_dpe(n_dpe="SEUL", adresse="13 Rue des Ecoles 40200 Mimizan")
+    _poser("SEUL", parcelle_id="40184000AB0180")
+    lieu = fiche.lieu(parcelle_id="40184000AB0180")
+    assert lieu["en_tete"] is True
+    assert lieu["logements"][0]["diagnostics"][-1]["n_dpe"] == "SEUL"
+
+
+def test_une_parcelle_nue_garde_sa_fiche(base):
+    _parcelle()
+    lieu = fiche.lieu(parcelle_id="40184000AB0180")
+    assert lieu["trouve"] and lieu["logements"] == [] and not lieu["en_tete"]
+    assert lieu["extrait"] is not None
+    assert fiche.lieu(parcelle_id="INCONNUE") is None
+
+
+def test_un_diagnostic_sans_parcelle_garde_sa_fiche(base):
+    """Cadastre absent ou DPE pose a l'ecart : la fiche reste celle du bien."""
+    inserer_dpe(n_dpe="SANS", adresse="99 Rue Imaginaire 40200 Mimizan")
+    lieu = fiche.lieu(n_dpe="SANS")
+    assert lieu["trouve"] and lieu["en_tete"]
+    assert lieu["parcelle"] is None and lieu["extrait"] is None and lieu["ventes"] == []
+    assert lieu["cadastre_charge"] is False
+    assert _par_adresse(lieu) == {"99 Rue Imaginaire 40200 Mimizan": [("SANS", "sans_parcelle")]}
+
+    assert fiche.lieu(n_dpe="INEXISTANT")["trouve"] is False
+
+
+def test_un_diagnostic_sans_adresse_n_est_pas_perdu(base):
+    """Rien a quoi le rapprocher : il forme son propre logement."""
+    _parcelle()
+    inserer_dpe(n_dpe="MUET", adresse=None)
+    _poser("MUET", parcelle_id="40184000AB0180")
+    lieu = fiche.lieu(parcelle_id="40184000AB0180")
+    assert [[d["n_dpe"] for d in l["diagnostics"]] for l in lieu["logements"]] == [["MUET"]]
+
+
+def test_l_api_du_lieu(deux_logements):
+    from fastapi.testclient import TestClient
+    from app.main import application
+
+    with TestClient(application) as client:
+        assert client.get("/api/fiche/lieu").status_code == 400
+        assert client.get("/api/fiche/lieu", params={"parcelle_id": "X"}).status_code == 404
+        par_adresse = client.get("/api/fiche/lieu",
+                                 params={"adresse": "13 rue des écoles 40200 mimizan"}).json()
+        assert par_adresse["logements"][0]["adresse"] == "13 Rue des Ecoles 40200 Mimizan"
+        assert par_adresse["en_tete"] is True
+        inconnue = client.get("/api/fiche/lieu", params={"adresse": "13 rue des Ecolos"}).json()
+        assert inconnue["trouve"] is False
+        assert "13 Rue des Ecoles 40200 Mimizan" in inconnue["suggestions"]

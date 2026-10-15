@@ -24,6 +24,7 @@ import json
 import logging
 
 from app.base.connexion import connexion
+from app.metier import mutations, parcelles
 from app.metier.valeurs import normaliser_adresse
 from app.sources import ademe
 
@@ -153,24 +154,168 @@ def historique(adresse=None, n_dpe=None):
     # d'une base a l'autre, et un LIKE SQL ne suffirait pas.
     diagnostics = [_enrichir(l, moissons) for l in lignes
                    if normaliser_adresse(l["adresse"]) == cible]
-    diagnostics.sort(key=lambda l: (str(l.get("date_etablissement") or ""), l["n_dpe"]))
-
-    remplaces = {d.get("n_dpe_remplace") for d in diagnostics if d.get("n_dpe_remplace")}
-    en_vigueur = [d for d in diagnostics
-                  if d["encore_publie"] and d["n_dpe"] not in remplaces]
 
     return {
-        "adresse": adresse,
-        "diagnostics": diagnostics,
-        "en_vigueur": len(en_vigueur),
-        "logements_estimes": _logements(en_vigueur),
-        "plusieurs_logements": _logements(en_vigueur) > 1,
+        **_resumer(adresse, diagnostics),
         "dernier_import": dernier,
         "message": None if diagnostics else (
             f"Aucun diagnostic connu pour « {adresse} ». L'orthographe de la "
             "base diffère parfois de celle de l'annonce : cherchez le bien "
             "depuis l'écran Identifier."),
     }
+
+
+def _resumer(adresse, diagnostics):
+    """Une adresse et sa chronologie, triee, avec ce qu'elle dit des logements."""
+    diagnostics.sort(key=lambda l: (str(l.get("date_etablissement") or ""), l["n_dpe"]))
+    remplaces = {d.get("n_dpe_remplace") for d in diagnostics if d.get("n_dpe_remplace")}
+    en_vigueur = [d for d in diagnostics
+                  if d["encore_publie"] and d["n_dpe"] not in remplaces]
+    return {
+        "adresse": adresse,
+        "diagnostics": diagnostics,
+        "en_vigueur": len(en_vigueur),
+        "logements_estimes": _logements(en_vigueur),
+        "plusieurs_logements": _logements(en_vigueur) > 1,
+    }
+
+
+# ---------------------------------------------------------------------
+#  La fiche d'un lieu
+# ---------------------------------------------------------------------
+
+def lieu(n_dpe=None, parcelle_id=None, adresse=None):
+    """
+    Tout ce qu'on sait d'un lieu : sa parcelle, ce qui s'y est vendu, et
+    chaque logement qu'elle porte avec la chronologie de ses diagnostics.
+
+    Il y avait deux fiches, celle d'un diagnostic et celle d'une parcelle,
+    qui se recouvraient aux trois quarts — meme extrait, memes ventes — et
+    renvoyaient l'une a l'autre. On n'en garde qu'une. On y entre par un
+    diagnostic (les listes), une parcelle (la carte) ou une adresse
+    (l'ecran Identifier) ; le diagnostic d'entree designe alors le logement
+    mis EN TETE, dont la fiche montre les mesures.
+
+    Un logement, c'est une adresse et toute sa chronologie — y compris les
+    diagnostics de cette adresse que l'ADEME a geocodes ailleurs : la
+    fiche d'un diagnostic les montrait, la fusion ne doit rien perdre.
+    Chacun dit ou il est pose (`lieu_du_diagnostic`).
+
+    Rend None si rien ne designe un lieu connu.
+    """
+    if adresse and not n_dpe:
+        depuis_adresse = historique(adresse=adresse)
+        if not depuis_adresse["diagnostics"]:
+            return {"trouve": False, "adresse": adresse,
+                    "message": depuis_adresse["message"]}
+        n_dpe = depuis_adresse["diagnostics"][-1]["n_dpe"]
+
+    depart = None
+    with connexion() as conn:
+        if n_dpe:
+            depart = conn.execute(
+                "SELECT n_dpe, adresse, code_insee, parcelle_carte FROM dpe WHERE n_dpe = ?",
+                (str(n_dpe),)).fetchone()
+            if depart is None:
+                return {"trouve": False, "adresse": None,
+                        "message": f"Le DPE {n_dpe} n'est pas dans le cache local."}
+            depart = dict(depart)
+            parcelle_id = depart["parcelle_carte"]
+
+    parcelle = parcelles.parcelle(parcelle_id) if parcelle_id else None
+    if parcelle is None and depart is None:
+        return None
+
+    if depart:
+        extrait = parcelles.extrait(depart["n_dpe"])
+        ventes = mutations.pour_dpe(depart["n_dpe"])
+    else:
+        extrait = parcelles.extrait_parcelle(parcelle["id"])
+        ventes = mutations.pour_parcelle(parcelle["id"])
+    pose = parcelles.diagnostics_de(parcelle["id"]) if parcelle else []
+
+    logements = _logements_du_lieu([depart] if depart else [], pose,
+                                   parcelle["id"] if parcelle else None)
+    tete = None
+    if depart:
+        tete = next(i for i, l in enumerate(logements)
+                    if any(d["n_dpe"] == depart["n_dpe"] for d in l["diagnostics"]))
+    elif len(logements) == 1:
+        tete = 0
+    if tete is not None:
+        logements.insert(0, logements.pop(tete))
+
+    code_insee = (parcelle or {}).get("code_insee") or (depart or {}).get("code_insee")
+    with connexion() as conn:
+        cadastre_charge = extrait is not None or bool(code_insee and conn.execute(
+            "SELECT 1 FROM parcelle WHERE code_insee = ? LIMIT 1", (code_insee,)).fetchone())
+        dernier = _dernier_import(conn)
+
+    return {
+        "trouve": True,
+        "parcelle": parcelle,
+        "extrait": extrait,
+        "cadastre_charge": cadastre_charge,
+        "ventes": ventes,
+        "logements": logements,
+        # Le logement mis en tete, s'il y en a un : celui du diagnostic
+        # d'entree, ou le seul que porte la parcelle.
+        "en_tete": tete is not None,
+        "dernier_import": dernier,
+    }
+
+
+def _logements_du_lieu(depart, pose, parcelle_id):
+    """
+    Les logements d'un lieu — une adresse, sa chronologie — en un passage.
+
+    Rechercher l'historique adresse par adresse relirait toute la table a
+    chaque fois : une residence en porte des dizaines. Un diagnostic sans
+    adresse exploitable reste seul : on ne saurait a quoi le rapprocher,
+    et l'ecarter le ferait disparaitre de la fiche.
+    """
+    adresses, seuls = {}, []
+    for diagnostic in depart + pose:
+        cle = normaliser_adresse(diagnostic.get("adresse"))
+        if cle:
+            adresses.setdefault(cle, diagnostic["adresse"])
+        elif diagnostic["n_dpe"] not in seuls:
+            seuls.append(diagnostic["n_dpe"])
+
+    colonnes = ", ".join(COLONNES) + ", parcelle_id, parcelle_carte"
+    with connexion() as conn:
+        moissons = _moisson_par_commune(conn)
+        lignes = [dict(l) for l in conn.execute(
+            f"SELECT {colonnes} FROM dpe WHERE adresse IS NOT NULL")] if adresses else []
+        lignes += [dict(l) for l in conn.execute(
+            f"SELECT {colonnes} FROM dpe WHERE n_dpe IN ({', '.join('?' * len(seuls))})",
+            seuls)] if seuls else []
+
+    groupes, vus = collections.defaultdict(list), set()
+    for ligne in lignes:
+        cle = normaliser_adresse(ligne["adresse"]) or ligne["n_dpe"]
+        if (cle in adresses or cle in seuls) and ligne["n_dpe"] not in vus:
+            vus.add(ligne["n_dpe"])
+            ligne["lieu_du_diagnostic"] = _pose(ligne, parcelle_id)
+            del ligne["parcelle_id"], ligne["parcelle_carte"]
+            groupes[cle].append(_enrichir(ligne, moissons))
+
+    logements = [_resumer(adresses.get(cle), diagnostics)
+                 for cle, diagnostics in groupes.items()]
+    # Le plus recemment diagnostique d'abord : c'est le plus probablement
+    # celui qui vient d'etre mis en vente.
+    logements.sort(key=lambda l: str(l["diagnostics"][-1].get("date_etablissement") or ""),
+                   reverse=True)
+    return logements
+
+
+def _pose(ligne, parcelle_id):
+    """Ou ce diagnostic est pose, au regard de la parcelle de la fiche."""
+    if parcelle_id is None:
+        return "sans_parcelle" if not ligne["parcelle_carte"] else "ailleurs"
+    if ligne["parcelle_carte"] != parcelle_id:
+        return "ailleurs" if ligne["parcelle_carte"] else "sans_parcelle"
+    return "approchee" if ligne["parcelle_id"] is None else "sur_la_parcelle"
 
 
 def voisinage(adresse, combien=8):

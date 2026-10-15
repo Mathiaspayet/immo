@@ -294,7 +294,7 @@
 /* Les ventes connues (DVF) — même grammaire visuelle que la chronologie :
    une date en marge, le fait à droite. C'est la comparaison des deux
    colonnes qui informe, un DPE précédant souvent une vente de peu. */
-.ventes { list-style: none; margin: calc(var(--pas) * 3) 0 0; padding: 0; }
+.ventes { list-style: none; margin: calc(var(--pas) * 3) 0 calc(var(--pas) * 8); padding: 0; }
 
 .vente {
   display: grid;
@@ -614,3 +614,45 @@
   color: var(--encre-douce);
 }
 .pastille-concordante { background: #E4EDE8; border-color: var(--pin); color: var(--pin); text-transform: none; letter-spacing: 0.02em; }
+
+/* --- Les logements d'un lieu ----------------------------------------
+   Une adresse par bloc, repliable : celui en tête ouvert, les autres
+   résumés sur une ligne — adresse, classe, surface, nombre de DPE. C'est
+   ce qui a permis de fondre la fiche d'un diagnostic dans celle de sa
+   parcelle sans rien perdre ni empiler. */
+.logements { border-top: 1px solid var(--trait-fort); margin-bottom: calc(var(--pas) * 8); }
+.logement { border-bottom: 1px solid var(--trait); }
+.logement > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--pas) * 2) calc(var(--pas) * 3);
+  padding: calc(var(--pas) * 3) 0;
+  cursor: pointer;
+  list-style: none;
+}
+.logement > summary::-webkit-details-marker { display: none; }
+.logement > summary::before {
+  content: "";
+  width: 0; height: 0;
+  border: 5px solid transparent;
+  border-left: 6px solid var(--encre-douce);
+  margin-right: -2px;
+}
+.logement[open] > summary::before {
+  border: 5px solid transparent;
+  border-top: 6px solid var(--encre-douce);
+  margin-top: 4px;
+}
+.logement > summary:hover { background: var(--papier-creux); }
+.logement-adresse { font-family: var(--titres); font-weight: 600; }
+.logement-resume { font-size: 0.8rem; color: var(--encre-douce); }
+.logement .chronologie { margin-bottom: calc(var(--pas) * 2); padding-left: calc(var(--pas) * 5); }
+.logement-actions { margin: 0 0 calc(var(--pas) * 3) calc(var(--pas) * 5); font-size: 0.8rem; }
+@media (max-width: 560px) {
+  .logement .chronologie, .logement-actions { padding-left: 0; margin-left: 0; }
+}
+
+.lecture { margin: calc(var(--pas) * 6) 0; }
+.lecture > summary { cursor: pointer; color: var(--atlantique); font-size: 0.85rem; }
+.lecture .liste-lecture { margin-left: 0; }
