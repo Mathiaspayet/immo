@@ -67,8 +67,13 @@ def _candidats(filtres):
     if filtres.get("code_postal"):
         clauses.append("code_postal = ?")
         parametres.append(str(filtres["code_postal"]))
+    # Comme l'ecran Veille : un type absent, ou le « Logement » de la base
+    # d'avant juillet 2021 — qui ne distingue pas maison et appartement —,
+    # n'ecarte pas le bien. Le filtre strict faisait disparaitre le DPE de
+    # 2019 qu'une annonce cite, contre le principe meme de ce module.
     if filtres.get("type_batiment"):
-        clauses.append("lower(type_batiment) LIKE ?")
+        clauses.append("(lower(type_batiment) LIKE ? OR type_batiment IS NULL"
+                       " OR trim(type_batiment) = '' OR lower(trim(type_batiment)) = 'logement')")
         parametres.append(f"%{str(filtres['type_batiment']).lower()}%")
     if filtres.get("jeu_de_donnees"):
         clauses.append("jeu_de_donnees = ?")

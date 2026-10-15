@@ -223,21 +223,18 @@ def test_une_parcelle_inconnue_ne_fait_pas_tomber(base):
 
 def test_la_fiche_d_une_parcelle_rassemble_tout(client_carte, trois_etats):
     """Contour, voisinage, bati et ventes en une seule reponse."""
-    corps = client_carte.get("/api/parcelles/fiche-parcelle",
-                             params={"parcelle_id": "P-VENTE"}).json()
+    corps = client_carte.get("/api/fiche/lieu", params={"parcelle_id": "P-VENTE"}).json()
     assert corps["parcelle"]["id"] == "P-VENTE"
     assert corps["extrait"]["parcelle"]["id"] == "P-VENTE"
     assert len(corps["ventes"]) == 1
     assert corps["ventes"][0]["valeur_fonciere"] == 261030
 
     # Une parcelle nue repond aussi : c'est la carte d'identite du terrain.
-    nue = client_carte.get("/api/parcelles/fiche-parcelle",
-                           params={"parcelle_id": "P-RIEN"}).json()
-    assert nue["ventes"] == []
+    nue = client_carte.get("/api/fiche/lieu", params={"parcelle_id": "P-RIEN"}).json()
+    assert nue["ventes"] == [] and nue["logements"] == []
     assert nue["extrait"] is not None
 
-    manquante = client_carte.get("/api/parcelles/fiche-parcelle",
-                                 params={"parcelle_id": "AUCUNE"})
+    manquante = client_carte.get("/api/fiche/lieu", params={"parcelle_id": "AUCUNE"})
     assert manquante.status_code == 404
 
 

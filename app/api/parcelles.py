@@ -8,7 +8,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.base.connexion import connexion
-from app.metier import mutations, parcelles
+from app.metier import parcelles
 from app.sources import streetview
 from app.sources.client_http import ErreurSource
 
@@ -91,44 +91,6 @@ def a_la_position(code_insee: str = Query(...),
     return {"parcelle_id": parcelles.a_la_position(code_insee, latitude, longitude)}
 
 
-@routeur.get("/fiche-parcelle")
-def fiche_parcelle(parcelle_id: str = Query(...)):
-    """
-    Tout ce qu'on sait d'une parcelle : contour, bati, ventes, et les
-    diagnostics qu'elle porte.
-
-    On y arrive par deux chemins : en cliquant une parcelle coloree, ou
-    en cliquant n'importe ou sur la carte — `/a-la-position` dit alors
-    laquelle se trouve sous le doigt, meme si rien n'y est trace.
-
-    Une parcelle qui porte PLUSIEURS diagnostics merite cette fiche
-    plutot que l'un d'eux pris au hasard : les autres existent, et rien
-    ne le disait.
-    """
-    parcelle = parcelles.parcelle(parcelle_id)
-    if parcelle is None:
-        raise HTTPException(status_code=404,
-                            detail=f"Parcelle {parcelle_id} inconnue.")
-    return {
-        "parcelle": parcelle,
-        "extrait": parcelles.extrait_parcelle(parcelle_id),
-        "ventes": mutations.pour_parcelle(parcelle_id),
-        "diagnostics": parcelles.diagnostics_de(parcelle_id),
-    }
-
-
-@routeur.get("/ventes")
-def ventes(n_dpe: str = Query(...)):
-    """
-    L'historique des ventes du bien, via sa parcelle (DVF).
-
-    Le rattachement passe par le foncier et jamais par l'adresse : DVF et
-    le cadastre partagent `id_parcelle`, la ou l'orthographe d'une adresse
-    varie d'une base a l'autre.
-    """
-    return {"ventes": mutations.pour_dpe(n_dpe)}
-
-
 @routeur.get("/vue-rue")
 def vue_rue(n_dpe: str = Query(None), parcelle_id: str = Query(None),
             latitude: float = Query(None), longitude: float = Query(None)):
@@ -177,32 +139,3 @@ def vue_rue(n_dpe: str = Query(None), parcelle_id: str = Query(None),
     # Le cliche ne change pas : le navigateur peut le garder longtemps.
     return Response(content=octets, media_type=type_contenu,
                     headers={"Cache-Control": "private, max-age=86400"})
-
-
-@routeur.get("/extrait")
-def extrait(n_dpe: str = Query(...)):
-    """
-    De quoi dessiner l'extrait cadastral d'un bien : sa parcelle, les
-    parcelles voisines, et les batiments du cadre.
-
-    `cadastre_charge` dit pourquoi il n'y a pas d'extrait. La fiche
-    annoncait « cadastre pas encore charge » pour tout diagnostic sans
-    parcelle — y compris ceux d'une commune dont le cadastre est la, et que
-    l'ADEME a simplement geocodes a l'ecart de tout contour.
-    """
-    contenu = parcelles.extrait(n_dpe)
-    charge = True
-    if contenu is None:
-        with connexion() as conn:
-            ligne = conn.execute("SELECT code_insee FROM dpe WHERE n_dpe = ?",
-                                 (str(n_dpe),)).fetchone()
-            charge = bool(ligne and ligne["code_insee"] and conn.execute(
-                "SELECT 1 FROM parcelle WHERE code_insee = ? LIMIT 1",
-                (ligne["code_insee"],)).fetchone())
-    return {"extrait": contenu, "cadastre_charge": charge}
-
-
-@routeur.get("/du-dpe")
-def du_dpe(n_dpe: str = Query(...)):
-    """La parcelle qui porte ce DPE — sert a l'extrait de la fiche."""
-    return {"parcelle": parcelles.parcelle_de(n_dpe)}

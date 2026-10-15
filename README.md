@@ -465,7 +465,13 @@ l'`ETag` de chaque millésime à celui du dernier passage, et l'import
 complet ne part que lorsqu'il a bougé. Télécharger le CSV chaque jour pour
 découvrir deux fois l'an qu'il a changé donnerait le même résultat au prix
 de trois cent soixante-trois téléchargements inutiles. Le premier relevé ne
-déclenche rien : sans point de comparaison, tout paraîtrait neuf.
+déclenche rien : sans point de comparaison, tout paraîtrait neuf. Une
+parution n'est **retenue qu'une fois importée** : notée avant, un import en
+échec la faisait oublier, et ses ventes attendaient la parution suivante.
+L'alerte des ventes, elle, passe chaque jour — celles qu'apporte un
+rafraîchissement du cadastre partent le lendemain. Les millésimes que la
+source sert, affichés dans les Réglages, se lisent dans ce relevé : ouvrir
+l'écran n'interroge personne.
 
 **Le secteur se calcule à l'envoi, pas à l'import.** Le DPE porte sa zone
 en colonne. Une vente la déduit de la position que DVF pose sur chaque

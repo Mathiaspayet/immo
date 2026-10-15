@@ -475,7 +475,11 @@ def extrait_de(parcelle, marge_m=MARGE_EXTRAIT_M):
     l'echelle et l'orientation, et le bati qui montre ce qui est construit.
     On renvoie donc la parcelle, ses voisines et les batiments du cadre.
     """
-    if parcelle is None:
+    # Sans boite englobante — une parcelle enregistree sans contour —, il
+    # n'y a rien a cadrer : la fiche s'affiche sans extrait plutot que de
+    # tomber en erreur.
+    if parcelle is None or None in (parcelle.get("lon_min"), parcelle.get("lat_min"),
+                                    parcelle.get("lon_max"), parcelle.get("lat_max")):
         return None
 
     code_insee = parcelle["code_insee"]

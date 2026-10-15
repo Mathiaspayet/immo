@@ -31,7 +31,6 @@ Trois precautions valent d'etre dites :
 import collections
 import datetime
 import logging
-import pathlib
 import sqlite3
 
 from app import config

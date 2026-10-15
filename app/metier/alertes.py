@@ -100,7 +100,7 @@ def candidats(limite=200):
     cinquante appartements tus reviendraient au prochain passage.
     """
     filtres = _filtres()
-    ou, parametres = veille._conditions(filtres)
+    ou, parametres = veille.conditions_dpe(filtres)
     colonnes = ", ".join(veille.COLONNES)
     sql = f"""
         WITH retenus AS (

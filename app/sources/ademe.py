@@ -261,8 +261,7 @@ def telecharger(valeur, correspondances, jeu="existant", progression=None,
     """
     Recupere toutes les lignes d'une commune.
 
-    `valeur` est un code postal pour les bases recentes, un code INSEE pour
-    la base ancienne — voir cle_de_filtrage.
+    `valeur` est un code INSEE, dans les trois bases — voir cle_de_filtrage.
 
     `progression` est appelee a chaque page avec (nombre_de_lignes, message) :
     un telechargement silencieux de plusieurs milliers de lignes est

@@ -87,7 +87,6 @@ export const api = {
 
   lancerImport: () => demander("/api/import", { method: "POST" }),
 
-  ageImport: () => demander("/api/import/age"),
 
   statutImport: () => demander("/api/import/statut"),
 

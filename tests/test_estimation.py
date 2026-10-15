@@ -233,15 +233,6 @@ def test_les_voisins_sont_exacts(methode):
         assert np.allclose(brute[indices], distances)
 
 
-def test_le_compte_dans_un_rayon():
-    rng = np.random.default_rng(6)
-    lat = 44 + rng.random(2000) * 0.1
-    lon = -1 + rng.random(2000) * 0.1
-    index = Voisinage(lat, lon, methode="grille")
-    brute = np.hypot((lon + 0.95) * index.kx, (lat - 44.05) * 110574.0)
-    assert index.dans_le_rayon(44.05, -0.95, 1500) == int((brute <= 1500).sum())
-
-
 def test_un_nuage_vide_ne_fait_pas_tomber():
     index = Voisinage([], [], methode="grille")
     indices, distances = index.plus_proches(44, -1, 5)

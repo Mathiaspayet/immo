@@ -8,15 +8,22 @@ exception : une ligne mal formee ne doit pas interrompre un import de
 plusieurs milliers de lignes.
 """
 
-import datetime
+import math
 
 
 def nombre(valeur):
-    """Convertit en nombre, ou None si ce n'en est pas un."""
+    """
+    Convertit en nombre, ou None si ce n'en est pas un.
+
+    « nan » et « inf » se convertissent sans erreur, et un NaN entre en
+    base passe ensuite tous les filtres de surface sans en satisfaire
+    aucun : ce n'est pas un nombre pour nous.
+    """
     try:
-        return float(str(valeur).replace(",", "."))
+        resultat = float(str(valeur).replace(",", "."))
     except (TypeError, ValueError):
         return None
+    return resultat if math.isfinite(resultat) else None
 
 
 def entier(valeur):
@@ -31,15 +38,6 @@ def texte(valeur):
         return None
     resultat = str(valeur).strip()
     return resultat or None
-
-
-def en_date(valeur):
-    """Convertit une date de la base en objet date, ou None."""
-    brut = str(valeur or "")[:10]
-    try:
-        return datetime.date.fromisoformat(brut)
-    except ValueError:
-        return None
 
 
 ACCENTS = {"é": "e", "è": "e", "ê": "e", "ë": "e", "à": "a", "â": "a", "ä": "a",

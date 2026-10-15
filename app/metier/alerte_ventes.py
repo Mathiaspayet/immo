@@ -70,12 +70,16 @@ def candidats(limite=300):
         clauses.append("code_insee = ?")
         valeurs.append(code_insee)
     sql = ("SELECT * FROM mutation WHERE " + " AND ".join(clauses)
-           + " ORDER BY date_mutation DESC, id LIMIT ?")
+           + " ORDER BY date_mutation DESC, id")
     with connexion() as conn:
-        lignes = [dict(l) for l in conn.execute(sql, valeurs + [int(limite)])]
+        lignes = [dict(l) for l in conn.execute(sql, valeurs)]
 
+    # Le secteur se juge ICI, a la position, donc le plafond s'applique
+    # APRES lui. Applique avant, il se remplissait des ventes hors secteur
+    # — jamais signalees, donc jamais marquees, et toujours la — jusqu'a
+    # evincer celles du secteur : l'alerte se taisait sans rien dire.
     return [l for l in lignes
-            if _dans_le_secteur(l, zone, points, zones_code_insee)]
+            if _dans_le_secteur(l, zone, points, zones_code_insee)][:int(limite)]
 
 
 def marquer(identifiants):

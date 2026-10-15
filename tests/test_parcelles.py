@@ -325,6 +325,72 @@ def test_un_dpe_arrive_apres_le_cadastre_est_rattache(base, monkeypatch):
         "historique de ventes sera vide")
 
 
+def test_un_dpe_deplace_change_de_parcelle(base, monkeypatch):
+    """
+    L'ADEME regeocode parfois un diagnostic. Seuls les orphelins etant
+    re-rattaches apres une moisson, il gardait la parcelle de son ancienne
+    position — et la fiche montrait les ventes du voisin.
+    """
+    from app.metier import import_dpe
+
+    _parcelle_a("40184000ZZ0001", 44.2177, -1.2968)
+    _parcelle_a("40184000ZZ0002", 44.2300, -1.2800)
+    correspondances = {c: c for c in ademe.CONCEPTS}
+    monkeypatch.setattr("app.sources.ademe.preparer",
+                        lambda jeu="existant": (correspondances, []))
+    monkeypatch.setattr("app.sources.ademe.orphelins", lambda *a, **k: [])
+    position = {"valeur": "44.2177,-1.2968"}
+    monkeypatch.setattr(
+        "app.sources.ademe.telecharger",
+        lambda code_insee, corr, jeu="existant", progression=None, champs=None:
+            [{"numero_dpe": "BOUGE", "code_insee": "40184", "date": "2026-09-02",
+              "adresse": "1 rue", "geopoint": position["valeur"]}]
+            if jeu == "existant" else [])
+
+    import_dpe.importer_commune("40184", declencheur="test")
+    with connexion() as conn:
+        assert conn.execute("SELECT parcelle_id FROM dpe WHERE n_dpe = 'BOUGE'"
+                            ).fetchone()[0] == "40184000ZZ0001"
+
+    import_dpe.importer_commune("40184", declencheur="test")   # meme position
+    with connexion() as conn:
+        assert conn.execute("SELECT parcelle_id FROM dpe WHERE n_dpe = 'BOUGE'"
+                            ).fetchone()[0] == "40184000ZZ0001"
+
+    position["valeur"] = "44.2300,-1.2800"
+    import_dpe.importer_commune("40184", declencheur="test")
+    with connexion() as conn:
+        assert conn.execute("SELECT parcelle_id FROM dpe WHERE n_dpe = 'BOUGE'"
+                            ).fetchone()[0] == "40184000ZZ0002"
+
+
+def test_une_ligne_d_une_autre_commune_n_entre_pas(base, monkeypatch):
+    """
+    Le dernier recours de la cascade de requetes de l'ADEME est une
+    recherche plein texte du code INSEE, dans tous les champs : elle peut
+    ramener des logements d'ailleurs. Ils ne doivent pas entrer sous le
+    nom de la commune moissonnee.
+    """
+    from app.metier import import_dpe
+
+    correspondances = {c: c for c in ademe.CONCEPTS}
+    monkeypatch.setattr("app.sources.ademe.preparer",
+                        lambda jeu="existant": (correspondances, []))
+    monkeypatch.setattr("app.sources.ademe.orphelins", lambda *a, **k: [])
+    commun = {"date": "2026-09-02", "commune": "x", "surface": 100,
+              "type_batiment": "maison", "geopoint": "44.2177,-1.2968"}
+    monkeypatch.setattr(
+        "app.sources.ademe.telecharger",
+        lambda code_insee, corr, jeu="existant", progression=None, champs=None: [
+            {"numero_dpe": "ICI", "code_insee": "40184", "adresse": "1 rue", **commun},
+            {"numero_dpe": "AILLEURS", "code_insee": "33063", "adresse": "40184 rue", **commun},
+        ] if jeu == "existant" else [])
+
+    import_dpe.importer_commune("40184", declencheur="test", avec_cadastre=False)
+    with connexion() as conn:
+        assert [l["n_dpe"] for l in conn.execute("SELECT n_dpe FROM dpe")] == ["ICI"]
+
+
 def test_la_carte_d_exploration_montre_le_dpe_du_jour(base, monkeypatch):
     """Le symptome tel que l'utilisateur le voit : la parcelle doit
     s'allumer sur la carte d'exploration."""

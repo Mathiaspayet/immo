@@ -32,24 +32,29 @@ def _tache():
     logger.info("import planifie declenche")
     try:
         import_dpe.importer(declencheur="planifie")
+        importe = True
     except Exception as erreur:                     # noqa: BLE001
-        # L'import a echoue : rien de neuf n'est entre en base, donc rien a
-        # signaler. On ne tente pas l'alerte, qui n'aurait rien a dire.
         logger.error("import planifie en echec : %s", erreur)
-        return
+        importe = False
 
     # L'alerte suit l'import (CDC 8). Elle ne leve pas, mais on protege
     # quand meme : une moisson reussie ne doit jamais etre annulee par un
-    # serveur de courriel injoignable.
-    try:
-        resultat = alertes.envoyer_si_besoin()
-        if resultat["envoye"]:
-            logger.info("alerte envoyee : %d bien(s)", resultat["biens"])
-        else:
-            logger.info("pas d'alerte (%s)", resultat["raison"])
-    except Exception as erreur:                     # noqa: BLE001
-        logger.error("alerte en echec : %s", erreur)
+    # serveur de courriel injoignable. Import en echec : rien de neuf
+    # n'est entre en base, l'alerte n'aurait rien a dire.
+    if importe:
+        try:
+            resultat = alertes.envoyer_si_besoin()
+            if resultat["envoye"]:
+                logger.info("alerte envoyee : %d bien(s)", resultat["biens"])
+            else:
+                logger.info("pas d'alerte (%s)", resultat["raison"])
+        except Exception as erreur:                 # noqa: BLE001
+            logger.error("alerte en echec : %s", erreur)
 
+    # La suite ne depend pas de l'ADEME. Elle s'arretait pourtant avec
+    # elle : un jour de panne de l'ADEME — cela arrive — passait sans guet
+    # des ventes, sans entretien de l'estimation, et surtout SANS
+    # SAUVEGARDE.
     _ventes()
     _remise_a_niveau()
     _estimation()
@@ -101,19 +106,30 @@ def _ventes():
         # ici ne ferait que relire ce que la base contient deja.
         logger.info("dvf %s : signatures relevees pour la premiere fois",
                     code_insee)
-        return
-    if not etat["changees"]:
+    elif not etat["changees"]:
         logger.debug("dvf %s : rien de neuf", code_insee)
-        return
+    else:
+        logger.info("dvf %s : millesime(s) republie(s) %s",
+                    code_insee, etat["changees"])
+        try:
+            mutations.importer(code_insee)
+            # Retenues APRES l'import, pas avant : notees d'abord, un echec
+            # reseau faisait oublier la parution — plus rien ne la voyait
+            # « nouvelle ». Non retenues, le passage suivant la retente.
+            mutations.noter_publication(code_insee, etat["releve"])
+        except Exception as erreur:                 # noqa: BLE001
+            logger.error("import DVF en echec, nouvel essai au prochain passage : %s",
+                         erreur)
+    _alerte_ventes()
 
-    logger.info("dvf %s : millesime(s) republie(s) %s",
-                code_insee, etat["changees"])
-    try:
-        mutations.importer(code_insee)
-    except Exception as erreur:                     # noqa: BLE001
-        logger.error("import DVF en echec : %s", erreur)
-        return
 
+def _alerte_ventes():
+    """
+    Signale les ventes nouvelles, a chaque passage et non seulement au jour
+    d'une parution : celles qu'apporte un rafraichissement du cadastre ou
+    une consultation de la commune doivent partir aussi, et ne pas attendre
+    la parution suivante — six mois plus tard. Sans nouveaute, rien ne part.
+    """
     try:
         resultat = alerte_ventes.envoyer_si_besoin()
         if resultat["envoye"]:

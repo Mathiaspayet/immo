@@ -120,24 +120,6 @@ class Voisinage:
             indices[rang], distances[rang] = self.plus_proches(lat, lon, k)
         return indices, distances
 
-    def dans_le_rayon(self, latitude, longitude, rayon_m):
-        """Combien de points a moins de `rayon_m` — pour juger la densite locale."""
-        if self.n == 0:
-            return 0
-        xq = float(longitude) * self.kx
-        yq = float(latitude) * METRES_PAR_DEGRE_LAT
-        if self.arbre is not None:
-            return len(self.arbre.query_ball_point([xq, yq], r=rayon_m))
-        r_cases = int(math.ceil(rayon_m / self.cote)) + 1
-        cx0, cy0 = int(math.floor(xq / self.cote)), int(math.floor(yq / self.cote))
-        total = 0
-        for dx in range(-r_cases, r_cases + 1):
-            for dy in range(-r_cases, r_cases + 1):
-                indices = self.cases.get((cx0 + dx, cy0 + dy))
-                if indices is not None:
-                    total += int((np.hypot(self.x[indices] - xq, self.y[indices] - yq) <= rayon_m).sum())
-        return total
-
 
 def _anneau(cx, cy, r):
     """Les cases a exactement r cases (distance de Tchebychev) de (cx, cy)."""

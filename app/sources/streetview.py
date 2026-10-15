@@ -26,7 +26,6 @@ import hashlib
 import json
 import logging
 import math
-import pathlib
 import urllib.error
 import urllib.parse
 import urllib.request

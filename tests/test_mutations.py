@@ -400,28 +400,33 @@ def test_les_millesimes_annonces_sont_ceux_que_la_source_sert(base, monkeypatch)
     404 quand celui de 2025 porte ses 296 mutations, toutes en base.
 
     L'ecran annoncait donc un millesime que la source n'a pas publie, et le
-    lecteur ne pouvait que le prendre pour un trou dans les donnees.
+    lecteur ne pouvait que le prendre pour un trou dans les donnees. Ce
+    que la source sert se lit dans le releve du guet quotidien.
     """
     from app.metier import mutations
     from app.sources import dvf
 
     monkeypatch.setattr(dvf, "millesimes", lambda *a, **n: (2021, 2022, 2023))
-    # Le millesime en cours n'est pas encore paru : HEAD rend None.
-    monkeypatch.setattr(dvf, "signatures",
-                        lambda code_insee, annees: {2021: "etag-1", 2022: "etag-2",
-                                                    2023: None})
+    # Le millesime en cours n'est pas encore paru : HEAD a rendu None.
+    mutations.noter_publication("40184", {2020: "vieux", 2021: "etag-1",
+                                          2022: "etag-2", 2023: None})
     assert mutations.profondeur("40184")["millesimes_source"] == [2021, 2022]
 
 
-def test_une_source_injoignable_n_efface_pas_les_millesimes(base, monkeypatch):
-    """Un reseau coupe ne doit pas faire disparaitre l'information : on
-    retombe sur la fenetre calculee."""
+def test_afficher_la_profondeur_n_interroge_pas_la_source(base, monkeypatch):
+    """
+    L'ecran s'ouvre avec l'application : il ne doit rien demander a un
+    tiers (CDC 4). Il faisait six requetes HEAD a chaque ouverture. Sans
+    releve, il se fie aux ventes en base, puis a la fenetre calculee.
+    """
     from app.metier import mutations
     from app.sources import dvf
-    from app.sources.client_http import ErreurSource
 
     monkeypatch.setattr(dvf, "millesimes", lambda *a, **n: (2021, 2022, 2023))
-    def injoignable(*args, **nommes):
-        raise ErreurSource("DVF injoignable")
-    monkeypatch.setattr(dvf, "signatures", injoignable)
+    monkeypatch.setattr(dvf, "signatures",
+                        lambda *a, **n: pytest.fail("appel reseau a l'affichage"))
     assert mutations.profondeur("40184")["millesimes_source"] == [2021, 2022, 2023]
+    monkeypatch.setattr("app.sources.dvf.telecharger", lambda code, progression=None: [
+        _ligne("M1", "40184000AA0001", 1000, date_mutation="2022-05-01")])
+    mutations.importer("40184")
+    assert mutations.profondeur("40184")["millesimes_source"] == [2022]

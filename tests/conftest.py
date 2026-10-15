@@ -9,6 +9,7 @@ ainsi sur une base jetable, jamais sur /data/veille.db.
 
 import os
 import pathlib
+import socket
 import tempfile
 
 DOSSIER = tempfile.mkdtemp(prefix="veille-tests-")
@@ -19,6 +20,33 @@ import pytest                                    # noqa: E402
 
 from app.base import migrations                  # noqa: E402
 from app.base.connexion import connexion, transaction  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def sans_reseau(monkeypatch):
+    """
+    Aucun test n'appelle le reseau : la CI l'affirme, et cinq tests le
+    faisaient pourtant sans le savoir — geo.api.gouv.fr a chaque import de
+    commune, files.data.gouv.fr a chaque lecture de la profondeur des
+    ventes. Ils passaient grace aux replis, apres les nouvelles tentatives
+    (jusqu'a douze secondes), et dependaient d'un service exterieur.
+
+    Toute resolution de nom hors de la machine echoue desormais aussitot,
+    et les tentatives n'attendent plus : un test qui touche au reseau sans
+    le simuler echoue vite, ou montre qu'il se passe tres bien de lui.
+    """
+    vraie = socket.getaddrinfo
+
+    def coupee(hote, *args, **nommes):
+        if hote in ("localhost", "testserver") or str(hote).startswith("127."):
+            return vraie(hote, *args, **nommes)
+        raise socket.gaierror(f"reseau coupe pendant les tests : {hote}")
+
+    monkeypatch.setattr(socket, "getaddrinfo", coupee)
+    for variable in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
+                     "https_proxy", "http_proxy", "all_proxy"):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setattr("app.sources.client_http.ATTENTE", (0, 0, 0))
 
 
 # Toutes les tables que l'application remplit. Une table oubliee ici fuit

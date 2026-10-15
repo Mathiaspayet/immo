@@ -178,10 +178,21 @@ COLONNES = [
 # que l'ADEME sert encore cette ligne (voir 002_lot2.sql).
 _MAJ = ", ".join(f"{c} = excluded.{c}" for c in COLONNES if c != "n_dpe")
 
+# Un diagnostic qui CHANGE DE POSITION — l'ADEME le regeocode, ou la BAN
+# le replace — perd son rattachement : la parcelle etait celle de
+# l'ancienne position. Seuls les orphelins etant re-rattaches apres une
+# moisson, il gardait sinon pour toujours une parcelle qui n'est plus la
+# sienne. Dans un DO UPDATE, `dpe.` designe la ligne avant mise a jour.
+_MEME_POSITION = ("dpe.latitude IS excluded.latitude"
+                  " AND dpe.longitude IS excluded.longitude")
+_RATTACHEMENT = ", ".join(
+    f"{c} = CASE WHEN {_MEME_POSITION} THEN dpe.{c} END"
+    for c in ("parcelle_id", "parcelle_approchee", "distance_parcelle_m"))
+
 SQL_UPSERT = (
     f"INSERT INTO dpe ({', '.join(COLONNES)}, importe_le, revu_le, vu_le, alerte_le) "
     f"VALUES ({', '.join('?' * len(COLONNES))}, ?, ?, ?, ?) "
-    f"ON CONFLICT(n_dpe) DO UPDATE SET {_MAJ}, revu_le = excluded.revu_le"
+    f"ON CONFLICT(n_dpe) DO UPDATE SET {_MAJ}, revu_le = excluded.revu_le, {_RATTACHEMENT}"
 )
 
 
@@ -232,22 +243,36 @@ def _demarrer(declencheur, quoi):
                       "etape": f"demarrage — {quoi}", "lignes": 0, "ajouts": 0,
                       "statut": None, "message": None, "journal_id": None,
                       "cible": quoi})
-    journal_id = _ouvrir_journal(declencheur)
+    # Le drapeau est leve AVANT l'ecriture du journal : si elle echoue —
+    # base verrouillee au-dela du delai, disque plein —, il doit retomber,
+    # faute de quoi plus aucun import ne partirait jusqu'au redemarrage.
+    try:
+        journal_id = _ouvrir_journal(declencheur)
+    except Exception as erreur:
+        _publier(en_cours=False, fin=_maintenant(), statut="echec",
+                 message=f"journal des imports inaccessible : {erreur}")
+        raise
     _publier(journal_id=journal_id)
     return journal_id
 
 
 def _terminer(journal_id, resume=None, erreur=None):
+    """Ferme le journal et libere le drapeau — le drapeau QUOI QU'IL ARRIVE."""
     if erreur is not None:
         message = str(erreur) or type(erreur).__name__
-        _fermer_journal(journal_id, "echec", 0, 0, message)
+        statut, lignes, ajouts = "echec", 0, 0
+    else:
+        message, statut = resume["message"], "succes"
+        lignes, ajouts = resume["lignes"], resume["ajouts"]
+    try:
+        _fermer_journal(journal_id, statut, lignes, ajouts, message)
+    except Exception as probleme:                    # noqa: BLE001
+        logger.error("journal de l'import %s non ferme : %s", journal_id, probleme)
+    if erreur is not None:
         _publier(en_cours=False, fin=_maintenant(), statut="echec", message=message)
-        return
-    _fermer_journal(journal_id, "succes", resume["lignes"], resume["ajouts"],
-                    resume["message"])
-    _publier(en_cours=False, fin=_maintenant(), statut="succes",
-             message=resume["message"], lignes=resume["lignes"],
-             ajouts=resume["ajouts"], etape="termine")
+    else:
+        _publier(en_cours=False, fin=_maintenant(), statut="succes", message=message,
+                 lignes=lignes, ajouts=ajouts, etape="termine")
 
 
 def importer_commune(code_insee, declencheur="commune", jeux=None,
@@ -318,7 +343,7 @@ def importer(declencheur="planifie", jeux=None):
     """
     Rafraichit toutes les communes deja consultees.
 
-    C'est ce que lance le planificateur hebdomadaire. Sans commune au
+    C'est ce que lance le planificateur quotidien. Sans commune au
     registre, il n'y a rien a rafraichir et on le dit.
     """
     communes = communes_suivies()
@@ -337,8 +362,13 @@ def importer(declencheur="planifie", jeux=None):
 
     # Le cadastre se rafraichit mensuellement (CDC 8), et seulement la ou il
     # est deja pose : on ne va pas le telecharger pour une commune dont
-    # personne n'a demande les parcelles.
-    cadastres = _rafraichir_cadastres()
+    # personne n'a demande les parcelles. Son echec ne remet pas en cause
+    # la moisson, et ne doit surtout pas laisser l'import « en cours ».
+    try:
+        cadastres = _rafraichir_cadastres()
+    except Exception as erreur:                      # noqa: BLE001
+        logger.warning("rafraichissement des cadastres en echec : %s", erreur)
+        cadastres = ""
     if cadastres:
         resume["message"] += f" · cadastre : {cadastres}"
 
@@ -496,6 +526,11 @@ def _reparer_orphelins(commune, correspondances, champs, jeu, progression=None):
     return [l for l in lignes if str(l.get(champ_insee) or "").strip()]
 
 
+def _meme_commune(valeur, code_insee):
+    """Deux ecritures du meme code INSEE ? « 1001 » et « 01001 » en sont."""
+    return str(valeur or "").strip().zfill(5) == str(code_insee).strip().zfill(5)
+
+
 def _moissonner(communes, jeux=None):
     """
     Telecharge puis enregistre, pour une liste de communes.
@@ -538,10 +573,19 @@ def _moissonner(communes, jeux=None):
                 logger.warning("%s / %s : %s", nom, jeu, erreur)
                 continue
 
+            # Le dernier recours de la cascade de requetes cherche le code
+            # INSEE dans TOUS les champs, en plein texte : il peut ramener
+            # des logements d'autres communes. On ne garde que ceux de la
+            # commune demandee — les orphelins, sans code, ont leur propre
+            # chemin plus bas.
+            lignes = list(lignes)
+            champ_insee = correspondances.get("code_insee")
+            if champ_insee:
+                lignes = [l for l in lignes if _meme_commune(l.get(champ_insee), code_insee)]
+
             # Les positions absentes ou aberrantes sont rattrapees ici :
             # sans position, une ligne n'a ni secteur, ni parcelle, ni
             # historique de ventes, et manque aux alertes par secteur.
-            lignes = list(lignes)
             repositionnees = reparer_par_la_ban(lignes, commune, correspondances)
             if repositionnees:
                 detail.append(f"{nom}/{jeu} : {repositionnees} repositionnee(s)")
@@ -729,21 +773,6 @@ def _fermer_journal(journal_id, statut, lignes, ajouts, message):
 # ---------------------------------------------------------------------
 #  Rafraichissement paresseux
 # ---------------------------------------------------------------------
-
-def age_dernier_import():
-    """Heures depuis la derniere moisson reussie, toutes communes confondues."""
-    with connexion() as conn:
-        ligne = conn.execute(
-            "SELECT fin FROM journal_import WHERE statut = 'succes' "
-            "AND fin IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
-    if ligne is None:
-        return None
-    try:
-        fin = datetime.datetime.fromisoformat(ligne["fin"])
-    except ValueError:
-        return None
-    return (datetime.datetime.now() - fin).total_seconds() / 3600
-
 
 def cadastre_a_refaire(code_insee):
     """Le cadastre de cette commune manque-t-il, date-t-il, ou est-il incomplet ?"""

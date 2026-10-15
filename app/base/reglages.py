@@ -11,6 +11,7 @@ Les valeurs ci-dessous reprennent celles des scripts d'origine : elles
 servent de point de depart a la premiere ouverture.
 """
 
+import copy
 import datetime
 import json
 import logging
@@ -225,7 +226,10 @@ def tous(avec_secrets=False):
     « aucun mot de passe », et l'ecran proposerait d'en saisir un alors
     qu'il en existe deja.
     """
-    valeurs = dict(DEFAUTS)
+    # Une copie PROFONDE : `zones`, `tolerances` et les listes sont des
+    # objets. Un appelant qui en modifiait un modifiait les defauts du
+    # processus entier, jusqu'au redemarrage.
+    valeurs = copy.deepcopy(DEFAUTS)
     with connexion() as conn:
         for ligne in conn.execute("SELECT cle, valeur_json FROM reglage"):
             if ligne["cle"] in DEFAUTS:
@@ -249,8 +253,8 @@ def lire(cle):
             "SELECT valeur_json FROM reglage WHERE cle = ?", (cle,)
         ).fetchone()
     if ligne is None:
-        return DEFAUTS[cle]
-    return _decoder(ligne["valeur_json"], DEFAUTS[cle])
+        return copy.deepcopy(DEFAUTS[cle])
+    return _decoder(ligne["valeur_json"], copy.deepcopy(DEFAUTS[cle]))
 
 
 def ecrire(valeurs):

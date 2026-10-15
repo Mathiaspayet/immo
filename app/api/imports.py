@@ -43,12 +43,6 @@ def statut():
     return import_dpe.etat()
 
 
-@routeur.get("/age")
-def age():
-    """Heures ecoulees depuis la derniere moisson reussie."""
-    return {"age_heures": import_dpe.age_dernier_import()}
-
-
 @routeur.get("/journal")
 def journal(limite: int = 20):
     """Les derniers imports, succes comme echecs (CDC 8)."""

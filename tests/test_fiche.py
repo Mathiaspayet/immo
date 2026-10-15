@@ -453,3 +453,9 @@ def test_l_api_du_lieu(deux_logements):
         inconnue = client.get("/api/fiche/lieu", params={"adresse": "13 rue des Ecolos"}).json()
         assert inconnue["trouve"] is False
         assert "13 Rue des Ecoles 40200 Mimizan" in inconnue["suggestions"]
+
+
+def test_nan_et_infini_ne_sont_pas_des_nombres():
+    from app.metier.valeurs import nombre
+    assert nombre("nan") is None and nombre("inf") is None and nombre("-Infinity") is None
+    assert nombre("12,5") == 12.5

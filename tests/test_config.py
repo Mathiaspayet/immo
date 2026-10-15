@@ -199,3 +199,63 @@ def test_une_remise_a_niveau_des_ventes_part_peu_apres_le_demarrage(base, monkey
         assert planificateur._planificateur.get_job("remise-a-niveau-ventes") is None
     finally:
         planificateur.arreter()
+
+
+def test_une_migration_interrompue_ne_laisse_rien(tmp_path, monkeypatch):
+    """
+    Un ALTER TABLE ne se rejoue pas. Une migration qui echoue a mi-chemin
+    doit donc tout annuler — sinon le demarrage suivant bute sur
+    « duplicate column name », et l'application ne repart plus.
+    """
+    import sqlite3
+
+    from app.base import migrations
+
+    dossier = tmp_path / "schema"
+    dossier.mkdir()
+    (dossier / "001_table.sql").write_text("CREATE TABLE t (a TEXT);")
+    (dossier / "002_casse.sql").write_text(
+        "ALTER TABLE t ADD COLUMN b TEXT;\nALTER TABLE inexistante ADD COLUMN c TEXT;")
+    monkeypatch.setattr(migrations, "DOSSIER_SCHEMA", dossier)
+    monkeypatch.setattr("app.config.CHEMIN_BASE", tmp_path / "base.db")
+
+    with pytest.raises(sqlite3.OperationalError):
+        migrations.appliquer()
+    conn = sqlite3.connect(tmp_path / "base.db")
+    assert [r[1] for r in conn.execute("PRAGMA table_info(t)")] == ["a"]
+    assert [r[0] for r in conn.execute("SELECT nom FROM migration")] == ["001_table.sql"]
+    conn.close()
+
+    # Corrigee, elle passe — rien a reparer a la main.
+    (dossier / "002_casse.sql").write_text("ALTER TABLE t ADD COLUMN b TEXT;")
+    assert migrations.appliquer() == ["002_casse.sql"]
+
+
+def test_modifier_un_reglage_lu_ne_touche_pas_aux_defauts(base):
+    """`zones` et `tolerances` sont des objets : les rendre par reference
+    laissait un appelant reecrire les defauts du processus."""
+    from app.base import reglages
+
+    reglages.tous()["zones"]["ailleurs"] = [0, 0]
+    reglages.lire("tolerances")["surface"] = 99
+    assert "ailleurs" not in reglages.DEFAUTS["zones"]
+    assert reglages.DEFAUTS["tolerances"]["surface"] == 3.0
+
+
+def test_une_panne_de_l_ademe_n_empeche_pas_la_sauvegarde(monkeypatch):
+    """L'import ADEME en echec arretait toute la tache du jour — guet des
+    ventes, estimation, et la sauvegarde avec."""
+    from app import planificateur
+
+    faits = []
+
+    def panne(**nommes):
+        raise RuntimeError("ADEME injoignable")
+
+    monkeypatch.setattr("app.metier.import_dpe.importer", panne)
+    monkeypatch.setattr("app.metier.alertes.envoyer_si_besoin",
+                        lambda: faits.append("alerte dpe") or {})
+    for nom in ("_ventes", "_remise_a_niveau", "_estimation", "_sauvegarder"):
+        monkeypatch.setattr(planificateur, nom, lambda nom=nom: faits.append(nom))
+    planificateur._tache()
+    assert faits == ["_ventes", "_remise_a_niveau", "_estimation", "_sauvegarder"]

@@ -18,19 +18,6 @@ logger = logging.getLogger(__name__)
 routeur = APIRouter(prefix="/api/fiche", tags=["fiche"])
 
 
-@routeur.get("")
-def lire(n_dpe: str = Query(None), adresse: str = Query(None)):
-    """Chronologie de tous les DPE connus pour une adresse."""
-    if not n_dpe and not adresse:
-        raise HTTPException(status_code=400,
-                            detail="Indiquez un numéro de DPE ou une adresse.")
-    resultat = metier_fiche.historique(adresse=adresse, n_dpe=n_dpe)
-    if not resultat["diagnostics"] and adresse:
-        # Plutot qu'un « aucun résultat » sec, on propose des voies proches.
-        resultat["suggestions"] = metier_fiche.voisinage(adresse)
-    return resultat
-
-
 @routeur.get("/lieu")
 def lieu(n_dpe: str = Query(None), parcelle_id: str = Query(None),
          adresse: str = Query(None)):

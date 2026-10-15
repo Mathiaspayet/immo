@@ -94,21 +94,21 @@ def test_identification_renvoie_entonnoir_et_classement(client):
 
 
 def test_fiche_sans_parametre_repond_400(client):
-    reponse = client.get("/api/fiche")
+    reponse = client.get("/api/fiche/lieu")
     assert reponse.status_code == 400
     assert "numéro de DPE" in reponse.json()["detail"]
 
 
 def test_fiche_par_adresse(client):
     inserer_dpe(n_dpe="A", adresse="12 Rue des Pins", date_etablissement="2026-01-09")
-    corps = client.get("/api/fiche", params={"adresse": "12 RUE DES PINS"}).json()
-    assert len(corps["diagnostics"]) == 1
+    corps = client.get("/api/fiche/lieu", params={"adresse": "12 RUE DES PINS"}).json()
+    assert [d["n_dpe"] for d in corps["logements"][0]["diagnostics"]] == ["A"]
 
 
 def test_fiche_adresse_inconnue_propose_des_voisines(client):
     inserer_dpe(n_dpe="A", adresse="12 Rue des Pins")
-    corps = client.get("/api/fiche", params={"adresse": "40 Rue des Pins"}).json()
-    assert corps["diagnostics"] == []
+    corps = client.get("/api/fiche/lieu", params={"adresse": "40 Rue des Pins"}).json()
+    assert corps["trouve"] is False
     assert "12 Rue des Pins" in corps["suggestions"]
 
 
@@ -263,28 +263,28 @@ def _parcelle(client, identifiant, contenance, emprise, batiments=1, code_insee=
 
 
 
-def test_parcelle_du_dpe(client):
+def test_la_fiche_trouve_la_parcelle_du_dpe(client):
     from app.base.connexion import transaction
     _parcelle(client, "P1", 800, 120)
     inserer_dpe(n_dpe="D1", adresse="1 rue", code_insee="31282")
     with transaction() as conn:
         conn.execute("UPDATE dpe SET parcelle_id = 'P1' WHERE n_dpe = 'D1'")
 
-    assert client.get("/api/parcelles/du-dpe",
+    assert client.get("/api/fiche/lieu",
                       params={"n_dpe": "D1"}).json()["parcelle"]["id"] == "P1"
-    assert client.get("/api/parcelles/du-dpe",
-                      params={"n_dpe": "X"}).json()["parcelle"] is None
+    assert client.get("/api/fiche/lieu",
+                      params={"n_dpe": "X"}).json()["trouve"] is False
 
 
-def test_l_extrait_dit_si_le_cadastre_manque_vraiment(client):
+def test_la_fiche_dit_si_le_cadastre_manque_vraiment(client):
     """Sans parcelle pour ce diagnostic, la fiche doit savoir si le cadastre
     de la commune est la : « pas encore charge » etait affiche a tort."""
     inserer_dpe(n_dpe="SANS", adresse="1 rue", code_insee="31282")
-    reponse = client.get("/api/parcelles/extrait", params={"n_dpe": "SANS"}).json()
-    assert reponse == {"extrait": None, "cadastre_charge": False}
+    reponse = client.get("/api/fiche/lieu", params={"n_dpe": "SANS"}).json()
+    assert (reponse["extrait"], reponse["cadastre_charge"]) == (None, False)
     _parcelle(client, "P1", 800, 120)
-    reponse = client.get("/api/parcelles/extrait", params={"n_dpe": "SANS"}).json()
-    assert reponse == {"extrait": None, "cadastre_charge": True}
+    reponse = client.get("/api/fiche/lieu", params={"n_dpe": "SANS"}).json()
+    assert (reponse["extrait"], reponse["cadastre_charge"]) == (None, True)
 
 
 def test_preparer_une_commune_pour_le_cadastre(client, monkeypatch):

@@ -51,8 +51,8 @@ CHEMIN_SAUVEGARDES = pathlib.Path(
     _reglage("VEILLE_SAUVEGARDES", str(CHEMIN_BASE.parent / "sauvegardes")))
 
 # --- Serveur ---------------------------------------------------------
-HOTE = _reglage("VEILLE_HOTE", "0.0.0.0")
-PORT = int(_reglage("VEILLE_PORT", "8000"))
+# L'hote et le port (VEILLE_HOTE, VEILLE_PORT) sont lus par la commande de
+# lancement du Dockerfile et par la sonde de sante, pas par l'application.
 
 # --- Journalisation --------------------------------------------------
 NIVEAU_LOG = _reglage("VEILLE_LOG", "INFO").upper()

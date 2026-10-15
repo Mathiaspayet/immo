@@ -367,11 +367,11 @@ async function reprendreArchiveVentes() {
     + '<span class="jauge"><span></span></span></p>';
   try {
     const r = await api.reprendreArchive(cible);
-    etat.innerHTML = `<p class="message message-succes">${r.message}</p>`;
+    etat.innerHTML = `<p class="message message-succes">${echapper(r.message)}</p>`;
     await chargerProfondeurVentes();
   } catch (erreur) {
     etat.innerHTML =
-      `<p class="message message-erreur">${erreur.message || erreur}</p>`;
+      `<p class="message message-erreur">${echapper(erreur.message || erreur)}</p>`;
   } finally {
     bouton.disabled = false;
     bouton.textContent = libelle;

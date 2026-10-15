@@ -24,14 +24,8 @@ import threading
 from app.base.connexion import connexion, transaction
 from app.metier.valeurs import meme_adresse
 from app.sources import dvf, dvf_archive
-from app.sources.client_http import ErreurSource
 
 logger = logging.getLogger(__name__)
-
-# Un local sans surface ni type n'apporte rien a la fiche : c'est une ligne
-# de terrain nu, deja comptee par la parcelle.
-TYPES_UTILES = ("Maison", "Appartement")
-
 
 def _nombre(valeur):
     try:
@@ -464,12 +458,22 @@ def publication(code_insee):
         if signature is not None and connues.get(annee) != signature)
 
     premier = not connues
-    _noter_signatures(code_insee, releve)
+    # Une parution n'est retenue qu'une fois IMPORTEE : c'est a l'appelant
+    # de la noter (`noter_publication`), apres coup. Retenue ici, un import
+    # en echec la faisait oublier — elle n'etait plus jamais « nouvelle ».
+    if premier or not changees:
+        _noter_signatures(code_insee, releve)
     return {
         "premier_releve": premier,
         "changees": [] if premier else changees,
         "millesimes": sorted(a for a, s in releve.items() if s is not None),
+        "releve": releve,
     }
+
+
+def noter_publication(code_insee, releve):
+    """Retient une parution, une fois ses ventes importees."""
+    _noter_signatures(str(code_insee).strip(), releve)
 
 
 def _repartir(lignes):
@@ -631,22 +635,29 @@ def _millesimes_servis(code_insee):
     de retard — verifie le 13/09/2026, le fichier 2026 de Mimizan repond
     404 quand celui de 2025 porte ses 296 mutations, toutes en base.
 
-    L'ecran annoncait donc un millesime que la source n'a pas encore
-    publie, et le lecteur ne pouvait que le prendre pour un trou. Une
-    requete HEAD par millesime suffit a trancher, sans rien telecharger.
+    On les lit dans le RELEVE du guet quotidien (`dvf_millesime`), jamais a
+    la source : cet ecran s'ouvre avec l'application, et le CDC 4 interdit
+    qu'un affichage interroge un tiers. Il le faisait — six requetes HEAD a
+    chaque ouverture, plusieurs secondes, et jusqu'a trois minutes de
+    blocage si le NAS perdait Internet.
 
-    Le repli est la fenetre calculee : un reseau coupe ne doit pas faire
-    disparaitre l'information de l'ecran.
+    A defaut de releve — une commune que le guet ne suit pas —, les
+    millesimes presents en base pour elle ; en dernier recours la fenetre
+    calculee, pour que l'information ne disparaisse pas de l'ecran.
     """
     calcules = list(dvf.millesimes())
     if not code_insee:
         return calcules
-    try:
-        releve = dvf.signatures(code_insee, calcules)
-    except Exception as erreur:                        # noqa: BLE001
-        logger.warning("millesimes DVF indisponibles : %s", erreur)
-        return calcules
-    servis = [annee for annee, signature in releve.items() if signature]
+    with connexion() as conn:
+        releves = {ligne["annee"] for ligne in conn.execute(
+            "SELECT annee FROM dvf_millesime WHERE code_insee = ? AND signature IS NOT NULL",
+            (str(code_insee),))}
+        if not releves:
+            releves = {int(ligne["annee"]) for ligne in conn.execute(
+                "SELECT DISTINCT substr(date_mutation, 1, 4) AS annee FROM mutation"
+                " WHERE code_insee = ?", (str(code_insee),))
+                if str(ligne["annee"] or "").isdigit()}
+    servis = sorted(int(a) for a in releves if int(a) in calcules)
     return servis or calcules
 
 

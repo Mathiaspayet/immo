@@ -106,10 +106,6 @@ export function changerVue(vue, etat = {}) {
   history.pushState({ vue, ...etat }, "");
 }
 
-export function vueCourante() {
-  return VUES.find((nom) => $(`#vue-${nom}`) && !$(`#vue-${nom}`).hidden);
-}
-
 /**
  * Branche le retour arrière. À appeler une fois, au démarrage.
  *

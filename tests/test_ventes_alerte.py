@@ -176,6 +176,22 @@ def test_le_secteur_restreint_les_ventes_signalees(base, monkeypatch):
     assert [v["id"] for v in alerte_ventes.candidats()] == ["M2"]
 
 
+def test_les_ventes_hors_secteur_n_evincent_pas_celles_du_secteur(base, monkeypatch):
+    """
+    Le plafond s'appliquait AVANT le secteur. Les ventes du bourg, jamais
+    signalees donc jamais marquees, remplissaient le plafond : une parution
+    plus fournie que lui, et celles de la plage n'etaient plus vues.
+    """
+    reglages.ecrire({"alerte_code_insee": "40184", "alerte_zone": "plage"})
+    _importer(monkeypatch, [_ligne("M0", "40184000AA0100", 200000)])
+    bourg = [_ligne(f"B{n}", f"40184000AB{n:04d}", 300000, date="2026-03-01",
+                    latitude="44.2011", longitude="-1.2286") for n in range(5)]
+    plage = _ligne("P1", "40184000AC0001", 400000, date="2026-01-15",
+                   latitude="44.2044", longitude="-1.2914")
+    _importer(monkeypatch, [_ligne("M0", "40184000AA0100", 200000), *bourg, plage])
+    assert [v["id"] for v in alerte_ventes.candidats(limite=3)] == ["P1"]
+
+
 def test_une_vente_sans_position_n_est_pas_rangee_dans_un_secteur(base, monkeypatch):
     """Sans position, on ne peut pas affirmer qu'elle est dans le secteur.
     La taire vaut mieux que l'y ranger au hasard."""
@@ -879,3 +895,48 @@ def test_l_api_refuse_commune_et_departement_ensemble(base):
     reponse = client.post("/api/import/ventes/archive?dep=40&code_insee=40184")
     assert reponse.status_code == 400
     assert "OU" in reponse.json()["detail"]
+
+
+def test_une_parution_dont_l_import_echoue_reste_nouvelle(base, monkeypatch):
+    """
+    Les signatures etaient retenues AVANT l'import : un echec reseau ce
+    jour-la, et la parution n'etait plus jamais vue comme nouvelle — ses
+    ventes attendaient le rafraichissement mensuel, leur alerte la parution
+    suivante, six mois plus tard.
+    """
+    import app.planificateur as planificateur
+    from app.sources.client_http import ErreurSource
+
+    essais = []
+
+    def telecharger(code, progression=None):
+        essais.append(code)
+        if len(essais) == 1:
+            raise ErreurSource("DVF injoignable")
+        return []
+
+    monkeypatch.setattr("app.sources.dvf.telecharger", telecharger)
+    reglages.ecrire({"alerte_code_insee": "40184"})
+    _signatures(monkeypatch, {2025: "aaa", 2026: None})
+    planificateur._ventes()                       # premier releve
+
+    _signatures(monkeypatch, {2025: "bbb", 2026: None})
+    planificateur._ventes()                       # parution, import en echec
+    planificateur._ventes()                       # le lendemain : on retente
+    planificateur._ventes()                       # importee : plus rien a faire
+    assert essais == ["40184", "40184"]
+
+
+def test_l_alerte_ventes_part_sans_attendre_une_parution(base, monkeypatch):
+    """Les ventes qu'apporte un rafraichissement du cadastre doivent partir
+    le lendemain, pas a la parution suivante."""
+    import app.planificateur as planificateur
+
+    appels = []
+    monkeypatch.setattr("app.metier.alerte_ventes.envoyer_si_besoin",
+                        lambda: appels.append(1) or {"envoye": False, "raison": "rien_de_neuf"})
+    reglages.ecrire({"alerte_code_insee": "40184"})
+    _signatures(monkeypatch, {2025: "aaa", 2026: None})
+    planificateur._ventes()
+    planificateur._ventes()
+    assert len(appels) == 2

@@ -38,13 +38,34 @@ def appliquer():
             if chemin.name in deja:
                 continue
             logger.info("migration %s", chemin.name)
-            conn.executescript(chemin.read_text(encoding="utf-8"))
-            conn.execute(
-                "INSERT INTO migration (nom, applique_le) VALUES (?, ?)",
-                (chemin.name, datetime.datetime.now().isoformat(timespec="seconds")),
-            )
+            _jouer(conn, chemin)
             jouees.append(chemin.name)
 
         if jouees:
             logger.info("%d migration(s) appliquee(s)", len(jouees))
         return jouees
+
+
+def _jouer(conn, chemin):
+    """
+    Joue une migration et l'inscrit, EN UNE TRANSACTION.
+
+    `CREATE ... IF NOT EXISTS` se rejoue sans dommage, `ALTER TABLE ... ADD
+    COLUMN` non : SQLite ne connait pas de IF NOT EXISTS pour lui. Joues
+    hors transaction, le script et son inscription pouvaient se separer —
+    un conteneur arrete par Watchtower au milieu des cinq ALTER du 007, et
+    chaque demarrage suivant echouait sur « duplicate column name » :
+    l'application ne repartait plus. SQLite rend le DDL transactionnel ;
+    tout passe donc, ou rien.
+    """
+    nom = chemin.name.replace("'", "''")
+    quand = datetime.datetime.now().isoformat(timespec="seconds")
+    try:
+        conn.executescript(
+            "BEGIN IMMEDIATE;\n" + chemin.read_text(encoding="utf-8")
+            + f"\n;INSERT INTO migration (nom, applique_le) VALUES ('{nom}', '{quand}');"
+            + "\nCOMMIT;")
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise

@@ -152,3 +152,17 @@ def test_chaque_chiffre_ajoute_resserre_l_entonnoir(quartier):
         resultat = identification.identifier(dict(criteres), tolerances=TOLERANCES)
         cumuls.append(resultat["entonnoir"][-1]["cumules"])
     assert cumuls == sorted(cumuls, reverse=True), cumuls
+
+
+def test_le_type_n_ecarte_pas_un_dpe_d_avant_2021(base):
+    """La base d'avant juillet 2021 ecrit « Logement » : choisir « maison »
+    ne doit pas faire disparaitre le DPE de 2019 que cite l'annonce."""
+    from app.metier import identification
+
+    inserer_dpe(n_dpe="ANCIEN", type_batiment="Logement", jeu_de_donnees="ancien",
+                surface_habitable=120.0, code_insee="40184")
+    inserer_dpe(n_dpe="APPART", type_batiment="appartement", surface_habitable=120.0,
+                code_insee="40184")
+    trouves = {c["n_dpe"] for c in identification._candidats(
+        {"code_insee": "40184", "type_batiment": "maison"})}
+    assert trouves == {"ANCIEN"}
