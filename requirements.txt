@@ -7,9 +7,9 @@ certifi==2024.12.14
 # L'estimation (F8) : regressions et voisinages sur les ventes d'un
 # departement, soit jusqu'a 115 000 ventes. Roues precompilees, sans chaine
 # de compilation.
-numpy==2.4.6
+numpy==2.5.4
 # Le gradient boosting de l'estimation. SciPy vient avec LightGBM, qui en
 # depend ; l'estimation s'en sert aussi pour ses plus proches voisins.
 # Le Dockerfile retire leurs suites de tests, inutiles a l'execution.
-scipy==1.17.1
+scipy==1.18.1
 lightgbm==4.7.0
