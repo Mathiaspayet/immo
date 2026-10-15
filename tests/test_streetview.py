@@ -185,3 +185,38 @@ def test_un_bien_sans_position_ne_fait_pas_tomber(client):
     inserer_dpe(n_dpe="D1", adresse="1 rue", latitude=None, longitude=None)
     assert client.get("/api/parcelles/vue-rue",
                       params={"n_dpe": "D1"}).status_code == 404
+
+
+def test_une_parcelle_a_aussi_sa_vue_de_rue(client, monkeypatch):
+    """
+    La fiche d'une parcelle — celle qu'ouvre un clic sur la carte — n'avait
+    ni liens ni photo. La photo vise son centre ; la position est lue en
+    base, et la page n'en transmet aucune.
+    """
+    from app.base.connexion import transaction
+
+    reglages.ecrire({"streetview_cle": CLE})
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO parcelle (id, code_insee, section, numero, contenance_m2,"
+            "  latitude, longitude, importe_le)"
+            " VALUES ('40184000AE0118', '40184', 'AE', '0118', 532, 44.2123, -1.2851,"
+            "  '2026-10-01T07:00:00')")
+    vises = []
+
+    def faux(url, parametres):
+        if url == streetview.CATALOGUE:
+            vises.append(parametres["location"])
+            return json.dumps({
+                "status": "OK", "pano_id": "P", "date": "2024-06",
+                "location": {"lat": 44.2125, "lng": -1.2853},
+            }).encode(), "application/json"
+        return b"\xff\xd8\xff-image", "image/jpeg"
+
+    monkeypatch.setattr("app.sources.streetview._demander", faux)
+    reponse = client.get("/api/parcelles/vue-rue", params={"parcelle_id": "40184000AE0118"})
+    assert reponse.status_code == 200
+    assert vises == ["44.2123,-1.2851"]
+
+    assert client.get("/api/parcelles/vue-rue",
+                      params={"parcelle_id": "INCONNUE"}).status_code == 404

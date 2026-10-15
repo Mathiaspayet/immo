@@ -364,10 +364,15 @@ function blocVentes(ventes) {
  */
 function vueDeRue(bien) {
   if (bien.latitude == null || bien.longitude == null) return "";
+  // Un diagnostic, ou à défaut une parcelle : le serveur retrouve la
+  // position, l'adresse de la page n'en porte aucune.
+  const cible = bien.n_dpe
+    ? `n_dpe=${encodeURIComponent(bien.n_dpe)}`
+    : `parcelle_id=${encodeURIComponent(bien.parcelle_id)}`;
   return `
   <figure class="extrait extrait-rue" id="figure-rue" hidden>
     <img id="image-rue" alt="Vue depuis la rue"
-         src="/api/parcelles/vue-rue?n_dpe=${encodeURIComponent(bien.n_dpe)}">
+         src="/api/parcelles/vue-rue?${cible}">
     <figcaption>
       <span>Vue depuis la rue</span>
       <span class="donnee">Google</span>
@@ -698,9 +703,15 @@ async function ouvrirFicheParcelle(identifiant) {
             ? entierFr.format(parcelle.emprise_batie_m2) + " m²" : "—"}</dd></div>
           <div><dt>bâtiments</dt><dd>${entierFr.format(parcelle.nb_batiments ?? 0)}</dd></div>
         </dl>
+        <div class="liens">${liensExternes({
+          latitude: parcelle.latitude, longitude: parcelle.longitude,
+          adresse: diagnostics[0]?.adresse })}</div>
         ${boutonEstimer()}
       </div>
     </div>
+
+    ${vueDeRue({ latitude: parcelle.latitude, longitude: parcelle.longitude,
+                 parcelle_id: parcelle.id })}
 
     ${blocVentes(ventes)}
 
@@ -734,6 +745,7 @@ async function ouvrirFicheParcelle(identifiant) {
   $("#fiche-retour").addEventListener("click", revenir);
   $("#fiche-estimer")?.addEventListener("click", () =>
     ouvrirEstimation({ parcelle_id: parcelle.id, retour: "fiche" }));
+  brancherVueDeRue();
 }
 
 
