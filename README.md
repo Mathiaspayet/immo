@@ -742,9 +742,73 @@ L'application répond alors sur `http://<nas>:8020`. Le port 8000 étant déjà
 pris par `gestion-locative`, celui-ci est décalé — modifiable par
 `VEILLE_PORT_HOTE` dans un `.env`.
 
-Publication en HTTPS : **DSM → Portail des applications → Proxy inversé**,
-avec authentification. L'application n'a pas de gestion de comptes : elle
-n'est pas destinée à être exposée telle quelle (CDC §9).
+Publication en HTTPS : **DSM → Portail des applications → Proxy inversé**.
+L'application demande désormais un mot de passe (ci-dessous) ; le proxy
+reste la bonne porte pour l'ouvrir hors de la maison, en HTTPS.
+
+### Le mot de passe
+
+Un seul mot de passe, aucun compte. C'est un **écart assumé au CDC §9**,
+qui voulait l'application sans authentification derrière le proxy : elle a
+été demandée protégée.
+
+**Le choisir.** À la première ouverture après la mise à jour, l'écran
+propose d'envoyer un lien par courriel. Il part :
+
+- à l'adresse posée dans le conteneur, `VEILLE_ACCES_COURRIEL`, si elle
+  existe ;
+- sinon à **l'adresse des alertes** enregistrée dans les Réglages.
+
+L'écran montre l'adresse masquée (`m•••••@gmail.com`) pour qu'on la
+reconnaisse. Le lien ouvre l'application sur un formulaire « Nouveau mot
+de passe » (10 caractères au moins). Il vaut **une fois, trente minutes**.
+Le courriel part par le serveur d'envoi déjà réglé pour les alertes.
+
+**L'oublier.** « Mot de passe oublié ? » sur l'écran de connexion renvoie le
+même lien, à la même adresse. Le choix d'un nouveau mot de passe
+déconnecte tous les appareils, et un second courriel prévient que le mot
+de passe a changé : utile si ce n'était pas vous.
+
+**Le changer, se déconnecter** : Réglages → Accès.
+
+**Le recours depuis le NAS**, si le courriel ne peut pas partir (serveur
+d'envoi absent, adresse périmée). Dans Container Manager → Conteneur →
+`veille_immo` → Terminal → Créer, ou en SSH :
+
+```bash
+docker exec veille_immo python -m app.metier.acces
+```
+
+La commande imprime `/#acces=…` : l'ouvrir à l'adresse habituelle,
+`http://<nas>:8020/#acces=…`. Avoir la main sur le conteneur, c'est déjà
+être le propriétaire.
+
+**Ce qui est fermé** : toute l'API et sa documentation. Restent ouverts la
+sonde de santé de Docker (`/api/sante`), les routes de connexion, et les
+fichiers de l'interface — ils ne portent aucune donnée, et c'est eux qui
+affichent l'écran de connexion. Une liste blanche : une route ajoutée
+demain est protégée sans qu'on y pense.
+
+**Ce qui est gardé** : rien en clair. Le mot de passe est dérivé par scrypt
+(sel aléatoire, 16 Mo par essai) ; les liens et les sessions ne sont gardés
+que par leur empreinte SHA-256. Une sauvegarde de la base n'ouvre donc pas
+l'application. La session vit dans un cookie `HttpOnly`, `SameSite=Strict`,
+`Secure` derrière HTTPS ; elle tombe après trente jours sans venir.
+
+**Les essais** : après cinq mots de passe faux, chaque essai attend une
+seconde, puis deux, quatre… jusqu'à une minute. Au plus un lien par minute
+et cinq par heure.
+
+**Deux variables facultatives** du conteneur :
+
+| Variable | Rôle |
+|---|---|
+| `VEILLE_ACCES_COURRIEL` | l'adresse du lien, si ce n'est pas celle des alertes. L'écran ne peut pas la changer : c'est le recours de qui tient le NAS. |
+| `VEILLE_URL` | l'adresse de l'application, par exemple `https://immo.mondomaine.fr`. Sans elle, le lien reprend celle de la page qui l'a demandé — juste, sauf requête forgée pour le faire pointer ailleurs. La poser ferme cette porte. |
+
+Comme toute variable du compose, elles ne prennent effet qu'à la
+**recréation** du conteneur (Container Manager → Projet → Construire), pas
+à une simple mise à jour par Watchtower.
 
 ### Mises à jour
 
@@ -1028,14 +1092,19 @@ Aucune autre. Ni CDN, ni police distante, ni mesure d'audience. Les liens
 Satellite, Street View et Géoportail d'une fiche ouvrent un nouvel onglet :
 rien ne part tant qu'on ne clique pas.
 
-L'application n'a pas d'authentification — elle vit sur le réseau local
-(CDC 9). Une page d'un **autre site**, ouverte dans le même navigateur,
-pouvait pourtant déclencher ses actions : une requête POST sans corps part
+Avant le mot de passe, l'application n'avait pas d'authentification —
+elle vivait sur le réseau local (CDC 9). Une page d'un **autre site**,
+ouverte dans le même navigateur, pouvait déclencher ses actions : une requête POST sans corps part
 sans contrôle préalable du navigateur. Les navigateurs disent d'où vient
 une requête (`Sec-Fetch-Site`) ; celles d'un autre site sont refusées, sauf
 les simples lectures, et la vue de rue — facturée — l'est aussi. Le
 contrôle porte sur ce que voit le navigateur, il tient donc derrière un
-proxy inverse.
+proxy inverse. Le contrôle reste en place : le cookie de session, posé
+`SameSite=Strict`, ne part déjà pas avec une requête venue d'ailleurs, et
+les deux protections se doublent.
+
+Le lien du mot de passe ne fait partir aucune requête vers un tiers : il
+passe par le serveur d'envoi des alertes.
 
 ---
 

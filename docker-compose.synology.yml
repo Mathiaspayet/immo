@@ -28,8 +28,13 @@
 #     les cinq minutes.
 #
 #  PUBLICATION EN HTTPS
-#     DSM > Portail des applications > Proxy inverse, avec authentification.
-#     L'application n'a pas de gestion de comptes (CDC 9).
+#     DSM > Portail des applications > Proxy inverse.
+#
+#  MOT DE PASSE
+#     A la premiere ouverture, l'ecran propose d'envoyer un lien par
+#     courriel pour le choisir : a VEILLE_ACCES_COURRIEL si elle est posee
+#     ci-dessous, sinon a l'adresse des alertes. Recours si le courriel ne
+#     part pas : docker exec veille_immo python -m app.metier.acces
 # ====================================================================
 
 services:
@@ -69,6 +74,13 @@ services:
       VEILLE_PLANIFICATEUR: ${VEILLE_PLANIFICATEUR:-}
       # DEBUG, INFO, WARNING, ERROR.
       VEILLE_LOG: ${VEILLE_LOG:-}
+      # L'adresse ou part le lien du mot de passe. Vide : celle des alertes,
+      # enregistree dans les Reglages. Posee ici, l'ecran ne peut pas la
+      # changer — c'est le recours de qui tient le NAS.
+      VEILLE_ACCES_COURRIEL: ${VEILLE_ACCES_COURRIEL:-}
+      # L'adresse a laquelle on ouvre l'application, pour ce meme lien
+      # (https://immo.mondomaine.fr). Vide : celle de la page qui le demande.
+      VEILLE_URL: ${VEILLE_URL:-}
       # Ou vont les copies datees de la base, faites apres chaque import.
       # Par defaut a cote d'elle, DANS le volume Docker — ce qui protege de
       # l'effacement et de la corruption, mais pas de la panne du disque et

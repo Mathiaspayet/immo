@@ -19,6 +19,12 @@ async function demander(url, options = {}) {
     );
   }
 
+  // Plus de session : l'écran d'accès s'en charge (acces.js). Pas pour
+  // ses propres routes — un mot de passe faux répond 401 lui aussi.
+  if (reponse.status === 401 && !url.startsWith("/api/acces")) {
+    window.dispatchEvent(new CustomEvent("acces-requis"));
+  }
+
   if (!reponse.ok) {
     let detail = "";
     try {
@@ -58,8 +64,26 @@ export function versParametres(filtres) {
   return parametres;
 }
 
+function envoyerJson(url, corps) {
+  return demander(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corps),
+  });
+}
+
 export const api = {
   sante: () => demander("/api/sante"),
+
+  // --- Accès ------------------------------------------------------
+  etatAcces: () => demander("/api/acces"),
+  demanderLien: () => demander("/api/acces/lien", { method: "POST" }),
+  definirMotDePasse: (jeton, motdepasse) =>
+    envoyerJson("/api/acces/definir", { jeton, motdepasse }),
+  seConnecter: (motdepasse) => envoyerJson("/api/acces/connexion", { motdepasse }),
+  changerMotDePasse: (actuel, nouveau) =>
+    envoyerJson("/api/acces/changer", { actuel, nouveau }),
+  seDeconnecter: (partout) => envoyerJson("/api/acces/deconnexion", { partout }),
 
   communes: () => demander("/api/communes"),
 

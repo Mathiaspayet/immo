@@ -16,8 +16,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from app import config, planificateur
+from app.api import acces as api_acces
 from app.api import communes as api_communes
 from app.api import estimation as api_estimation
 from app.api import alertes as api_alertes
@@ -28,6 +30,7 @@ from app.api import parcelles as api_parcelles
 from app.api import reglages as api_reglages
 from app.api import veille as api_veille
 from app.base import migrations
+from app.metier import acces
 
 logging.basicConfig(
     level=getattr(logging, config.NIVEAU_LOG, logging.INFO),
@@ -58,8 +61,8 @@ application = FastAPI(
     description="Reperer les maisons susceptibles d'etre vendues, avant les annonces.",
     version=config.VERSION,
     lifespan=cycle_de_vie,
-    # L'application n'est pas exposee publiquement (CDC 9), la documentation
-    # interactive reste donc accessible : elle est utile pour deboguer.
+    # La documentation interactive reste servie, utile pour deboguer : elle
+    # est derriere le mot de passe, comme le reste de l'API.
     docs_url="/api/documentation",
     redoc_url=None,
 )
@@ -97,6 +100,37 @@ async def refuser_les_autres_sites(requete: Request, suite):
     return await suite(requete)
 
 
+# Ce qu'on atteint sans etre connecte : la sonde de sante de Docker, et de
+# quoi se connecter. Tout le reste de l'API, et sa documentation, demande
+# une session. Les fichiers de l'interface restent servis : ils ne portent
+# aucune donnee, et c'est eux qui affichent l'ecran de connexion.
+OUVERTS = {"/api/sante", "/api/acces", "/api/acces/lien", "/api/acces/definir",
+           "/api/acces/connexion", "/api/acces/deconnexion"}
+
+# Les tests des autres fonctions le baissent (tests/conftest.py) ; aucune
+# variable d'environnement ne le touche.
+EXIGER_ACCES = True
+
+
+@application.middleware("http")
+async def exiger_le_mot_de_passe(requete: Request, suite):
+    """
+    Pas de session, pas de donnees. Une liste blanche plutot qu'une liste
+    noire : une route ajoutee demain est protegee sans qu'on y pense, et
+    une adresse mal formee (« /api/acces/ », une majuscule) retombe du cote
+    ferme.
+    """
+    chemin = requete.url.path
+    protege = chemin.startswith("/api") or chemin == "/openapi.json"
+    if EXIGER_ACCES and protege and chemin not in OUVERTS:
+        jeton = requete.cookies.get(acces.COOKIE)
+        if not (jeton and await run_in_threadpool(acces.session_valide, jeton)):
+            return JSONResponse(status_code=401,
+                                content={"detail": "Connexion requise : saisissez le mot de passe."})
+    return await suite(requete)
+
+
+application.include_router(api_acces.routeur)
 application.include_router(api_veille.routeur)
 application.include_router(api_communes.routeur)
 application.include_router(api_imports.routeur)

@@ -8,6 +8,7 @@
 // ====================================================================
 
 import { api } from "./api.js";
+import { garantirAcces, initialiserAccesReglages } from "./acces.js";
 import { lancerImport, reprendreSuiviEventuel } from "./import.js";
 import { initialiserExploration } from "./exploration.js";
 import { initialiserReglages, rafraichirReglages } from "./reglages.js";
@@ -591,6 +592,9 @@ async function chargerJournal() {
 // --------------------------------------------------------------------
 
 async function demarrer() {
+  // Rien ne démarre sans session : chaque écran n'aurait que des refus.
+  await garantirAcces();
+
   document.querySelectorAll("[data-vue]").forEach((bouton) => {
     bouton.addEventListener("click", () => changerVue(bouton.dataset.vue));
   });
@@ -613,6 +617,7 @@ async function demarrer() {
 
   initialiserIdentification();
   initialiserEstimation();
+  initialiserAccesReglages();
 
   await rafraichirReglages().catch(() => {});
   afficherVersion();

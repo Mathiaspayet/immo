@@ -74,6 +74,20 @@ FUSEAU = _reglage("TZ", "Europe/Paris")
 # non, le NAS dit oui.
 PLANIFICATEUR_ACTIF = _reglage("VEILLE_PLANIFICATEUR", "1") != "0"
 
+# --- Acces -----------------------------------------------------------
+# Ou part le lien qui choisit ou remplace le mot de passe. Vide, c'est
+# l'adresse des alertes, enregistree dans l'ecran Reglages.
+#
+# Celui-la releve bien du DEPLOIEMENT : c'est le recours de qui a la main
+# sur le NAS. Une adresse que l'ecran peut changer ne protege que tant que
+# personne d'autre ne s'y est connecte ; celle-ci, l'ecran n'y touche pas.
+COURRIEL_ACCES = _reglage("VEILLE_ACCES_COURRIEL", "").strip()
+# L'adresse a laquelle on ouvre l'application, pour le lien du courriel.
+# Vide, c'est celle de la page qui demande le lien : juste dans tous les
+# cas, sauf si quelqu'un forge sa requete pour faire pointer le lien
+# ailleurs. La poser ferme cette porte.
+URL_PUBLIQUE = _reglage("VEILLE_URL", "").strip().rstrip("/")
+
 # --- Identite du build (injectee par GitHub Actions) -----------------
 VERSION = os.environ.get("BUILD_VERSION", "dev")
 DATE_BUILD = os.environ.get("BUILD_DATE", "inconnue")

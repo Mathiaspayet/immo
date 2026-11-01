@@ -336,3 +336,32 @@ input:focus-visible, select:focus-visible { border-color: var(--atlantique); }
 @media (max-width: 700px) {
   .bandeau .version { font-size: 0.62rem; }
 }
+
+/* --- L'écran d'accès ---------------------------------------------- */
+/* Tant qu'on n'est pas connecté, il est seul à l'écran : les onglets et
+   les vues n'auraient que des refus du serveur à montrer. */
+.verrouille .onglets,
+.verrouille .contenu,
+.verrouille #progression,
+.verrouille #erreur,
+.verrouille #succes { display: none !important; }
+
+.ecran-acces {
+  display: flex;
+  justify-content: center;
+  padding: calc(var(--pas) * 10) calc(var(--pas) * 4);
+}
+.acces-carte {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pas) * 3);
+  padding: calc(var(--pas) * 6);
+  background: var(--papier-carte);
+  border: 1px solid var(--trait);
+  border-radius: var(--rayon);
+}
+.acces-carte p { margin: 0; }
+.acces-carte .explication { color: var(--encre-douce); font-size: 0.9rem; }
+.acces-formulaire { display: flex; flex-direction: column; gap: calc(var(--pas) * 3); }

@@ -36,6 +36,44 @@
 <p class="message message-erreur" id="erreur" role="alert" hidden></p>
 <p class="message message-succes" id="succes" role="status" aria-live="polite" hidden></p>
 
+<!-- =========================== ACCÈS =============================
+     Seul écran montré tant qu'on n'est pas connecté (voir acces.js). -->
+<section id="ecran-acces" class="ecran-acces" aria-labelledby="acces-titre" hidden>
+  <div class="acces-carte">
+    <h2 id="acces-titre">Accès</h2>
+    <p class="explication" id="acces-explication"></p>
+    <form id="acces-connexion" class="acces-formulaire" hidden>
+      <!-- Un identifiant caché : sans lui, les gestionnaires de mots de
+           passe ne savent pas à quoi rattacher celui-ci. -->
+      <input type="text" name="identifiant" autocomplete="username"
+             value="veille-immobiliere" hidden>
+      <div class="champ">
+        <label for="acces-motdepasse">Mot de passe</label>
+        <input type="password" id="acces-motdepasse" class="donnee"
+               autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="bouton bouton-principal">Se connecter</button>
+    </form>
+    <form id="acces-definir" class="acces-formulaire" hidden>
+      <input type="text" name="identifiant" autocomplete="username"
+             value="veille-immobiliere" hidden>
+      <div class="champ">
+        <label for="acces-nouveau">Nouveau mot de passe</label>
+        <input type="password" id="acces-nouveau" class="donnee"
+               autocomplete="new-password" minlength="10" required>
+      </div>
+      <div class="champ">
+        <label for="acces-confirmation">Confirmer</label>
+        <input type="password" id="acces-confirmation" class="donnee"
+               autocomplete="new-password" minlength="10" required>
+      </div>
+      <button type="submit" class="bouton bouton-principal">Enregistrer le mot de passe</button>
+    </form>
+    <p><button type="button" class="bouton" id="acces-lien">Recevoir le lien par courriel</button></p>
+    <p class="message" id="acces-message" role="status" aria-live="polite" hidden></p>
+  </div>
+</section>
+
 <main class="contenu">
 
   <!-- =========================== ACCUEIL ============================ -->
@@ -841,6 +879,47 @@
         <button type="button" class="bouton" id="essai-relancer">Réessayer</button>
       </div>
     </dialog>
+
+    <section id="reglage-acces">
+      <h2>Accès</h2>
+      <p class="explication">
+        L'application demande un mot de passe. Oublié, il se remplace par un
+        lien envoyé à <span class="donnee" id="acces-destinataire"></span>
+        depuis l'écran de connexion. Le changer ici déconnecte les autres
+        appareils.
+      </p>
+      <form id="acces-changer">
+        <input type="text" name="identifiant" autocomplete="username"
+               value="veille-immobiliere" hidden>
+        <div class="grille-champs">
+          <div class="champ">
+            <label for="acces-actuel">Mot de passe actuel</label>
+            <input type="password" id="acces-actuel" class="donnee"
+                   autocomplete="current-password" required>
+          </div>
+          <div class="champ">
+            <label for="acces-change-nouveau">Nouveau (10 caractères au moins)</label>
+            <input type="password" id="acces-change-nouveau" class="donnee"
+                   autocomplete="new-password" minlength="10" required>
+          </div>
+          <div class="champ">
+            <label for="acces-change-confirmation">Confirmer le nouveau</label>
+            <input type="password" id="acces-change-confirmation" class="donnee"
+                   autocomplete="new-password" minlength="10" required>
+          </div>
+        </div>
+        <p>
+          <button type="submit" class="bouton bouton-principal">Changer le mot de passe</button>
+        </p>
+      </form>
+      <p class="message" id="acces-changer-message" role="status" aria-live="polite" hidden></p>
+      <p>
+        <button type="button" class="bouton" id="acces-deconnexion">Se déconnecter</button>
+        <button type="button" class="bouton" id="acces-deconnexion-partout">
+          Déconnecter tous les appareils
+        </button>
+      </p>
+    </section>
 
     <section>
       <h2>Journal des imports</h2>

@@ -52,6 +52,17 @@ def sans_reseau(monkeypatch):
     ademe.oublier_schemas()
 
 
+@pytest.fixture(autouse=True)
+def acces_ouvert(monkeypatch):
+    """
+    Les tests des autres fonctions n'ont pas a se connecter : le mot de
+    passe a les siens (test_acces.py), qui relevent la barriere.
+    """
+    monkeypatch.setattr("app.main.EXIGER_ACCES", False)
+    from app.metier import acces
+    acces._oublier_echecs()
+
+
 # Toutes les tables que l'application remplit. Une table oubliee ici fuit
 # d'un test a l'autre : les mutations d'un test se retrouvaient dans le
 # suivant, qui echouait sur une contrainte d'unicite.
@@ -60,7 +71,7 @@ TABLES = ("dpe", "parcelle", "batiment", "mutation", "mutation_parcelle",
           "journal_alerte", "vente_reference", "terrain_reference",
           "departement_reference", "modele_estimation", "estimation",
           "indice_officiel", "loyer_commune", "source_maj", "modele_boosting",
-          "parcelle_filiation")
+          "parcelle_filiation", "acces", "acces_jeton", "acces_session")
 
 
 def _vider(conn):
