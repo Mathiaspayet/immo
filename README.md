@@ -169,6 +169,17 @@ Pinsons, 2 avenue de Woolsack.
 
 ### La carte d'exploration
 
+**Elle s'ouvre sur la mairie**, à l'échelle du quartier. Elle s'ouvrait au
+milieu du rectangle des diagnostics connus : sur une commune étendue, ce
+milieu tombe en pleine pinède (Mimizan, qui va de l'océan aux landes), et
+un seul diagnostic mal géolocalisé suffit à le déplacer de plusieurs
+centaines de kilomètres — Aureilhan s'ouvrait dans les Deux-Sèvres, à cause
+de vieux diagnostics que l'ADEME place à Bayeux ou à Niort. La position de
+la mairie vient du référentiel de l'État (`geo.api.gouv.fr`), lue au
+téléchargement de la commune et gardée en base : ouvrir la carte ne fait
+partir aucune requête. Les communes déjà en base la reçoivent au prochain
+import automatique.
+
 On parcourt la commune sur photo aérienne IGN, parcellaire en surimpression,
 chaque parcelle colorée selon ce qu'on en sait :
 

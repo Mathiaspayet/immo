@@ -50,9 +50,14 @@ def communes_en_cache():
         # inconnu, et la variante la plus frequente des DPE reprend la
         # main — sans quoi une base deja marquee afficherait « 40184 »
         # jusqu'a un import reussi.
-        officiels = {ligne["code_insee"]: ligne["nom"]
-                     for ligne in conn.execute("SELECT code_insee, nom FROM commune")
+        registre = conn.execute(
+            "SELECT code_insee, nom, mairie_latitude, mairie_longitude FROM commune").fetchall()
+        officiels = {ligne["code_insee"]: ligne["nom"] for ligne in registre
                      if ligne["nom"] and ligne["nom"] != ligne["code_insee"]}
+        # La ou la carte s'ouvre : la mairie, quand le referentiel l'a donnee.
+        mairies = {ligne["code_insee"]: {"latitude": ligne["mairie_latitude"],
+                                         "longitude": ligne["mairie_longitude"]}
+                   for ligne in registre if ligne["mairie_latitude"] is not None}
         lignes = conn.execute(
             "SELECT code_insee, commune, code_postal, count(*) AS dpe "
             "FROM dpe WHERE code_insee IS NOT NULL "
@@ -80,6 +85,7 @@ def communes_en_cache():
             "dpe": 0,
             "variantes": [],
             "cadre": cadres.get(ligne["code_insee"]),
+            "mairie": mairies.get(ligne["code_insee"]),
         })
         entree["dpe"] += ligne["dpe"]
         if ligne["commune"] and ligne["commune"] not in entree["variantes"]:

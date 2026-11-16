@@ -705,3 +705,78 @@ def test_l_export_ne_laisse_pas_une_adresse_devenir_une_formule(base):
     assert "'=HYPERLINK" in contenu
     assert ";=HYPERLINK" not in contenu and '"=HYPERLINK' not in contenu
     assert "12 rue de l'Égalité" in contenu
+
+
+# ---------------------------------------------------------------------
+#  La mairie : la ou la carte s'ouvre
+# ---------------------------------------------------------------------
+
+def _mairie_en_base(code_insee="40184"):
+    from app.base.connexion import connexion
+    with connexion() as conn:
+        ligne = conn.execute("SELECT mairie_latitude, mairie_longitude FROM commune"
+                             " WHERE code_insee = ?", (code_insee,)).fetchone()
+    return None if ligne is None else (ligne["mairie_latitude"], ligne["mairie_longitude"])
+
+
+def test_le_referentiel_donne_la_mairie(monkeypatch):
+    """La reponse reelle de geo.api.gouv.fr pour Mimizan, le 16/11/2026."""
+    from app.sources import geo
+    reponse = {"nom": "Mimizan", "code": "40184", "codesPostaux": ["40200"],
+               "population": 7673, "departement": {"nom": "Landes"},
+               "mairie": {"type": "Point", "coordinates": [-1.2282, 44.2005]}}
+    monkeypatch.setattr(geo, "appeler", lambda url: reponse)
+    assert geo.commune_par_insee("40184")["mairie"] == (44.2005, -1.2282)
+
+    for absurde in (None, {}, {"coordinates": ["a", "b"]}, {"coordinates": [200, 95]}):
+        monkeypatch.setattr(geo, "appeler", lambda url, m=absurde: {**reponse, "mairie": m})
+        assert geo.commune_par_insee("40184")["mairie"] is None
+
+
+def test_la_moisson_note_la_mairie_et_un_referentiel_muet_ne_l_efface_pas(base, monkeypatch):
+    _moissonner_hors_ligne(monkeypatch, [{"code_insee": "40184", "nom": "Mimizan",
+                                      "code_postal": "40200", "mairie": (44.2005, -1.2282)}])
+    assert _mairie_en_base() == (44.2005, -1.2282)
+
+    _moissonner_hors_ligne(monkeypatch, [{"code_insee": "40184", "nom": "40184",
+                                      "code_postal": None}])
+    assert _mairie_en_base() == (44.2005, -1.2282)
+
+
+def test_le_registre_des_communes_dit_ou_est_la_mairie(base):
+    from app.base.connexion import transaction
+    inserer_dpe(n_dpe="A", code_insee="40184", latitude=44.15, longitude=-1.30)
+    inserer_dpe(n_dpe="B", code_insee="40184", latitude=44.27, longitude=-1.15)
+    assert veille.communes_en_cache()[0]["mairie"] is None        # pas encore lue
+
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom, mairie_latitude, mairie_longitude)"
+                     " VALUES ('40184', 'Mimizan', 44.2005, -1.2282)")
+    commune = veille.communes_en_cache()[0]
+    assert commune["mairie"] == {"latitude": 44.2005, "longitude": -1.2282}
+    # Le milieu du rectangle, lui, tombait en pleine pinede.
+    milieu = ((commune["cadre"]["lat_min"] + commune["cadre"]["lat_max"]) / 2,
+              (commune["cadre"]["lon_min"] + commune["cadre"]["lon_max"]) / 2)
+    assert milieu != (44.2005, -1.2282)
+
+
+def test_l_import_quotidien_complete_les_mairies_manquantes(base, monkeypatch):
+    """Une commune moissonnee avant cette version n'a pas a etre reconsultee."""
+    from app.base.connexion import transaction
+    from app.metier import import_dpe
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom) VALUES ('40184', 'Mimizan')")
+        conn.execute("INSERT INTO commune (code_insee, nom, mairie_latitude, mairie_longitude)"
+                     " VALUES ('40019', 'Aureilhan', 44.22, -1.20)")
+    demandes = []
+
+    def referentiel(code_insee):
+        demandes.append(code_insee)
+        return {"nom": "Mimizan", "mairie": (44.2005, -1.2282)}
+
+    monkeypatch.setattr("app.sources.geo.commune_par_insee", referentiel)
+    import_dpe._completer_mairies()
+
+    assert demandes == ["40184"]                  # pas de requete pour qui l'a deja
+    assert _mairie_en_base("40184") == (44.2005, -1.2282)
+    assert _mairie_en_base("40019") == (44.22, -1.20)

@@ -429,8 +429,9 @@ async function chargerListe() {
  * Amène la carte sur la commune, la première fois seulement.
  *
  * Le parcours ne retient de la commune que son code et son nom — ils
- * viennent des attributs du bouton cliqué. On va donc chercher son étendue
- * au registre, qui la tient des positions des DPE.
+ * viennent des attributs du bouton cliqué. On va donc chercher au registre
+ * sa mairie, notée à la moisson, et à défaut son étendue, qu'il tient des
+ * positions des DPE.
  *
  * « La première fois seulement » compte : revenir sur la carte après avoir
  * ouvert une fiche doit retrouver l'endroit qu'on regardait, pas repartir
@@ -454,7 +455,7 @@ async function cadrerSurLaCommune() {
     const trouvee = communes.find((c) => c.code_insee === commune.code_insee);
     if (trouvee?.cadre) {
       communeCadree = commune.code_insee;
-      carte.cadrerSur(trouvee.cadre);
+      carte.cadrerSur(trouvee.cadre, 16, trouvee.mairie);
     }
   } catch (_) { /* on reste où on est : ce n'est pas bloquant */ }
 }

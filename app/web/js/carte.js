@@ -653,10 +653,18 @@ export function creerCarteExploration(identifiant,
      * Cadrer la commune entière n'est pas ce qu'on veut : Mimizan fait 7 km
      * de large, ce qui place la carte sous le seuil d'affichage des
      * parcelles — on arriverait sur une photo vide et un message. On se
-     * pose donc au centre, à une échelle de quartier, quitte à laisser
-     * dézoomer ensuite.
+     * pose donc à une échelle de quartier, quitte à laisser dézoomer
+     * ensuite.
+     *
+     * Et pas au milieu : sur une commune étendue, le milieu tombe en pleine
+     * pinède. On se pose à la MAIRIE quand on la connaît — c'est là qu'on
+     * vit —, au milieu des diagnostics connus sinon.
      */
-    cadrerSur(bornes, zoom = 16) {
+    cadrerSur(bornes, zoom = 16, mairie = null) {
+      if (mairie?.latitude != null && mairie?.longitude != null) {
+        carte.setView([mairie.latitude, mairie.longitude], zoom);
+        return;
+      }
       const latitude = (bornes.lat_min + bornes.lat_max) / 2;
       const longitude = (bornes.lon_min + bornes.lon_max) / 2;
       carte.setView([latitude, longitude], zoom);

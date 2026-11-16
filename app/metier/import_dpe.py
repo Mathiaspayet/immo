@@ -309,7 +309,8 @@ def importer_commune(code_insee, declencheur="commune", jeux=None,
         _publier(cible=quoi, etape=f"demarrage — {quoi}")
         if avec_dpe:
             resume = _moissonner([{"code_insee": code_insee, "nom": nom,
-                                   "code_postal": fiche.get("code_postal")}], jeux)
+                                   "code_postal": fiche.get("code_postal"),
+                                   "mairie": fiche.get("mairie")}], jeux)
     except Exception as erreur:                      # noqa: BLE001
         logger.exception("import de %s en echec : %s", nom, erreur)
         _terminer(journal_id, erreur=erreur)
@@ -391,9 +392,35 @@ def importer(declencheur="planifie", jeux=None, journal_id=None):
         cadastres = ""
     if cadastres:
         resume["message"] += f" · cadastre : {cadastres}"
+    try:
+        _completer_mairies()
+    except Exception as erreur:                      # noqa: BLE001
+        logger.warning("mairies non completees : %s", erreur)
 
     _terminer(journal_id, resume=resume)
     return resume
+
+
+def _completer_mairies():
+    """
+    Lit la mairie des communes deja consultees qui n'en ont pas encore.
+
+    Les communes moissonnees avant que l'application ne la retienne en
+    sont privees jusqu'a leur prochaine consultation, qui peut ne jamais
+    venir : l'import quotidien la leur donne. Une requete par commune, une
+    seule fois — ensuite elle est en base.
+    """
+    with connexion() as conn:
+        manquantes = [ligne["code_insee"] for ligne in conn.execute(
+            "SELECT code_insee FROM commune WHERE mairie_latitude IS NULL")]
+    for code_insee in manquantes:
+        fiche = geo.commune_par_insee(code_insee) or {}
+        if not fiche.get("mairie"):
+            continue
+        with transaction() as conn:
+            conn.execute("UPDATE commune SET mairie_latitude = ?, mairie_longitude = ?"
+                         " WHERE code_insee = ?", (*fiche["mairie"], code_insee))
+        logger.info("mairie de %s notee", fiche.get("nom") or code_insee)
 
 
 def _rafraichir_cadastres():
@@ -673,8 +700,9 @@ def _moissonner(communes, jeux=None):
         # rafraichissement hebdomadaire parcourra.
         for commune in communes:
             conn.execute(
-                "INSERT INTO commune (code_insee, nom, code_postal, derniere_maj_dpe) "
-                "VALUES (?, ?, ?, ?) "
+                "INSERT INTO commune (code_insee, nom, code_postal, mairie_latitude,"
+                " mairie_longitude, derniere_maj_dpe) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(code_insee) DO UPDATE SET "
                 # Un referentiel injoignable ne doit pas EFFACER un nom
                 # connu. Faute de reponse de geo.api.gouv.fr, `nom` retombe
@@ -685,9 +713,13 @@ def _moissonner(communes, jeux=None):
                 "  nom = coalesce(nullif(excluded.nom, excluded.code_insee), "
                 "                 commune.nom, excluded.nom), "
                 "  code_postal = coalesce(excluded.code_postal, commune.code_postal), "
+                # De meme pour la mairie : un referentiel muet ne l'efface pas.
+                "  mairie_latitude = coalesce(excluded.mairie_latitude, commune.mairie_latitude), "
+                "  mairie_longitude = coalesce(excluded.mairie_longitude, commune.mairie_longitude), "
                 "  derniere_maj_dpe = excluded.derniere_maj_dpe",
                 (commune["code_insee"], commune.get("nom") or commune["code_insee"],
-                 commune.get("code_postal"), maintenant))
+                 commune.get("code_postal"), *(commune.get("mairie") or (None, None)),
+                 maintenant))
 
         purges = _purger(conn, parametres["purge_mois"])
 

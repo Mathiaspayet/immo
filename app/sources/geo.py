@@ -91,10 +91,27 @@ def _pertinence(commune, recherche):
     return (rang, -(commune.get("population") or 0), nom)
 
 
+def _point(geometrie):
+    """(latitude, longitude) d'un Point GeoJSON, ou None s'il n'en est pas un."""
+    try:
+        longitude, latitude = (float(v) for v in (geometrie or {}).get("coordinates"))
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return None
+    return latitude, longitude
+
+
 def commune_par_insee(code_insee):
-    """Une commune precise, par son code INSEE."""
+    """
+    Une commune precise, par son code INSEE.
+
+    Avec sa mairie : c'est la que la carte s'ouvre. Le centre geometrique,
+    que le referentiel donne aussi, tombe sur une commune etendue en pleine
+    pinede — loin de tout ce qu'on vient y chercher.
+    """
     url = construire_url(f"{BASE}/{code_insee}",
-                         {"fields": "nom,code,codesPostaux,population,departement"})
+                         {"fields": "nom,code,codesPostaux,population,departement,mairie"})
     try:
         entree = appeler(url)
     except ErreurSource:
@@ -109,6 +126,7 @@ def commune_par_insee(code_insee):
         "codes_postaux": codes,
         "population": entree.get("population"),
         "departement": (entree.get("departement") or {}).get("nom"),
+        "mairie": _point(entree.get("mairie")),
     }
 
 
