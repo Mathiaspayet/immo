@@ -80,7 +80,7 @@ def _departement_valide(dep):
     if code.isdigit() and len(code) in (1, 2):
         return code.zfill(2)
     raise ValueError(
-        f"Numero de departement invalide : {dep!r}. Attendu deux chiffres"
+        f"Numéro de département invalide : {dep!r}. Attendu deux chiffres"
         " (40), « 2A »/« 2B », ou trois chiffres outre-mer (974).")
 
 
@@ -101,8 +101,8 @@ def _ressource(dep):
         if titre.split("-")[0].strip() == dep:
             return ressource.get("url"), titre
     raise ArchiveIntrouvable(
-        f"Aucune archive DVF pour le departement {dep} dans la compilation."
-        " Elle ne couvre pas tous les departements.")
+        f"Aucune archive DVF pour le département {dep} dans la compilation."
+        " Elle ne couvre pas tous les départements.")
 
 
 def telecharger(code_insee=None, dep=None, progression=None):
@@ -126,7 +126,7 @@ def telecharger(code_insee=None, dep=None, progression=None):
     """
     if bool(code_insee) == bool(dep):
         raise ValueError(
-            "Preciser une commune OU un departement, pas les deux ni aucun.")
+            "Préciser une commune OU un département, pas les deux ni aucun.")
 
     code_insee = str(code_insee).strip() if code_insee else None
     dep = departement(code_insee) if code_insee else _departement_valide(dep)

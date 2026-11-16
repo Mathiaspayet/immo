@@ -10,15 +10,25 @@ coupee par le navigateur, et l'utilisateur n'aurait aucun retour (CDC 7).
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.base import sauvegarde
-from app.metier import alertes, import_dpe, mutations
+from app.metier import alertes, import_dpe, mutations, valeurs
 from app.sources.dvf_archive import ArchiveIntrouvable
 
 logger = logging.getLogger(__name__)
 
 routeur = APIRouter(prefix="/api/import", tags=["import"])
+
+
+def _commune(code_insee):
+    """Le code INSEE recu, verifie — ou None s'il n'y en avait pas."""
+    if code_insee is None or str(code_insee).strip() == "":
+        return None
+    code = valeurs.code_insee(code_insee)
+    if code is None:
+        raise HTTPException(status_code=400, detail="Code INSEE invalide : cinq caractères attendus (40184, 2A004).")
+    return code
 
 
 @routeur.post("", status_code=202)
@@ -30,7 +40,7 @@ def lancer(code_insee: str = None):
     commune suffit a la mettre a jour. Il reste pour les reglages.
     """
     try:
-        import_dpe.lancer_en_tache_de_fond(declencheur="manuel", code_insee=code_insee)
+        import_dpe.lancer_en_tache_de_fond(declencheur="manuel", code_insee=_commune(code_insee))
     except RuntimeError as erreur:
         # 409 : la demande est legitime, mais l'etat actuel l'empeche.
         raise HTTPException(status_code=409, detail=str(erreur)) from erreur
@@ -44,7 +54,7 @@ def statut():
 
 
 @routeur.get("/journal")
-def journal(limite: int = 20):
+def journal(limite: int = Query(20, ge=1, le=500)):
     """Les derniers imports, succes comme echecs (CDC 8)."""
     return {"imports": import_dpe.journal(limite)}
 
@@ -57,7 +67,7 @@ def profondeur_ventes(code_insee: str = None):
     reglages. L'ecran ne peut pas la fournir : ses champs dorment masques
     et vides tant qu'on n'a pas clique sur « Modifier ».
     """
-    return mutations.profondeur(code_insee or alertes.commune_surveillee() or None)
+    return mutations.profondeur(_commune(code_insee) or alertes.commune_surveillee() or None)
 
 
 @routeur.post("/ventes/archive", status_code=200)
@@ -73,21 +83,22 @@ def reprendre_archive(code_insee: str = None, dep: str = None):
     telechargement de 34 Mo dominant largement. Un 202 obligerait a un
     second canal de suivi pour un geste qu'on ne fait qu'une fois.
     """
+    code_insee = _commune(code_insee)
     if dep and code_insee:
         # Preferer l'un en taisant l'autre serait pire qu'un refus : on
         # croirait avoir repris une commune et on aurait pris tout le
         # departement — 327 communes et 38 Mo au lieu de quelques-uns.
         raise HTTPException(
             status_code=400,
-            detail="Preciser une commune OU un departement, pas les deux.")
+            detail="Préciser une commune OU un département, pas les deux.")
     if not dep:
         code_insee = code_insee or alertes.commune_surveillee()
         if not code_insee:
             raise HTTPException(
                 status_code=400,
-                detail="Aucune commune surveillee : choisissez-la dans "
+                detail="Aucune commune surveillée : choisissez-la dans "
                        "« Alerte par courriel » ou « Secteurs », ou "
-                       "indiquez un departement.")
+                       "indiquez un département.")
     try:
         return mutations.reprendre_archive(
             code_insee=None if dep else code_insee, dep=dep or None)

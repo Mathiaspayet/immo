@@ -86,7 +86,8 @@ const ZONES = {
     cles: ["smtp_hote", "smtp_port", "smtp_ssl", "smtp_expediteur",
            "smtp_utilisateur", "smtp_motdepasse"],
     resume: (r) => r.smtp_hote ? [
-      ["Serveur", `${r.smtp_hote}:${entierFr.format(r.smtp_port)}`],
+      // Un port n'est pas une quantité : « 2 525 » ne se recopie nulle part.
+      ["Serveur", `${r.smtp_hote}:${r.smtp_port}`],
       ["Chiffrement", r.smtp_ssl ? "SSL direct" : "STARTTLS"],
       ["Adresse d'expédition", r.smtp_expediteur || "aucune"],
       ["Identifiant", r.smtp_utilisateur || "aucun (sans authentification)"],

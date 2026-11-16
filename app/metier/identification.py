@@ -46,6 +46,22 @@ CRITERES_ETIQUETTES = [
     ("etiquette_ges", "etiquette_ges", "classe GES"),
 ]
 
+# Ce que vaut, dans le classement, un critere que la base ne renseigne pas
+# pour un logement : une tolerance — ni pour, ni contre.
+#
+# Il ne comptait pour rien : l'ecart moyen se calculait sur les seuls
+# criteres renseignes. Un vieux diagnostic vierge de toute consommation,
+# mais de 125 m² tout rond, affichait donc un ecart de ZERO et passait
+# devant le seul logement qui collait aux trois chiffres de l'annonce —
+# 122,2 m², dans la tolerance, donc a 0,31. Mesure sur Mimizan, annonce du
+# 18 rue des Ecoles : 125 m², 511 kWh, 19 kg.
+#
+# A une tolerance, un logement renseigne et conforme sur tout reste devant
+# lui ; lui-meme reste devant un logement renseigne mais hors tolerance.
+ECART_SI_ABSENT = 1.0
+
+LIBELLES_TOLERANCES = {"surface": "la surface", "conso": "la consommation", "ges": "le GES"}
+
 
 def _candidats(filtres):
     """Tous les logements du perimetre, sans aucune elimination."""
@@ -99,19 +115,38 @@ def identifier(criteres, tolerances=None, filtres=None, combien=40):
     l'autre. Aucune ligne n'est ecartee du classement pour cause d'ecart
     trop grand.
     """
+    if not isinstance(criteres, dict):
+        raise ValueError("Les critères doivent former un ensemble clé/valeur.")
+    if tolerances is not None and not isinstance(tolerances, dict):
+        raise ValueError("Les tolérances doivent former un ensemble clé/valeur.")
+    if filtres is not None and not isinstance(filtres, dict):
+        raise ValueError("Les filtres doivent former un ensemble clé/valeur.")
+
     parametres = reglages.tous()
-    tolerances = {**parametres["tolerances"], **(tolerances or {})}
+    # Une tolerance laissee vide reprend celle des reglages.
+    saisies = {cle: valeur for cle, valeur in (tolerances or {}).items()
+               if valeur is not None and valeur != ""}
+    tolerances = {**parametres["tolerances"], **saisies}
     filtres = filtres or {}
 
-    lignes = _candidats(filtres)
-
     # --- Criteres effectivement renseignes par l'utilisateur -----------
+    # Un champ VIDE est ignore, c'est la regle. Un champ illisible ne l'est
+    # pas : « 1O » pour 10 ferait disparaitre un critere sans rien dire, et
+    # le classement paraitrait repondre a une question qu'on n'a pas posee.
     actifs = []
     for cle, colonne, cle_tolerance, unite, libelle in CRITERES_NUMERIQUES:
-        attendu = _nombre(criteres.get(cle))
-        if attendu is None:
+        brut = criteres.get(cle)
+        if brut is None or str(brut).strip() == "":
             continue
-        tolerance = float(tolerances.get(cle_tolerance) or 1)
+        attendu = _nombre(brut)
+        if attendu is None or isinstance(brut, bool):
+            raise ValueError(f"{libelle.capitalize()} : un nombre est attendu, pas « {brut} ».")
+        # Une tolerance nulle exigerait l'egalite au centieme ; negative,
+        # elle rendait tous les ecarts negatifs et tout le monde conforme.
+        tolerance = _nombre(tolerances.get(cle_tolerance))
+        if tolerance is None or tolerance <= 0:
+            raise ValueError(f"La tolérance sur {LIBELLES_TOLERANCES[cle_tolerance]} "
+                             "doit être un nombre supérieur à zéro.")
         actifs.append((cle, colonne, attendu, tolerance, unite, libelle))
 
     etiquettes_actives = []
@@ -119,6 +154,8 @@ def identifier(criteres, tolerances=None, filtres=None, combien=40):
         attendue = str(criteres.get(cle) or "").strip().upper()
         if attendue:
             etiquettes_actives.append((cle, colonne, attendue, libelle))
+
+    lignes = _candidats(filtres)
 
     # --- Entonnoir : chaque critere seul, puis en cumule ---------------
     entonnoir = []
@@ -181,7 +218,11 @@ def identifier(criteres, tolerances=None, filtres=None, combien=40):
         ligne = dict(ligne, ecarts=ecarts,
                      criteres_renseignes=renseignes,
                      etiquettes_concordantes=concordances)
-        ligne["ecart_moyen"] = round(total / renseignes, 3) if renseignes else None
+        # La moyenne porte sur TOUS les criteres saisis : celui que la base
+        # ne renseigne pas compte pour une tolerance (voir ECART_SI_ABSENT).
+        absents = len(actifs) - renseignes
+        ligne["ecart_moyen"] = (round((total + absents * ECART_SI_ABSENT) / len(actifs), 3)
+                                if renseignes else None)
         notes.append(ligne)
 
     if actifs:
@@ -196,8 +237,12 @@ def identifier(criteres, tolerances=None, filtres=None, combien=40):
                    reverse=False)
 
     return {
-        "criteres": criteres,
-        "tolerances": tolerances,
+        # Ce qui a ETE compris, pas ce qui a ete envoye : c'est ce que
+        # l'entonnoir et le classement ont reellement utilise.
+        "criteres": {**{cle: attendu for cle, _c, attendu, _t, _u, _l in actifs},
+                     **{cle: attendue for cle, _c, attendue, _l in etiquettes_actives}},
+        "tolerances": {cle: _nombre(valeur) for cle, valeur in tolerances.items()
+                       if cle in LIBELLES_TOLERANCES},
         "entonnoir": entonnoir,
         "examines": len(lignes),
         "classes": len(notes),
@@ -217,8 +262,8 @@ def _diagnostic(entonnoir, lignes, actifs, etiquettes, notes):
     s'ecarte le plus — c'est lui, le chiffre douteux de l'annonce.
     """
     if not lignes:
-        return ("Le cache est vide pour ce périmètre. Lancez un import depuis "
-                "l'écran Veille avant de chercher.")
+        return ("Le cache est vide pour ce périmètre. Choisissez la commune "
+                "depuis l'accueil : ses diagnostics seront téléchargés.")
     if not actifs and not etiquettes:
         return ("Saisissez au moins un chiffre de l'annonce : surface, "
                 "consommation ou émissions.")

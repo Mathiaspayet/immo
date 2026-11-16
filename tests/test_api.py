@@ -59,7 +59,7 @@ def test_deux_imports_simultanes_sont_refuses(client, monkeypatch):
     try:
         reponse = client.post("/api/import")
         assert reponse.status_code == 409
-        assert "deja en cours" in reponse.json()["detail"]
+        assert "déjà en cours" in reponse.json()["detail"]
     finally:
         monkeypatch.setitem(import_dpe._etat, "en_cours", False)
 
@@ -379,8 +379,9 @@ def test_une_position_chez_soi_ne_sort_pas_du_serveur(client, monkeypatch):
     C'est la garantie du bouton : se localiser dans la commune qu'on suit
     n'envoie la position a personne.
 
-    L'etendue des DPE deja en base suffit a repondre. Le referentiel de
-    l'Etat n'est la que pour les cas ou l'on est ailleurs.
+    Les donnees deja en base suffisent a repondre : ici, un diagnostic de
+    la commune a soixante metres. Le referentiel de l'Etat n'est la que
+    pour les cas ou l'on est ailleurs.
     """
     inserer_dpe(n_dpe="A", code_insee="40184", commune="Mimizan",
                 latitude=44.19, longitude=-1.24)
@@ -389,10 +390,54 @@ def test_une_position_chez_soi_ne_sort_pas_du_serveur(client, monkeypatch):
     _refuser_le_referentiel(monkeypatch)
 
     corps = client.get("/api/communes/ici",
-                       params={"latitude": 44.20, "longitude": -1.23}).json()
-    assert corps["source"] == "cadre"
+                       params={"latitude": 44.1905, "longitude": -1.2397}).json()
+    assert corps["source"] == "base"
     assert corps["commune"]["code_insee"] == "40184"
     assert corps["en_cache"] is True and corps["dpe"] == 2
+
+
+def test_une_position_dans_une_parcelle_de_la_commune_ne_sort_pas_non_plus(client, monkeypatch):
+    """Loin de tout diagnostic, mais DANS une parcelle : le cadastre ne deborde pas."""
+    import json
+
+    from app.base.connexion import transaction
+    inserer_dpe(n_dpe="A", code_insee="40184", commune="Mimizan", latitude=44.19, longitude=-1.24)
+    inserer_dpe(n_dpe="B", code_insee="40184", commune="Mimizan", latitude=44.21, longitude=-1.22)
+    anneau = [[-1.231, 44.199], [-1.229, 44.199], [-1.229, 44.201], [-1.231, 44.201], [-1.231, 44.199]]
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO parcelle (id, code_insee, section, numero, contenance_m2, latitude,"
+            " longitude, lat_min, lat_max, lon_min, lon_max, geometrie_json, importe_le)"
+            " VALUES ('401840000K0005', '40184', 'K', '5', 35000, 44.20, -1.23,"
+            " 44.199, 44.201, -1.231, -1.229, ?, '2026-10-01T07:00:00')",
+            (json.dumps({"type": "Polygon", "coordinates": [anneau]}),))
+    _refuser_le_referentiel(monkeypatch)
+
+    corps = client.get("/api/communes/ici",
+                       params={"latitude": 44.20, "longitude": -1.23}).json()
+    assert corps["source"] == "base" and corps["commune"]["code_insee"] == "40184"
+
+
+def test_le_rectangle_d_une_commune_ne_prouve_pas_qu_on_y_est(client, monkeypatch):
+    """
+    Le cadre de Mimizan, qui s'etire de l'ocean aux terres, recouvre le
+    bourg d'Aureilhan tout entier. S'y localiser repondait « vous etes a
+    Mimizan » — et la commune ou l'on se tenait n'etait jamais proposee.
+    Mesure : 44.2224, -1.2009, au coeur d'Aureilhan.
+    """
+    inserer_dpe(n_dpe="A", code_insee="40184", commune="Mimizan",
+                latitude=44.1459, longitude=-1.2989)
+    inserer_dpe(n_dpe="B", code_insee="40184", commune="Mimizan",
+                latitude=44.2262, longitude=-1.1541)
+    monkeypatch.setattr("app.sources.geo.commune_a", lambda lat, lon: {
+        "code_insee": "40019", "nom": "Aureilhan", "code_postal": "40200",
+        "codes_postaux": ["40200"], "population": 1100, "departement": "Landes"})
+
+    corps = client.get("/api/communes/ici",
+                       params={"latitude": 44.2224, "longitude": -1.2009}).json()
+    assert corps["source"] == "referentiel"
+    assert corps["commune"]["nom"] == "Aureilhan"
+    assert corps["en_cache"] is False
 
 
 def test_une_position_ailleurs_est_identifiee_et_signalee_sans_donnees(client, monkeypatch):
@@ -428,6 +473,11 @@ def test_deux_etendues_qui_se_recouvrent_renvoient_au_referentiel(client, monkey
                 latitude=44.195, longitude=-1.235)
     inserer_dpe(n_dpe="D", code_insee="40019", commune="Aureilhan",
                 latitude=44.23, longitude=-1.20)
+    # A la limite des deux communes : un diagnostic de chacune a deux pas.
+    inserer_dpe(n_dpe="E", code_insee="40184", commune="Mimizan",
+                latitude=44.2003, longitude=-1.2303)
+    inserer_dpe(n_dpe="F", code_insee="40019", commune="Aureilhan",
+                latitude=44.1997, longitude=-1.2297)
     appels = []
     monkeypatch.setattr("app.sources.geo.commune_a", lambda lat, lon: (
         appels.append((lat, lon)),
@@ -437,10 +487,10 @@ def test_deux_etendues_qui_se_recouvrent_renvoient_au_referentiel(client, monkey
 
     corps = client.get("/api/communes/ici",
                        params={"latitude": 44.20, "longitude": -1.23}).json()
-    assert appels, "les deux cadres contiennent le point : il faut trancher"
+    assert appels, "les deux communes attestent du point : il faut trancher"
     assert corps["source"] == "referentiel"
     assert corps["commune"]["nom"] == "Aureilhan"
-    assert corps["en_cache"] is True and corps["dpe"] == 2
+    assert corps["en_cache"] is True and corps["dpe"] == 3
 
 
 def test_un_referentiel_muet_ne_casse_pas_l_ecran(client, monkeypatch):

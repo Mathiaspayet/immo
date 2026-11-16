@@ -10,7 +10,7 @@ de ces routes ne declenche d'appel externe (CDC 4).
 import datetime
 import logging
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import Response
 
 from app.metier import veille
@@ -64,8 +64,10 @@ PARAMETRES = dict(
     code_insee=Query(None, description="Filtre exact sur la commune"),
     zone=Query(None, description="bourg, plage, ..."),
     type_batiment=Query(None),
-    surface_min=Query(None, ge=0),
-    surface_max=Query(None, ge=0),
+    # Bornees des deux cotes : « 1e309 » se lit « infini », passe « au moins
+    # zero », et la reponse ne savait plus s'ecrire.
+    surface_min=Query(None, ge=0, le=100000),
+    surface_max=Query(None, ge=0, le=100000),
     etiquettes=Query(None, description="Classes energetiques retenues"),
     seulement_nouveaux=Query(False),
     defauts=Query(True, description="completer les criteres absents par les reglages"),
@@ -130,5 +132,11 @@ def marquer_vus(corps: dict = Body(default=None)):
     « tout marquer comme vu ».
     """
     numeros = (corps or {}).get("numeros")
+    if numeros is not None:
+        if (not isinstance(numeros, list)
+                or any(isinstance(n, bool) or not isinstance(n, (str, int)) for n in numeros)):
+            raise HTTPException(status_code=400,
+                                detail="numeros : une liste de numéros de DPE est attendue.")
+        numeros = [str(n) for n in numeros]
     marques = veille.marquer_vus(numeros)
     return {"marques": marques}

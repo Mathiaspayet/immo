@@ -69,6 +69,17 @@ colle sur les consommations, les émissions et les deux classes, et ne
 s'écarte que sur la surface : 149 m² en base contre 144 annoncés. Un filtre
 strict à ±3 m² aurait fait disparaître la bonne maison sans rien expliquer.
 
+**Un chiffre que la base ne renseigne pas compte pour une tolérance** —
+ni pour, ni contre. Il ne comptait pour rien, et c'était un piège : sur
+l'annonce du 18 rue des Écoles (125 m², 511 kWh, 19 kg), un diagnostic de
+2015 vierge de toute consommation, mais de 125 m² tout rond, sortait
+premier avec un écart nul, devant la bonne maison (122,2 m², écart 0,31).
+Il passe désormais deuxième, à 0,67.
+
+**Un champ illisible est signalé**, pas ignoré : « 1O » pour 10 faisait
+disparaître le critère sans un mot. Une tolérance nulle ou négative est
+refusée.
+
 ### Ce que fait le cadastre (F3)
 
 Le croisement que demande le CDC — **une parcelle qui porte à la fois un
@@ -787,7 +798,30 @@ La commande imprime `/#acces=…` : l'ouvrir à l'adresse habituelle,
 sonde de santé de Docker (`/api/sante`), les routes de connexion, et les
 fichiers de l'interface — ils ne portent aucune donnée, et c'est eux qui
 affichent l'écran de connexion. Une liste blanche : une route ajoutée
-demain est protégée sans qu'on y pense.
+demain est protégée sans qu'on y pense. Sans session, la sonde ne répond
+que `{"statut": "ok"}` : la version et le chemin de la base ne regardent
+que le propriétaire. Les routes ouvertes refusent un corps de plus de
+4 Ko.
+
+**Où mène le lien.** L'application ne connaît pas sa propre adresse, et
+celui qui demande le lien n'est pas connecté : ce qu'annonce sa requête ne
+prouve rien. Prise au mot, une requête forgée faisait partir vers vous un
+courriel authentique dont le lien menait chez un tiers — qui n'avait plus
+qu'à y lire le jeton et choisir le mot de passe à votre place. Le lien ne
+mène donc qu'à une adresse de confiance, dans cet ordre :
+
+1. `VEILLE_URL`, si elle est posée dans le conteneur ;
+2. l'adresse de la page qui le demande, si **vous vous y êtes déjà
+   connecté**, mot de passe à l'appui (l'application retient les vingt
+   dernières), ou si elle est **locale** — `http://192.168.x.x:8020`,
+   `http://nas:8020`, un nom en `.local` : un tiers extérieur ne peut pas
+   y installer sa page ;
+3. sinon la dernière adresse d'où vous vous êtes connecté — l'écran
+   prévient alors que le lien ouvrira l'application ailleurs.
+
+Faute de tout cela (premier lien demandé depuis une adresse publique
+jamais vue), la demande est refusée : la demander depuis le réseau local,
+poser `VEILLE_URL`, ou passer par le recours du NAS.
 
 **Ce qui est gardé** : rien en clair. Le mot de passe est dérivé par scrypt
 (sel aléatoire, 16 Mo par essai) ; les liens et les sessions ne sont gardés
@@ -804,7 +838,7 @@ et cinq par heure.
 | Variable | Rôle |
 |---|---|
 | `VEILLE_ACCES_COURRIEL` | l'adresse du lien, si ce n'est pas celle des alertes. L'écran ne peut pas la changer : c'est le recours de qui tient le NAS. |
-| `VEILLE_URL` | l'adresse de l'application, par exemple `https://immo.mondomaine.fr`. Sans elle, le lien reprend celle de la page qui l'a demandé — juste, sauf requête forgée pour le faire pointer ailleurs. La poser ferme cette porte. |
+| `VEILLE_URL` | l'adresse de l'application, par exemple `https://immo.mondomaine.fr`. Sans elle, le lien suit une adresse de confiance (ci-dessus). La poser fixe le lien une fois pour toutes. |
 
 Comme toute variable du compose, elles ne prennent effet qu'à la
 **recréation** du conteneur (Container Manager → Projet → Construire), pas

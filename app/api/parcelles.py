@@ -25,8 +25,8 @@ def carte(code_insee: str = Query(...),
                                      description="ne garder que les DPE de moins de N jours"),
           zone: str = Query(""),
           type_batiment: str = Query(""),
-          surface_min: float = Query(None, ge=0),
-          surface_max: float = Query(None, ge=0),
+          surface_min: float = Query(None, ge=0, le=100000),
+          surface_max: float = Query(None, ge=0, le=100000),
           etiquettes: str = Query("", description="classes separees par une virgule"),
           seulement_nouveaux: bool = Query(False),
           geometries: bool = Query(True, description=
@@ -113,7 +113,7 @@ def vue_rue(n_dpe: str = Query(None), parcelle_id: str = Query(None)):
     gardes sur disque une fois payes.
     """
     if not streetview.active():
-        raise HTTPException(status_code=404, detail="Vue de rue desactivee.")
+        raise HTTPException(status_code=404, detail="Vue de rue désactivée.")
     if not (n_dpe or parcelle_id):
         raise HTTPException(status_code=400, detail="Indiquez un diagnostic ou une parcelle.")
 

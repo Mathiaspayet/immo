@@ -135,7 +135,13 @@ function brancher() {
     try {
       const envoi = await api.demanderLien();
       dire(`Lien envoyé à ${envoi.destinataire}. Il est valable `
-           + `${envoi.valable_minutes} minutes : ouvrez-le depuis le courriel.`, "succes");
+           + `${envoi.valable_minutes} minutes : ouvrez-le depuis le courriel.`
+           // Le lien ne suit pas une adresse où l'on ne s'est jamais
+           // connecté : il mène à la dernière qui a servi.
+           + (envoi.meme_adresse === false
+             ? " Il ouvrira l'application à l'adresse où vous vous êtes "
+               + "connecté la dernière fois, pas à celle-ci."
+             : ""), "succes");
     } catch (erreur) {
       dire(erreur.message);
     } finally {
@@ -182,10 +188,15 @@ window.addEventListener("acces-requis", async () => {
 //  La zone « Accès » des réglages
 // --------------------------------------------------------------------
 
-export function initialiserAccesReglages() {
+/** L'adresse où part le lien : elle suit le destinataire des alertes. */
+export function rafraichirAccesReglages() {
   api.etatAcces().then((etat) => {
     $("#acces-destinataire").textContent = etat.destinataire || "aucune adresse";
   }).catch(() => {});
+}
+
+export function initialiserAccesReglages() {
+  rafraichirAccesReglages();
 
   $("#acces-changer").addEventListener("submit", async (evenement) => {
     evenement.preventDefault();

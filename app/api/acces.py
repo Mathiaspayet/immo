@@ -18,7 +18,6 @@ import logging
 
 from fastapi import APIRouter, Body, HTTPException, Request, Response
 
-from app import config
 from app.metier import acces
 
 logger = logging.getLogger(__name__)
@@ -40,23 +39,36 @@ def _en_https(requete):
     return requete.url.scheme == "https" or transmis == "https"
 
 
+def origine_du_navigateur(requete):
+    """
+    L'adresse a laquelle le navigateur a ouvert l'application : l'en-tete
+    Origin, qui survit au proxy inverse quand l'hote, lui, peut avoir ete
+    reecrit. None si la requete ne vient pas d'une page de l'application.
+    """
+    if requete.headers.get("sec-fetch-site") not in (None, "same-origin"):
+        return None
+    origine = (requete.headers.get("origin") or "").strip()
+    return origine.rstrip("/") if origine.startswith(("http://", "https://")) else None
+
+
 def _poser(reponse, requete, jeton):
     reponse.set_cookie(acces.COOKIE, jeton, max_age=acces.DUREE_COOKIE, path="/",
                        httponly=True, samesite="strict", secure=_en_https(requete))
 
 
-def _adresse_de_l_application(requete):
+def _accueillir(reponse, requete, jeton):
+    """Pose le cookie, et retient l'adresse d'ou l'on vient de se connecter."""
+    _poser(reponse, requete, jeton)
+    acces.retenir_origine(origine_du_navigateur(requete), toujours=True)
+
+
+def _adresse_annoncee(requete):
     """
-    Ou le lien doit ramener : l'adresse posee dans le conteneur, sinon celle
-    que montre le navigateur qui le demande — l'en-tete Origin, qui survit
-    au proxy inverse quand l'hote, lui, peut avoir ete reecrit.
+    L'adresse que la requete ANNONCE — rien de plus : celui qui demande un
+    lien n'est pas connecte, et peut ecrire ce qu'il veut dans ses en-tetes.
+    C'est `acces.adresse_du_lien` qui decide de la suivre ou non.
     """
-    if config.URL_PUBLIQUE:
-        return config.URL_PUBLIQUE
-    origine = (requete.headers.get("origin") or "").strip()
-    if origine.startswith(("http://", "https://")):
-        return origine.rstrip("/")
-    return str(requete.base_url).rstrip("/")
+    return origine_du_navigateur(requete) or str(requete.base_url).rstrip("/")
 
 
 @routeur.get("")
@@ -69,7 +81,7 @@ def etat(requete: Request):
 def lien(requete: Request):
     """Envoie le lien qui choisit ou remplace le mot de passe."""
     try:
-        return acces.envoyer_lien(_adresse_de_l_application(requete))
+        return acces.envoyer_lien(_adresse_annoncee(requete))
     except acces.RefusAcces as refus:
         raise _refus(refus) from refus
 
@@ -81,7 +93,7 @@ def definir(requete: Request, reponse: Response, corps: dict = Body(...)):
         jeton = acces.definir(corps.get("jeton"), corps.get("motdepasse"), _appareil(requete))
     except acces.RefusAcces as refus:
         raise _refus(refus) from refus
-    _poser(reponse, requete, jeton)
+    _accueillir(reponse, requete, jeton)
     return {"connecte": True}
 
 
@@ -91,7 +103,7 @@ def connexion(requete: Request, reponse: Response, corps: dict = Body(...)):
         jeton = acces.connecter(corps.get("motdepasse"), _appareil(requete))
     except acces.RefusAcces as refus:
         raise _refus(refus) from refus
-    _poser(reponse, requete, jeton)
+    _accueillir(reponse, requete, jeton)
     return {"connecte": True}
 
 
@@ -102,7 +114,7 @@ def changer(requete: Request, reponse: Response, corps: dict = Body(...)):
         jeton = acces.changer(corps.get("actuel"), corps.get("nouveau"), _appareil(requete))
     except acces.RefusAcces as refus:
         raise _refus(refus) from refus
-    _poser(reponse, requete, jeton)
+    _accueillir(reponse, requete, jeton)
     return {"connecte": True}
 
 

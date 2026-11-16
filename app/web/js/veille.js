@@ -8,8 +8,8 @@
 // ====================================================================
 
 import { api } from "./api.js";
-import { garantirAcces, initialiserAccesReglages } from "./acces.js";
-import { lancerImport, reprendreSuiviEventuel } from "./import.js";
+import { garantirAcces, initialiserAccesReglages, rafraichirAccesReglages } from "./acces.js";
+import { auTermeDeLImport, lancerImport, reprendreSuiviEventuel } from "./import.js";
 import { initialiserExploration } from "./exploration.js";
 import { initialiserReglages, rafraichirReglages } from "./reglages.js";
 import { initialiserParcours } from "./parcours.js";
@@ -17,7 +17,7 @@ import { initialiserIdentification } from "./identifier.js";
 import { initialiserEstimation } from "./estimation.js";
 import { auChangement, changerVue, brancherHistorique } from "./navigation.js";
 import {
-  $, afficherErreur, dateFr, echapper, entierFr, masquerErreur,
+  $, afficherErreur, dateFr, echapper, entierFr, masquerErreur, nombreFr,
 } from "./format.js";
 
 // --------------------------------------------------------------------
@@ -238,6 +238,20 @@ async function envoyerEssaiAlerte() {
 //  Historique des ventes : ce que la base garde au-delà de la source
 // ---------------------------------------------------------------------
 
+/**
+ * Les lignes d'un résumé, au gabarit de reglages.js : chaque couple
+ * libellé/valeur dans SON bloc. La grille de `.reglage-resume` range des
+ * blocs ; posés nus, le libellé et sa valeur devenaient deux cases
+ * voisines, et tout le résumé se lisait décalé d'un cran.
+ */
+function rangsDeResume(rangs) {
+  return rangs.map(([cle, valeur]) => `
+    <div>
+      <dt>${echapper(cle)}</dt>
+      <dd>${echapper(String(valeur))}</dd>
+    </div>`).join("");
+}
+
 /** La profondeur d'historique conservée, et jusqu'où la source va. */
 async function chargerProfondeurVentes() {
   const liste = $("#profondeur-ventes");
@@ -248,8 +262,8 @@ async function chargerProfondeurVentes() {
     // sur « Modifier ».
     const p = await api.profondeurVentes();
     if (!p.ventes) {
-      liste.innerHTML = "<dt>Ventes conservées</dt>"
-        + "<dd>aucune — lancez d'abord un import</dd>";
+      liste.innerHTML = rangsDeResume(
+        [["Ventes conservées", "aucune — lancez d'abord un import"]]);
       return;
     }
     // Ce que la base garde en plus de ce que la source sert encore : la
@@ -269,17 +283,17 @@ async function chargerProfondeurVentes() {
         + ` — archive du département ${p.departement}`
       : "aucune commune surveillée";
 
-    liste.innerHTML = [
+    liste.innerHTML = rangsDeResume([
       ["Commune surveillée", porte],
       ["Ventes conservées", entierFr.format(p.ventes)],
-      ["Historique", `du ${p.depuis} au ${p.jusqu_a}`],
+      ["Historique", `du ${dateFr(p.depuis)} au ${dateFr(p.jusqu_a)}`],
       ["Millésimes servis par la source", p.millesimes_source.join(", ")],
       ["Conservées au-delà de la source", gagnees
         ? `${entierFr.format(gagnees)} vente(s), depuis ${plusAncien}`
         : "aucune pour l'instant"],
-    ].map(([cle, valeur]) => `<dt>${cle}</dt><dd>${echapper(valeur)}</dd>`).join("");
+    ]);
   } catch (erreur) {
-    liste.innerHTML = "<dt>Ventes conservées</dt><dd>indisponible</dd>";
+    liste.innerHTML = rangsDeResume([["Ventes conservées", "indisponible"]]);
   }
 }
 
@@ -385,7 +399,7 @@ async function reprendreArchiveVentes() {
 
 function poids(octets) {
   if (!octets) return "0 Mo";
-  return `${(octets / 1e6).toFixed(1)} Mo`;
+  return `${nombreFr.format(octets / 1e6)} Mo`;
 }
 
 async function chargerEtatSauvegardes() {
@@ -394,20 +408,18 @@ async function chargerEtatSauvegardes() {
   try {
     const e = await api.etatSauvegardes();
     const rangs = e.copies
-      ? [["Dernière", `${dateFr(e.derniere)} · il y a ${e.age_heures} h`],
+      ? [["Dernière", `${dateFr(e.derniere)} · il y a ${nombreFr.format(e.age_heures)} h`],
          ["Copies conservées", `${e.copies} — depuis ${dateFr(e.depuis)}`],
          ["Place occupée", poids(e.octets)],
          ["Dossier", e.dossier]]
       : [["Copies conservées", "aucune pour l'instant"],
          ["Dossier", e.dossier]];
-    liste.innerHTML = rangs
-      .map(([cle, valeur]) => `<dt>${cle}</dt><dd>${echapper(valeur)}</dd>`)
-      .join("");
+    liste.innerHTML = rangsDeResume(rangs);
     // L'alerte se voit ici plutôt qu'au moment de restaurer.
     $("#sauvegarde-etat").innerHTML = e.alerte
       ? `<p class="message message-erreur">${echapper(e.alerte)}</p>` : "";
   } catch (_) {
-    liste.innerHTML = "<dt>Sauvegardes</dt><dd>indisponible</dd>";
+    liste.innerHTML = rangsDeResume([["Sauvegardes", "indisponible"]]);
   }
 }
 
@@ -541,7 +553,7 @@ async function chargerJournal() {
           `<span class="donnee">${echapper(commune.nom)}</span> ` +
           `(${entierFr.format(commune.dpe)} DPE, INSEE ${echapper(commune.code_insee)})`
         ).join(" · ")
-      : "Aucune commune en cache : lancez un import depuis l'écran Veille.";
+      : "Aucune commune en cache : choisissez-en une depuis l'accueil.";
   } catch (_) { /* section facultative */ }
 
   try {
@@ -613,6 +625,14 @@ async function demarrer() {
     rafraichirReglages().catch(() => {});
     chargerEtatAlerte();
     chargerJournal();
+    rafraichirAccesReglages();
+  });
+  // Une moisson forcée depuis cet écran s'achève sous nos yeux : son
+  // journal, juste en dessous, montrait encore l'import d'avant.
+  auTermeDeLImport(() => {
+    if ($("#vue-reglages").hidden) return;
+    chargerJournal();
+    chargerProfondeurVentes();
   });
 
   initialiserIdentification();

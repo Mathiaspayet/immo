@@ -6,6 +6,12 @@ export const $ = (selecteur) => document.querySelector(selecteur);
 
 export const nombreFr = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
 export const entierFr = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
+/** Un nombre qui n'est pas une quantité — une année, un port : sans séparateur de milliers. */
+export const sansSeparateur = new Intl.NumberFormat("fr-FR", {
+  maximumFractionDigits: 0, useGrouping: false,
+});
+/** Deux décimales, pour ce qui se compare de près. */
+export const precisFr = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
 
 /** Les prix se lisent sans centimes : à ce niveau, ils sont du bruit. */
 export const euroFr = new Intl.NumberFormat("fr-FR", {
@@ -76,6 +82,8 @@ export function liensExternes(bien) {
 // --------------------------------------------------------------------
 
 export function afficherErreur(message, detail = "") {
+  // Un « Enregistré. » resté à l'écran à côté d'un refus se contredit.
+  $("#succes").hidden = true;
   const boite = $("#erreur");
   boite.innerHTML = echapper(message) + (detail ? `<span class="detail">${echapper(detail)}</span>` : "");
   boite.hidden = false;

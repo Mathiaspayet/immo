@@ -145,7 +145,7 @@ def test_reglage_enregistre_et_relu(base):
 
 
 @pytest.mark.parametrize("valeurs, extrait", [
-    ({"surface_min": 500, "surface_max": 100}, "depasse"),
+    ({"surface_min": 500, "surface_max": 100}, "dépasse"),
     ({"zones": {"plage": [200, 0]}}, "hors des bornes"),
     ({"zones": {"plage": ["nord"]}}, "latitude et longitude"),
     ({"fenetre_jours": 0}, "compris entre"),
@@ -669,3 +669,39 @@ def test_le_menu_des_secteurs_atteint_tout(base):
     assert compte("plage") + compte("bourg") + compte(veille.HORS_SECTEUR) == len(tous)
     assert [r["n_dpe"] for r in
             veille.lister({"fenetre_jours": 60, "zone": veille.HORS_SECTEUR})] == ["NULLE_PART"]
+
+
+def test_l_export_s_ouvre_dans_excel_en_francais(base):
+    """
+    Le fichier vise Excel en francais — point-virgule, BOM — mais ecrivait
+    ses nombres a l'anglaise : « 122.2 » y est un texte, qu'on ne peut ni
+    trier ni additionner.
+    """
+    inserer_dpe(n_dpe="X", adresse="18 Rue des Ecoles", surface_habitable=122.2,
+                conso_ep_m2=511.0, latitude=44.2134, longitude=-1.2883,
+                date_etablissement=jours(3))
+
+    entete, ligne = veille.exporter_csv({"fenetre_jours": 60}).splitlines()[:2]
+    colonnes = entete.lstrip("﻿").split(";")
+    cellule = dict(zip(colonnes, ligne.split(";")))
+
+    assert cellule["surface_habitable"] == "122,2"
+    assert cellule["conso_ep_m2"] == "511"            # un nombre rond reste rond
+    assert cellule["latitude"] == "44,2134"
+    assert cellule["longitude"] == "-1,2883"          # un nombre negatif reste un nombre
+    assert cellule["nouveau"] in ("oui", "non")
+    assert cellule["n_dpe_remplace"] == ""            # une absence, pas « None »
+
+
+def test_l_export_ne_laisse_pas_une_adresse_devenir_une_formule(base):
+    """La base de l'ADEME est saisie a la main : un texte commencant par
+    « = » serait execute a l'ouverture du fichier."""
+    inserer_dpe(n_dpe="PIEGE", adresse='=HYPERLINK("http://exemple.invalide";"cliquez")',
+                date_etablissement=jours(3))
+    inserer_dpe(n_dpe="SAIN", adresse="12 rue de l'Égalité", date_etablissement=jours(3))
+
+    contenu = veille.exporter_csv({"fenetre_jours": 60})
+
+    assert "'=HYPERLINK" in contenu
+    assert ";=HYPERLINK" not in contenu and '"=HYPERLINK' not in contenu
+    assert "12 rue de l'Égalité" in contenu

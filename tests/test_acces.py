@@ -306,3 +306,142 @@ def test_le_recours_du_nas_emet_un_jeton_sans_rythme(base):
     assert premier != second
     session = acces.definir(second, BON)
     assert acces.session_valide(session)
+
+
+# ---------------------------------------------------------------------
+#  Ou mene le lien
+# ---------------------------------------------------------------------
+
+PIRATE = {"Origin": "https://pirate.example"}
+CHEZ_MOI = {"Origin": "https://immo.exemple.fr"}
+
+
+@pytest.mark.parametrize("origine, locale", [
+    ("http://192.168.1.20:8020", True), ("http://10.0.0.4", True), ("http://127.0.0.1:8000", True),
+    ("http://localhost:8020", True), ("http://nas:8020", True), ("http://nas.local:8020", True),
+    ("http://diskstation.lan", True), ("http://[fd12::1]:8020", True), ("http://100.72.1.9:8020", True),
+    ("https://immo.exemple.fr", False), ("https://pirate.example", False),
+    ("http://8.8.8.8", False), ("http://192.168.1.20.pirate.example", False),
+    ("http://[2001:4860:4860::8888]", False), ("", False), ("pas une adresse", False),
+])
+def test_ce_qui_est_une_adresse_du_reseau_local(origine, locale):
+    assert acces.est_locale(origine) is locale
+
+
+def test_une_origine_forgee_ne_detourne_pas_le_premier_lien(client, envois):
+    """
+    La faille : sans etre connecte, on faisait partir vers le proprietaire
+    un courriel AUTHENTIQUE dont le lien menait chez soi — il n'y avait
+    plus qu'a y lire le jeton, et a choisir le mot de passe a sa place.
+    """
+    reponse = client.post("/api/acces/lien", headers=PIRATE)
+
+    assert reponse.status_code == 409
+    assert "VEILLE_URL" in reponse.json()["detail"]
+    assert envois == []
+    with transaction() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM acces_jeton").fetchone()[0] == 0
+
+
+def test_une_origine_forgee_mene_a_l_adresse_du_proprietaire(client, envois):
+    """Mot de passe oublie : le lien suit l'adresse d'ou l'on s'est deja connecte."""
+    _initialiser(client, envois)
+    client.cookies.clear()
+    assert client.post("/api/acces/connexion", headers=CHEZ_MOI,
+                       json={"motdepasse": BON}).status_code == 200
+    client.cookies.clear()
+    with transaction() as conn:          # la minute entre deux liens
+        conn.execute("UPDATE acces_jeton SET cree_le = '2000-01-01T00:00:00'")
+
+    reponse = client.post("/api/acces/lien", headers=PIRATE)
+
+    assert reponse.status_code == 200
+    assert reponse.json()["meme_adresse"] is False
+    assert "https://immo.exemple.fr/#acces=" in envois[-1]["texte"]
+    assert "pirate" not in envois[-1]["texte"] and "pirate" not in envois[-1]["html"]
+    assert "pirate" not in reponse.text and "immo.exemple" not in reponse.text
+
+
+def test_le_lien_suit_une_adresse_deja_connue(client, envois):
+    _initialiser(client, envois)
+    client.post("/api/acces/connexion", headers=CHEZ_MOI, json={"motdepasse": BON})
+    client.cookies.clear()
+    with transaction() as conn:
+        conn.execute("UPDATE acces_jeton SET cree_le = '2000-01-01T00:00:00'")
+
+    reponse = client.post("/api/acces/lien", headers=CHEZ_MOI)
+
+    assert reponse.json()["meme_adresse"] is True
+    assert "https://immo.exemple.fr/#acces=" in envois[-1]["texte"]
+
+
+def test_se_servir_de_l_application_fait_connaitre_son_adresse(client, envois):
+    """Une session deja ouverte avant cette protection n'a pas a se reconnecter."""
+    _initialiser(client, envois)
+    assert acces.origines_de_confiance() == []      # « testserver » n'envoie pas d'Origin
+
+    assert client.post("/api/veille/vus", headers=CHEZ_MOI, json={}).status_code == 200
+
+    assert acces.origines_de_confiance() == ["https://immo.exemple.fr"]
+
+
+def test_sans_session_une_adresse_n_est_jamais_retenue(client, envois):
+    _initialiser(client, envois)
+    client.cookies.clear()
+
+    client.post("/api/veille/vus", headers=PIRATE, json={})
+    client.post("/api/acces/connexion", headers=PIRATE, json={"motdepasse": "pas le bon !"})
+    client.get("/api/acces", headers=PIRATE)
+
+    assert acces.origines_de_confiance() == []
+
+
+def test_une_page_d_un_autre_site_ne_fait_pas_retenir_son_adresse(client, envois):
+    _initialiser(client, envois)
+    client.post("/api/veille/vus", json={},
+                headers={"Origin": "https://voisin.exemple.fr", "Sec-Fetch-Site": "same-site"})
+    assert acces.origines_de_confiance() == []
+
+
+def test_on_ne_garde_que_les_adresses_recentes(base):
+    for numero in range(acces.ORIGINES_GARDEES + 5):
+        acces.retenir_origine(f"https://adresse{numero}.exemple.fr")
+    assert len(acces.origines_de_confiance()) == acces.ORIGINES_GARDEES
+    acces.retenir_origine("javascript:alert(1)")
+    acces.retenir_origine("https://exemple.fr/chemin?x=1")
+    assert len(acces.origines_de_confiance()) == acces.ORIGINES_GARDEES
+
+
+def test_un_lien_deja_utilise_ne_fait_pas_patienter(client, envois):
+    """« Un lien vient de partir » : faux, quand celui-la a deja servi."""
+    _initialiser(client, envois)
+    client.cookies.clear()
+    assert client.post("/api/acces/lien").status_code == 200
+    assert client.post("/api/acces/lien").status_code == 429
+
+
+# ---------------------------------------------------------------------
+#  Ce qu'on laisse voir, et entrer, sans connexion
+# ---------------------------------------------------------------------
+
+def test_la_sonde_ne_dit_que_ok_sans_connexion(client, envois):
+    assert client.get("/api/sante").json() == {"statut": "ok"}
+    _initialiser(client, envois)
+    assert {"version", "base", "prochain_import"} <= set(client.get("/api/sante").json())
+
+
+def test_un_corps_enorme_est_refuse_avant_d_etre_lu(client):
+    gros = '{"motdepasse": "' + "x" * 5000 + '"}'
+    reponse = client.post("/api/acces/connexion", content=gros,
+                          headers={"Content-Type": "application/json"})
+    assert reponse.status_code == 413
+
+
+def test_un_envoi_par_morceaux_est_refuse_sans_connexion(client):
+    def morceaux():
+        yield b'{"motdepasse": "'
+        yield b'x" }'
+
+    reponse = client.post("/api/acces/connexion", content=morceaux(),
+                          headers={"Content-Type": "application/json"})
+    assert reponse.status_code == 411

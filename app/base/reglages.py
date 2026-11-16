@@ -298,24 +298,69 @@ def ecrire(valeurs):
 # a 300 degres) ne doit pas pouvoir entrer en base : il produirait un ecran
 # Veille vide sans que rien n'explique pourquoi.
 
+# Au-dela, ce n'est plus un reglage : une adresse, un nom d'hote, une cle
+# d'API tiennent largement en deca.
+LONGUEUR_TEXTE = 500
+
+# Les reglages qui se comptent : jours, heures, mois, port. Une fenetre de
+# « 12,5 jours » n'a pas de sens, et finirait tronquee sans le dire.
+ENTIERS = {"fenetre_jours", "purge_mois", "rafraichir_apres_heures",
+           "cadastre_apres_jours", "smtp_port", "import_heure"}
+
+
+def _verifier_les_natures(valeurs):
+    """
+    Chaque reglage a la NATURE de sa valeur par defaut : un texte reste un
+    texte, un oui/non reste un oui/non.
+
+    L'ecran envoie toujours la bonne. L'API, elle, prenait ce qu'on lui
+    donnait : un secteur d'alerte recu sous forme d'objet entrait en base,
+    et les ecrans qui le relisaient — l'etat de l'alerte, l'historique des
+    ventes — repondaient ensuite par une erreur, a chaque ouverture,
+    jusqu'a ce qu'on le corrige a la main. « non » en toutes lettres, lui,
+    valait oui : toute chaine non vide est vraie.
+    """
+    for cle, valeur in list(valeurs.items()):
+        modele = DEFAUTS[cle]
+        if isinstance(modele, bool):
+            if not isinstance(valeur, bool):
+                raise ValueError(f"{cle} : vrai ou faux attendu.")
+        elif isinstance(modele, str):
+            if valeur is None:
+                valeurs[cle] = ""
+            elif not isinstance(valeur, str):
+                raise ValueError(f"{cle} : un texte est attendu.")
+            elif len(valeur) > LONGUEUR_TEXTE:
+                raise ValueError(f"{cle} : {LONGUEUR_TEXTE} caractères au plus.")
+        elif isinstance(modele, (int, float)) and isinstance(valeur, bool):
+            raise ValueError(f"{cle} : un nombre est attendu.")
+
+
 def valider(valeurs):
     inconnues = set(valeurs) - set(DEFAUTS)
     if inconnues:
-        raise ValueError(f"reglage(s) inconnu(s) : {', '.join(sorted(inconnues))}")
+        raise ValueError(f"réglage(s) inconnu(s) : {', '.join(sorted(inconnues))}")
+    _verifier_les_natures(valeurs)
 
     if "zones" in valeurs:
         zones = valeurs["zones"]
         if not isinstance(zones, dict) or not zones:
-            raise ValueError("Il faut au moins un point de reference de secteur.")
+            raise ValueError("Il faut au moins un point de référence de secteur.")
         for nom, point in zones.items():
             if (not isinstance(point, (list, tuple)) or len(point) != 2):
                 raise ValueError(f"Secteur {nom!r} : latitude et longitude attendues.")
             try:
+                if any(isinstance(valeur, bool) for valeur in point):
+                    raise TypeError
                 lat, lon = float(point[0]), float(point[1])
             except (TypeError, ValueError):
-                raise ValueError(f"Secteur {nom!r} : coordonnees non numeriques.")
+                raise ValueError(f"Secteur {nom!r} : coordonnées non numériques.")
             if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-                raise ValueError(f"Secteur {nom!r} : coordonnees hors des bornes terrestres.")
+                raise ValueError(f"Secteur {nom!r} : coordonnées hors des bornes terrestres.")
+            if not str(nom).strip() or len(str(nom)) > 40:
+                raise ValueError("Un secteur porte un nom, de 40 caractères au plus.")
+        valeurs["zones"] = {str(nom).strip(): [float(point[0]), float(point[1])]
+                            for nom, point in zones.items()}
 
     if "jeux_de_donnees" in valeurs:
         jeux = valeurs["jeux_de_donnees"]
@@ -331,18 +376,20 @@ def valider(valeurs):
     if "tolerances" in valeurs:
         tolerances = valeurs["tolerances"]
         if not isinstance(tolerances, dict):
-            raise ValueError("Les tolerances doivent former un ensemble cle/valeur.")
+            raise ValueError("Les tolérances doivent former un ensemble clé/valeur.")
         for cle in ("surface", "conso", "ges"):
             if cle not in tolerances:
-                raise ValueError(f"Tolerance manquante : {cle}.")
+                raise ValueError(f"Tolérance manquante : {cle}.")
             try:
                 marge = float(tolerances[cle])
             except (TypeError, ValueError):
-                raise ValueError(f"Tolerance {cle} : un nombre est attendu.")
+                raise ValueError(f"Tolérance {cle} : un nombre est attendu.")
             # Une tolerance nulle n'ecarte pas seulement les arrondis : elle
             # exige une egalite au centieme, et ne remonte plus rien.
-            if not (0 < marge <= 1000):
-                raise ValueError(f"Tolerance {cle} : attendue entre 0 (exclu) et 1000.")
+            if isinstance(tolerances[cle], bool) or not (0 < marge <= 1000):
+                raise ValueError(f"Tolérance {cle} : attendue entre 0 (exclu) et 1000.")
+        valeurs["tolerances"] = {cle: float(tolerances[cle])
+                                 for cle in ("surface", "conso", "ges")}
 
     for cle, mini, maxi in [("fenetre_jours", 1, 3650),
                             ("surface_min", 0, 10000),
@@ -356,7 +403,13 @@ def valider(valeurs):
             except (TypeError, ValueError):
                 raise ValueError(f"{cle} : un nombre est attendu.")
             if not (mini <= nombre <= maxi):
-                raise ValueError(f"{cle} doit etre compris entre {mini} et {maxi}.")
+                raise ValueError(f"{cle} doit être compris entre {mini} et {maxi}.")
+            if cle in ENTIERS and nombre != int(nombre):
+                raise ValueError(f"{cle} : un nombre entier est attendu.")
+            # C'est le NOMBRE qu'on enregistre, pas ce qui a ete envoye :
+            # « 120 » entre guillemets passait le controle, puis faisait
+            # echouer le premier calcul de date qui s'en servait.
+            valeurs[cle] = int(nombre) if cle in ENTIERS else nombre
 
     # Comparees aussi quand UNE seule change : l'autre est celle deja
     # enregistree. Sans cela, une minimale de 500 passait contre une
@@ -365,7 +418,7 @@ def valider(valeurs):
         bas = float(valeurs.get("surface_min", lire("surface_min")))
         haut = float(valeurs.get("surface_max", lire("surface_max")))
         if bas > haut:
-            raise ValueError("La surface minimale depasse la surface maximale.")
+            raise ValueError("La surface minimale dépasse la surface maximale.")
 
     if "smtp_port" in valeurs:
         try:
@@ -374,8 +427,9 @@ def valider(valeurs):
             raise ValueError("Port SMTP : un nombre entier est attendu.")
         if not (1 <= port <= 65535):
             raise ValueError("Port SMTP : attendu entre 1 et 65535.")
+        valeurs["smtp_port"] = port
 
-    for cle, etiquette in [("smtp_expediteur", "Adresse d'expedition")]:
+    for cle, etiquette in [("smtp_expediteur", "Adresse d'expédition")]:
         if cle in valeurs:
             adresse = str(valeurs[cle] or "").strip()
             if adresse and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", adresse):
@@ -390,20 +444,20 @@ def valider(valeurs):
                                      courant["smtp_expediteur"]) or "").strip()
         if hote and not expediteur:
             raise ValueError(
-                "Un serveur d'envoi demande une adresse d'expedition.")
+                "Un serveur d'envoi demande une adresse d'expédition.")
 
     if "alerte_code_insee" in valeurs:
         code = str(valeurs["alerte_code_insee"] or "").strip()
         if code and not (code.isalnum() and len(code) == 5):
             raise ValueError(
                 f"Code INSEE invalide pour l'alerte : {code!r} (cinq "
-                "caracteres attendus, ou vide pour toutes les communes).")
+                "caractères attendus, ou vide pour toutes les communes).")
 
     if "zones_code_insee" in valeurs:
         code = str(valeurs["zones_code_insee"] or "").strip()
         if code and not (code.isalnum() and len(code) == 5):
             raise ValueError(
-                f"Code INSEE invalide : {code!r} (cinq caracteres attendus, "
+                f"Code INSEE invalide : {code!r} (cinq caractères attendus, "
                 "ou vide pour appliquer les secteurs partout).")
 
     if "type_batiment" in valeurs:

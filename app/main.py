@@ -111,6 +111,9 @@ OUVERTS = {"/api/sante", "/api/acces", "/api/acces/lien", "/api/acces/definir",
 # variable d'environnement ne le touche.
 EXIGER_ACCES = True
 
+# Le plus gros corps qu'acceptent les routes ouvertes, en octets.
+CORPS_MAX_OUVERT = 4096
+
 
 @application.middleware("http")
 async def exiger_le_mot_de_passe(requete: Request, suite):
@@ -127,6 +130,25 @@ async def exiger_le_mot_de_passe(requete: Request, suite):
         if not (jeton and await run_in_threadpool(acces.session_valide, jeton)):
             return JSONResponse(status_code=401,
                                 content={"detail": "Connexion requise : saisissez le mot de passe."})
+        # Une requete authentifiee dit d'ou le proprietaire se sert de
+        # l'application : c'est la, et seulement la, que menera le lien
+        # d'un mot de passe oublie (voir metier/acces.py).
+        origine = api_acces.origine_du_navigateur(requete)
+        if origine and not acces.deja_retenue(origine):
+            await run_in_threadpool(acces.retenir_origine, origine)
+    elif EXIGER_ACCES and chemin in OUVERTS and requete.method == "POST":
+        # Ces routes se lisent sans etre connecte : leur corps ne doit pas
+        # pouvoir remplir la memoire. Quelques dizaines d'octets suffisent
+        # a un mot de passe ; un envoi par morceaux n'annonce pas sa taille.
+        if "transfer-encoding" in requete.headers:
+            return JSONResponse(status_code=411,
+                                content={"detail": "Longueur du corps requise."})
+        try:
+            trop = int(requete.headers.get("content-length") or 0) > CORPS_MAX_OUVERT
+        except ValueError:
+            trop = True
+        if trop:
+            return JSONResponse(status_code=413, content={"detail": "Requête trop volumineuse."})
     return await suite(requete)
 
 
@@ -143,8 +165,16 @@ application.include_router(api_estimation.routeur)
 
 
 @application.get("/api/sante", tags=["technique"])
-def sante():
-    """Sonde de sante : utilisee par Docker, et par l'interface au demarrage."""
+def sante(requete: Request):
+    """
+    Sonde de sante : utilisee par Docker, et par l'interface au demarrage.
+
+    Elle repond sans connexion — Docker n'a pas de mot de passe —, mais
+    alors d'un simple « ok » : la version deployee et le chemin de la base
+    ne regardent que le proprietaire.
+    """
+    if EXIGER_ACCES and not acces.session_valide(requete.cookies.get(acces.COOKIE)):
+        return {"statut": "ok"}
     _jour, _heure = planificateur.horaire()
     return {
         "statut": "ok",

@@ -166,3 +166,93 @@ def test_le_type_n_ecarte_pas_un_dpe_d_avant_2021(base):
     trouves = {c["n_dpe"] for c in identification._candidats(
         {"code_insee": "40184", "type_batiment": "maison"})}
     assert trouves == {"ANCIEN"}
+
+
+# ---------------------------------------------------------------------
+#  Un critere que la base ne renseigne pas
+# ---------------------------------------------------------------------
+
+def test_un_diagnostic_vierge_ne_passe_pas_devant_le_bon_candidat(base):
+    """
+    Mesure sur Mimizan, annonce du 18 rue des Ecoles : 125 m², 511 kWh,
+    19 kg. Un diagnostic de 2015, vierge de toute consommation mais de
+    125 m² tout rond, sortait PREMIER avec un ecart de zero — devant le
+    seul logement qui collait aux trois chiffres.
+    """
+    inserer_dpe(n_dpe="LE_BON", adresse="18 Rue des Ecoles", surface_habitable=122.2,
+                conso_ep_m2=511.0, ges_m2=19.0)
+    inserer_dpe(n_dpe="VIERGE", adresse="15 Avenue de la Gare", surface_habitable=125.0,
+                conso_ep_m2=None, conso_ef_m2=None, ges_m2=None)
+    inserer_dpe(n_dpe="AILLEURS", adresse="3 Rue Lointaine", surface_habitable=125.0,
+                conso_ep_m2=180.0, ges_m2=40.0)
+
+    resultat = identification.identifier({"surface": 125, "conso_ep": 511, "ges": 19},
+                                         tolerances=TOLERANCES)
+
+    ordre = [ligne["n_dpe"] for ligne in resultat["resultats"]]
+    assert ordre == ["LE_BON", "VIERGE", "AILLEURS"]
+    par_numero = {ligne["n_dpe"]: ligne for ligne in resultat["resultats"]}
+    # Un critere absent vaut une tolerance : (0 + 1 + 1) / 3.
+    assert par_numero["VIERGE"]["ecart_moyen"] == pytest.approx(0.667, abs=0.001)
+    assert par_numero["VIERGE"]["ecarts"]["conso_ep"] is None      # et reste dit absent
+    assert par_numero["LE_BON"]["ecart_moyen"] < 0.5
+
+
+def test_un_critere_absent_ne_change_rien_quand_tout_est_renseigne(quartier):
+    resultat = identification.identifier(ANNONCE, tolerances=TOLERANCES)
+    cible = resultat["resultats"][0]
+    attendu = sum(cible["ecarts"][cle] for cle in ("surface", "conso_ep", "conso_ef", "ges")) / 4
+    assert cible["ecart_moyen"] == pytest.approx(attendu, abs=0.001)
+
+
+# ---------------------------------------------------------------------
+#  Les saisies qui n'en sont pas
+# ---------------------------------------------------------------------
+
+def test_un_chiffre_illisible_est_refuse_et_nomme(quartier):
+    """« 1O » pour 10 : le critere disparaissait sans rien dire."""
+    with pytest.raises(ValueError, match="(?i)émissions GES.*1O"):
+        identification.identifier({"conso_ep": 216, "ges": "1O"}, tolerances=TOLERANCES)
+
+
+def test_un_champ_vide_reste_ignore(quartier):
+    resultat = identification.identifier({"conso_ep": 216, "ges": "", "surface": None},
+                                         tolerances=TOLERANCES)
+    assert [e["critere"] for e in resultat["entonnoir"]] == ["conso_ep"]
+    assert resultat["criteres"] == {"conso_ep": 216.0}
+
+
+def test_la_virgule_decimale_est_comprise(quartier):
+    resultat = identification.identifier({"conso_ep": "215,2"}, tolerances=TOLERANCES)
+    assert resultat["resultats"][0]["n_dpe"] == "CIBLE"
+
+
+@pytest.mark.parametrize("tolerance", [0, -3, "abc"])
+def test_une_tolerance_nulle_ou_negative_est_refusee(quartier, tolerance):
+    """Negative, elle rendait tous les ecarts negatifs — et tout le monde conforme."""
+    with pytest.raises(ValueError, match="tolérance sur la surface"):
+        identification.identifier({"surface": 144}, tolerances={"surface": tolerance})
+
+
+def test_une_tolerance_laissee_vide_reprend_celle_des_reglages(quartier):
+    resultat = identification.identifier({"surface": 144}, tolerances={"surface": None, "conso": ""})
+    assert resultat["tolerances"]["surface"] == 3.0
+
+
+@pytest.mark.parametrize("corps", [
+    {"criteres": "x"}, {"criteres": {"surface": 100}, "tolerances": "x"},
+    {"criteres": {"surface": 100}, "filtres": [1]}, {"criteres": {"surface": float("inf")}},
+    {"criteres": {"surface": 100}, "combien": -1}, {"criteres": {"surface": 100}, "combien": "dix"},
+    {"criteres": {"surface": True}},
+])
+def test_une_demande_mal_formee_repond_400_pas_500(quartier, corps):
+    import json
+
+    from fastapi.testclient import TestClient
+
+    from app.main import application
+    with TestClient(application) as client:
+        reponse = client.post("/api/identification", content=json.dumps(corps),
+                              headers={"Content-Type": "application/json"})
+    assert reponse.status_code == 400, reponse.text
+    assert reponse.json()["detail"]

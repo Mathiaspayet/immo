@@ -36,6 +36,7 @@ import { creerCarteExploration, etatParcelle, positionGps } from "./carte.js";
 import {
   $, afficherErreur, afficherSucces, anciennete, dateFr, echapper, entierFr,
   etiquetteHtml, liensExternes, masquerErreur, mesure, nombreFr,
+  sansSeparateur,
 } from "./format.js";
 import { ouvrirFiche } from "./fiche.js";
 import { auTermeDeLImport } from "./import.js";
@@ -152,7 +153,7 @@ function gabaritReleve(bien) {
       ${mesure("énergie ép.", bien.conso_ep_m2, "kWh/m²", entierFr)}
       ${mesure("GES", bien.ges_m2, "kg/m²", nombreFr)}
       ${mesure("coût annuel", bien.cout_annuel, "€", entierFr)}
-      ${mesure("construit", bien.annee_construction, "", entierFr)}
+      ${mesure("construit", bien.annee_construction, "", sansSeparateur)}
     </dl>
     <div class="liens">
       <button type="button" class="bouton-lien" data-fiche="${echapper(bien.n_dpe)}">Fiche du bien</button>

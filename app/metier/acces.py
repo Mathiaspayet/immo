@@ -18,6 +18,15 @@ FRAGMENT de l'adresse (#acces=...) : un fragment ne part jamais vers le
 serveur, n'entre donc dans aucun journal, et ne se transmet pas aux sites
 qu'on visiterait ensuite.
 
+OU MENE LE LIEN. L'application ne connait pas sa propre adresse, et celui
+qui demande le lien n'est pas connecte : ce qu'annonce sa requete ne
+prouve rien. Prise au mot, elle permettait de faire partir un courriel
+authentique dont le lien menait chez un tiers — qui n'avait plus qu'a y
+lire le jeton. Le lien ne mene donc qu'a une adresse de confiance :
+celle posee dans le conteneur (VEILLE_URL), une adresse d'ou le
+proprietaire s'est deja servi de l'application mot de passe a l'appui,
+ou une adresse du reseau local, qu'un tiers exterieur ne peut pas tenir.
+
 CE QUI EST GARDE. Rien en clair : le mot de passe est derive par scrypt
 (sel aleatoire, 16 Mo de memoire par essai), les jetons et les sessions
 ne sont conserves que par leur empreinte SHA-256. Une sauvegarde de la
@@ -41,11 +50,14 @@ import datetime
 import hashlib
 import hmac
 import html
+import ipaddress
 import logging
 import math
+import re
 import secrets
 import threading
 import time
+import urllib.parse
 
 from app import config
 from app.base import reglages
@@ -74,8 +86,18 @@ ATTENTE_MAX = 60
 # scrypt : n = 2^14, r = 8 — 16 Mo et une fraction de seconde sur le NAS.
 SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}
 
+# Les adresses de confiance qu'on garde, et la forme qu'elles doivent avoir.
+ORIGINES_GARDEES = 20
+FORME_ORIGINE = re.compile(r"https?://[A-Za-z0-9.\-_\[\]:]{1,200}")
+# Ce qui ne se resout que sur un reseau local : un tiers exterieur ne peut
+# pas y installer sa page.
+SUFFIXES_LOCAUX = (".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain")
+
 _verrou = threading.Lock()
 _echecs = {"nombre": 0, "prochain": 0.0}
+# Les origines deja retenues par ce processus : evite une ecriture en base
+# a chaque requete.
+_origines_vues = set()
 
 
 class RefusAcces(Exception):
@@ -146,6 +168,83 @@ def destinataire():
 def initialise():
     with connexion() as conn:
         return conn.execute("SELECT 1 FROM acces WHERE id = 1").fetchone() is not None
+
+
+# ---------------------------------------------------------------------
+#  Les adresses de confiance
+# ---------------------------------------------------------------------
+
+def _origine(valeur):
+    """« https://hote:port », ou None si la valeur n'a pas cette forme."""
+    valeur = str(valeur or "").strip().rstrip("/")
+    return valeur if FORME_ORIGINE.fullmatch(valeur) else None
+
+
+def est_locale(origine):
+    """Cette adresse ne peut-elle se trouver que sur le reseau local ?"""
+    try:
+        hote = (urllib.parse.urlsplit(origine).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    if not hote:
+        return False
+    try:
+        return not ipaddress.ip_address(hote).is_global
+    except ValueError:
+        pass
+    # Un nom sans point (« nas », « localhost ») ou d'un domaine reserve
+    # aux reseaux prives : rien de cela ne s'achete ni ne se resout dehors.
+    return "." not in hote or hote.endswith(SUFFIXES_LOCAUX)
+
+
+def deja_retenue(origine):
+    """Ce processus a-t-il deja note cette adresse ? Sans toucher a la base."""
+    return origine in _origines_vues
+
+
+def retenir_origine(origine, toujours=False):
+    """
+    Note une adresse d'ou le proprietaire vient de se servir de
+    l'application. A n'appeler que pour une requete AUTHENTIFIEE : c'est
+    ce qui fait de cette adresse une adresse de confiance.
+    """
+    origine = _origine(origine)
+    if origine is None or (origine in _origines_vues and not toujours):
+        return
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO acces_origine (origine, vue_le) VALUES (?, ?)"
+            " ON CONFLICT(origine) DO UPDATE SET vue_le = excluded.vue_le",
+            (origine, _iso(_maintenant())))
+        conn.execute(
+            "DELETE FROM acces_origine WHERE origine NOT IN ("
+            " SELECT origine FROM acces_origine ORDER BY vue_le DESC LIMIT ?)",
+            (ORIGINES_GARDEES,))
+    _origines_vues.add(origine)
+
+
+def origines_de_confiance():
+    """Les adresses retenues, la plus recemment vue d'abord."""
+    with connexion() as conn:
+        return [ligne["origine"] for ligne in conn.execute(
+            "SELECT origine FROM acces_origine ORDER BY vue_le DESC, origine")]
+
+
+def adresse_du_lien(demandee):
+    """
+    L'adresse ou le lien menera, ou None si aucune n'est sure.
+
+    `demandee` est celle qu'annonce la requete : on ne la suit que si elle
+    est deja de confiance, ou locale. Sinon le lien mene a la derniere
+    adresse d'ou le proprietaire s'est connecte.
+    """
+    if config.URL_PUBLIQUE:
+        return config.URL_PUBLIQUE
+    demandee = _origine(demandee)
+    connues = origines_de_confiance()
+    if demandee and (demandee in connues or est_locale(demandee)):
+        return demandee
+    return connues[0] if connues else None
 
 
 # ---------------------------------------------------------------------
@@ -220,10 +319,15 @@ def emettre_jeton(verifier_rythme=True):
         conn.execute("DELETE FROM acces_jeton WHERE expire_le < ?",
                      (_iso(maintenant - datetime.timedelta(days=1)),))
         if verifier_rythme:
-            recents = [ligne["cree_le"] for ligne in conn.execute(
-                "SELECT cree_le FROM acces_jeton WHERE cree_le >= ? ORDER BY cree_le DESC",
-                (_iso(maintenant - datetime.timedelta(hours=1)),))]
-            if recents and recents[0] >= _iso(maintenant - INTERVALLE_LIENS):
+            lignes = conn.execute(
+                "SELECT cree_le, utilise_le FROM acces_jeton WHERE cree_le >= ?"
+                " ORDER BY cree_le DESC",
+                (_iso(maintenant - datetime.timedelta(hours=1)),)).fetchall()
+            recents = [ligne["cree_le"] for ligne in lignes]
+            # Seul un lien encore valable attend dans la boite : celui qui
+            # a deja servi ne justifie pas de faire patienter.
+            en_attente = [ligne["cree_le"] for ligne in lignes if ligne["utilise_le"] is None]
+            if en_attente and en_attente[0] >= _iso(maintenant - INTERVALLE_LIENS):
                 raise RefusAcces(429, "Un lien vient de partir : vérifiez votre boîte, "
                                       "ou patientez une minute avant d'en demander un autre.",
                                  attente=int(INTERVALLE_LIENS.total_seconds()))
@@ -241,8 +345,13 @@ def _oublier_jeton(jeton):
         conn.execute("DELETE FROM acces_jeton WHERE empreinte = ?", (_empreinte(jeton),))
 
 
-def envoyer_lien(adresse_application):
-    """Envoie le lien qui choisit — ou remplace — le mot de passe."""
+def envoyer_lien(adresse_demandee):
+    """
+    Envoie le lien qui choisit — ou remplace — le mot de passe.
+
+    `adresse_demandee` est celle qu'annonce la requete ; le lien ne la suit
+    que si elle est de confiance (voir `adresse_du_lien`).
+    """
     adresse = destinataire()
     if not adresse:
         raise RefusAcces(503, "Aucune adresse où envoyer le lien : ni VEILLE_ACCES_COURRIEL "
@@ -251,6 +360,14 @@ def envoyer_lien(adresse_application):
     if not (serveur["hote"] and serveur["expediteur"]):
         raise RefusAcces(503, "Le serveur d'envoi n'est pas configuré : le lien ne peut pas "
                               "partir. Voir le recours depuis le NAS dans la documentation.")
+
+    adresse_application = adresse_du_lien(adresse_demandee)
+    if adresse_application is None:
+        raise RefusAcces(409, "Le lien ne peut pas partir depuis cette adresse : "
+                              "l'application ne s'y est jamais connectée, et rien ne prouve "
+                              "que ce soit la sienne. Demandez-le depuis le réseau local "
+                              "(http://<nas>:8020), ou indiquez l'adresse de l'application "
+                              "dans le conteneur (VEILLE_URL), ou utilisez le recours du NAS.")
 
     deja = initialise()
     jeton = emettre_jeton()
@@ -283,7 +400,10 @@ def envoyer_lien(adresse_application):
         _oublier_jeton(jeton)
         raise RefusAcces(502, f"Le courriel n'est pas parti : {erreur}") from erreur
     logger.info("acces : lien envoye a %s", masquer(adresse))
-    return {"envoye": True, "destinataire": masquer(adresse), "valable_minutes": minutes}
+    return {"envoye": True, "destinataire": masquer(adresse), "valable_minutes": minutes,
+            # L'ecran dit quand le lien menera ailleurs que la ou on se
+            # trouve — sans dire ou : celui qui demande n'est pas connecte.
+            "meme_adresse": adresse_application == _origine(adresse_demandee)}
 
 
 def definir(jeton, motdepasse, appareil=""):

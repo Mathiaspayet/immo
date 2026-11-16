@@ -46,6 +46,7 @@ import numpy as np
 
 from app.base.connexion import connexion, transaction
 from app.metier import boosting, criteres, references
+from app.metier.valeurs import nombre as _nombre
 from app.metier.voisinage import Voisinage
 from app.sources import insee, loyers
 from app.sources.client_http import ErreurSource
@@ -797,7 +798,7 @@ def a_reapprendre(departement):
 def lancer_preparation(departement, forcer=False):
     with _verrou:
         if _etat["en_cours"]:
-            raise RuntimeError("Une preparation est deja en cours.")
+            raise RuntimeError("Une préparation est déjà en cours.")
         _etat.update(en_cours=True, departement=str(departement), etape="Démarrage",
                      erreur=None, fini_le=None)
 
@@ -992,6 +993,18 @@ def estimer(bien, saisie=None):
         raise ValueError("Surface habitable invraisemblable pour un logement.")
     if bien.get("latitude") is None or bien.get("longitude") is None:
         raise ValueError("Position du bien inconnue : impossible de trouver des ventes comparables.")
+    position = [_nombre(bien["latitude"]), _nombre(bien["longitude"])]
+    if None in position or not (-90 <= position[0] <= 90 and -180 <= position[1] <= 180):
+        raise ValueError("Position du bien illisible : une latitude et une longitude sont attendues.")
+    # Ce qui se compte : dit en clair plutot que par le message brut d'une
+    # conversion ratee (« could not convert string to float »).
+    for cle, libelle in (("pieces", "Pièces principales"), ("dependances", "Dépendances"),
+                         ("annee_construction", "Année de construction")):
+        if bien.get(cle) not in (None, "") and not isinstance(bien[cle], bool):
+            compte = _nombre(bien[cle])
+            if compte is None or compte < 0:
+                raise ValueError(f"{libelle} : un nombre est attendu.")
+            bien = {**bien, cle: int(compte)}
     code_insee = str(bien.get("code_insee") or "").strip()
     if not code_insee:
         raise ValueError("Commune du bien inconnue.")
@@ -1001,7 +1014,7 @@ def estimer(bien, saisie=None):
     terrain_saisi = bien.get("terrain_m2")
     bien = {**bien, "code_insee": code_insee, "surface": surface,
             "terrain_m2": _surface(bien.get("terrain_m2")) if type_bien == "maison" else 0.0,
-            "latitude": float(bien["latitude"]), "longitude": float(bien["longitude"]),
+            "latitude": position[0], "longitude": position[1],
             "dependances": int(bien.get("dependances") or 0), "neuf": bool(bien.get("neuf"))}
     departement = references.departement_de(code_insee)
 
@@ -1042,7 +1055,11 @@ def estimer(bien, saisie=None):
     facteur_marche = proj["facteur"] if proj else 1.0
 
     ajustements = []
-    travaux = max(_surface(saisie.get("travaux")), 0.0)
+    travaux = 0.0
+    if saisie.get("travaux") not in (None, "") and not isinstance(saisie["travaux"], bool):
+        travaux = _nombre(saisie["travaux"])
+        if travaux is None or travaux < 0:
+            raise ValueError("Travaux à prévoir : un montant en euros est attendu.")
     etat = saisie.get("etat") or ETAT_DE_REFERENCE
     if etat not in ETATS:
         raise ValueError("État du bâti inconnu.")
@@ -1075,10 +1092,11 @@ def estimer(bien, saisie=None):
             "facteur": (borne / brut) ** attenuation})
     facteur_criteres = borne ** attenuation
 
-    try:
-        perso = float(saisie.get("ajustement") or 0)
-    except (TypeError, ValueError):
-        raise ValueError("Ajustement personnel : un pourcentage est attendu.") from None
+    perso = 0.0
+    if saisie.get("ajustement") not in (None, "") and not isinstance(saisie["ajustement"], bool):
+        perso = _nombre(saisie["ajustement"])
+        if perso is None:
+            raise ValueError("Ajustement personnel : un pourcentage est attendu.")
     perso = min(max(perso, -30.0), 30.0)
     if perso:
         ajustements.append({"libelle": f"Ajustement personnel : {saisie.get('raison') or 'sans motif'}",

@@ -15,16 +15,34 @@ import { ouvrirFiche } from "./fiche.js";
 import { auTermeDeLImport } from "./import.js";
 import { communeCourante, surCommunePrete } from "./parcours.js";
 import {
-  $, afficherErreur, echapper, entierFr, etiquetteHtml, liensExternes,
-  masquerErreur, mesure, nombreFr,
+  $, afficherErreur, dateFr, echapper, entierFr, etiquetteHtml, liensExternes,
+  masquerErreur, mesure, nombreFr, precisFr,
 } from "./format.js";
 
+// Les critères, tels qu'on les nomme à l'écran plutôt que dans la base.
+const NOMS_CRITERES = {
+  surface: "surface", conso_ep: "énergie ép.", conso_ef: "énergie éf.", ges: "GES",
+};
+
 function lireFormulaire() {
+  // Un champ vide est ignoré ; un champ illisible ne doit pas l'être.
+  // « 1O » pour 10 partait en NaN, que le serveur recevait comme « rien
+  // de saisi » : le critère disparaissait sans un mot.
+  const illisibles = [];
   const valeur = (identifiant) => {
-    const brut = $(identifiant).value.trim();
-    return brut === "" ? null : Number(brut.replace(",", "."));
+    const champ = $(identifiant);
+    const brut = champ.value.trim();
+    if (brut === "") return null;
+    const nombre = Number(brut.replace(",", "."));
+    if (!Number.isFinite(nombre)) {
+      const libelle = document.querySelector(`label[for="${champ.id}"]`);
+      illisibles.push(`${libelle ? libelle.textContent.trim() : champ.id} : « ${brut} »`);
+      return null;
+    }
+    return nombre;
   };
   return {
+    illisibles,
     criteres: {
       surface: valeur("#i-surface"),
       conso_ep: valeur("#i-conso-ep"),
@@ -106,19 +124,19 @@ function gabaritCandidat(bien, rang) {
               </span>`;
     }
     if (ecart === null) {
-      return `<span class="ecart ecart-absent">${echapper(critere)} non renseigné</span>`;
+      return `<span class="ecart ecart-absent">${echapper(NOMS_CRITERES[critere] || critere)} non renseigné</span>`;
     }
     const classe = ecart <= 1 ? "ecart-bon" : ecart <= 3 ? "ecart-moyen" : "ecart-mauvais";
-    return `<span class="ecart ${classe}">${echapper(critere)} ${nombreFr.format(ecart)}×</span>`;
+    return `<span class="ecart ${classe}">${echapper(NOMS_CRITERES[critere] || critere)} ${nombreFr.format(ecart)}×</span>`;
   }).join("");
 
   return `
   <article class="releve candidat">
     <div class="releve-tete">
       <span class="rang donnee">${rang}</span>
-      <span class="score donnee">écart moyen ${bien.ecart_moyen ?? "—"}</span>
+      <span class="score donnee">écart moyen ${bien.ecart_moyen == null ? "—" : precisFr.format(bien.ecart_moyen)}</span>
       ${bien.zone ? `<span class="secteur">${echapper(bien.zone)}</span>` : ""}
-      <span>${echapper(bien.date_etablissement || "")}</span>
+      <span>${bien.date_etablissement ? echapper(dateFr(bien.date_etablissement)) : ""}</span>
     </div>
     <h3 class="adresse">${echapper(bien.adresse || "Adresse absente de la base")}</h3>
     <dl class="mesures">
@@ -164,6 +182,8 @@ function dessinerResultats(reponse) {
        ${entierFr.format(reponse.classes)} logements classés par écart moyen,
        exprimé en nombre de tolérances. Aucun n'a été éliminé : le bon candidat
        peut se trouver sous un écart supérieur à 1 si l'annonce arrondit.
+       Un critère que la base ne renseigne pas pour un logement y compte
+       pour une tolérance : ni pour lui, ni contre lui.
      </p>` +
     reponse.resultats.map((bien, index) => gabaritCandidat(bien, index + 1)).join("");
 
@@ -176,7 +196,12 @@ let derniereRecherche = null;
 
 async function chercher() {
   masquerErreur();
-  const corps = lireFormulaire();
+  const { illisibles, ...corps } = lireFormulaire();
+  if (illisibles.length) {
+    afficherErreur("Chiffre illisible.",
+      `${illisibles.join(" · ")} — un nombre est attendu, avec ou sans virgule.`);
+    return;
+  }
 
   // Sans le moindre chiffre, le classement n'a rien pour classer : il
   // rendrait les logements dans l'ordre de la base, ce qui ressemble à un

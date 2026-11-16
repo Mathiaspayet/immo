@@ -273,3 +273,53 @@ def test_une_surface_seule_est_comparee_a_l_autre_enregistree(base):
         reglages.ecrire({"surface_max": 50})
     reglages.ecrire({"surface_min": 120})
     assert reglages.lire("surface_min") == 120
+
+
+# ---------------------------------------------------------------------
+#  La nature des reglages
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("valeurs, extrait", [
+    ({"alerte_zone": {"a": 1}}, "un texte est attendu"),
+    ({"zones_code_insee": 40184}, "un texte est attendu"),
+    ({"smtp_hote": ["smtp.exemple.fr"]}, "un texte est attendu"),
+    ({"alerte_active": "oui"}, "vrai ou faux"),
+    ({"smtp_ssl": "non"}, "vrai ou faux"),
+    ({"alerte_ventes_active": 1}, "vrai ou faux"),
+    ({"fenetre_jours": True}, "un nombre est attendu"),
+    ({"fenetre_jours": 12.5}, "entier"),
+    ({"smtp_hote": "x" * 600}, "500 caractères"),
+    ({"zones": {"plage": [True, False]}}, "non numériques"),
+    ({"tolerances": {"surface": True, "conso": 5, "ges": 1.5}}, "Tolérance surface"),
+])
+def test_un_reglage_de_la_mauvaise_nature_est_refuse(base, valeurs, extrait):
+    """
+    L'ecran envoie toujours la bonne nature ; l'API prenait ce qu'on lui
+    donnait. Un secteur d'alerte recu sous forme d'objet entrait en base,
+    et deux ecrans de reglages repondaient ensuite par une erreur a chaque
+    ouverture. « non » en toutes lettres, lui, valait oui.
+    """
+    from app.base import reglages
+    with pytest.raises(ValueError, match=extrait):
+        reglages.ecrire(valeurs)
+    assert reglages.lire(next(iter(valeurs))) == reglages.DEFAUTS[next(iter(valeurs))]
+
+
+def test_les_nombres_sont_enregistres_comme_des_nombres(base):
+    """« 120 » entre guillemets passait le controle, puis faisait echouer
+    le premier calcul de date qui s'en servait."""
+    from app.base import reglages
+    reglages.ecrire({"fenetre_jours": "90", "surface_min": "75.5", "smtp_port": "465",
+                     "zones": {" plage ": ["44.2", "-1.29"]},
+                     "tolerances": {"surface": "2", "conso": 5, "ges": 1.5}})
+    assert reglages.lire("fenetre_jours") == 90 and isinstance(reglages.lire("fenetre_jours"), int)
+    assert reglages.lire("surface_min") == 75.5
+    assert reglages.lire("smtp_port") == 465
+    assert reglages.lire("zones") == {"plage": [44.2, -1.29]}
+    assert reglages.lire("tolerances")["surface"] == 2.0
+
+
+def test_un_texte_absent_vaut_un_texte_vide(base):
+    from app.base import reglages
+    reglages.ecrire({"alerte_zone": None})
+    assert reglages.lire("alerte_zone") == ""

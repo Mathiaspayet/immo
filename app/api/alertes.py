@@ -10,7 +10,7 @@ premier bien manque.
 
 import logging
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, HTTPException, Query
 
 from app import config, planificateur
 from app.base import reglages
@@ -75,7 +75,7 @@ def etat():
 
 
 @routeur.get("/journal")
-def journal(limite: int = 15):
+def journal(limite: int = Query(15, ge=1, le=500)):
     """
     Les dernieres tentatives d'alerte, envoyees ou non.
 
@@ -87,7 +87,7 @@ def journal(limite: int = 15):
 
 
 @routeur.post("/essai")
-def essai(corps: dict = Body(default={})):
+def essai(corps: dict | None = Body(default=None)):
     """
     Envoie un message de controle et raconte ce qui s'est passe.
 
@@ -99,4 +99,27 @@ def essai(corps: dict = Body(default={})):
     eprouve ce qu'on voit, puis on enregistre quand cela marche.
     """
     corps = corps or {}
-    return alertes.essai(corps.get("destinataire"), brouillon=corps.get("smtp"))
+    destinataire, brouillon = corps.get("destinataire"), corps.get("smtp")
+    if destinataire is not None and not isinstance(destinataire, str):
+        raise HTTPException(status_code=400, detail="Destinataire : une adresse est attendue.")
+    if brouillon is not None:
+        # La configuration affichee, telle que l'ecran l'envoie : des
+        # textes, un port, un oui/non. Autre chose n'est pas une panne du
+        # serveur d'envoi, c'est une demande mal formee.
+        if not isinstance(brouillon, dict):
+            raise HTTPException(status_code=400,
+                                detail="Configuration d'envoi : un ensemble clé/valeur est attendu.")
+        for cle in ("hote", "expediteur", "utilisateur", "motdepasse"):
+            if brouillon.get(cle) is not None and not isinstance(brouillon[cle], str):
+                raise HTTPException(status_code=400, detail=f"Configuration d'envoi, {cle} : "
+                                                            "un texte est attendu.")
+        if brouillon.get("port") not in (None, ""):
+            try:
+                port = int(brouillon["port"])
+                if isinstance(brouillon["port"], bool) or not 1 <= port <= 65535:
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400,
+                                    detail="Port SMTP : un nombre entre 1 et 65535.") from None
+            brouillon = {**brouillon, "port": port}
+    return alertes.essai(destinataire, brouillon=brouillon)

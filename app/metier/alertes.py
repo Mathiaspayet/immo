@@ -219,7 +219,8 @@ def _corps(biens, filtres=None):
     texte.extend(_lignes_texte(biens))
     if total > MAX_DETAILLES:
         texte.append(f"\n… et {total - MAX_DETAILLES} autres. "
-                     "Ouvrez l'écran Veille pour la liste complète.")
+                     "Ouvrez la carte de la commune, filtre « DPE récents », "
+                     "pour la liste complète.")
 
     rangs = []
     for bien in biens[:MAX_DETAILLES]:

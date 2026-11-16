@@ -56,6 +56,14 @@ def preparer(departement: str = Query(..., min_length=2, max_length=3), forcer: 
     megaoctets a telecharger — une requete qui attendrait la fin serait
     coupee par le navigateur.
     """
+    # « zz » lancait une vraie preparation : six telechargements voues a
+    # l'echec avant de dire qu'il n'y avait rien.
+    departement = departement.strip().upper()
+    if not (departement in ("2A", "2B")
+            or (departement.isdigit() and (len(departement) == 2 or departement.startswith("97")))):
+        raise HTTPException(status_code=400,
+                            detail="Numéro de département invalide : deux chiffres (40), "
+                                   "« 2A »/« 2B », ou trois chiffres outre-mer (974).")
     raison = references.dvf.indisponible(departement + "000")
     if raison:
         raise HTTPException(status_code=400, detail=raison)
@@ -88,9 +96,12 @@ def estimer(corps: dict = Body(...)):
     Avec "enregistrer", l'estimation est gardee : elle pourra etre comparee
     au prix reel le jour ou la vente paraitra dans DVF.
     """
-    description = corps.get("bien") or {}
+    description, saisie = corps.get("bien") or {}, corps.get("saisie") or {}
+    if not isinstance(description, dict) or not isinstance(saisie, dict):
+        raise HTTPException(status_code=400,
+                            detail="Le bien et la saisie se décrivent par un ensemble clé/valeur.")
     try:
-        resultat = estimation.estimer(description, corps.get("saisie") or {})
+        resultat = estimation.estimer(description, saisie)
     except estimation.PasPret as erreur:
         raise HTTPException(
             status_code=409,

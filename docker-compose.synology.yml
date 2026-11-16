@@ -79,7 +79,8 @@ services:
       # changer — c'est le recours de qui tient le NAS.
       VEILLE_ACCES_COURRIEL: ${VEILLE_ACCES_COURRIEL:-}
       # L'adresse a laquelle on ouvre l'application, pour ce meme lien
-      # (https://immo.mondomaine.fr). Vide : celle de la page qui le demande.
+      # (https://immo.mondomaine.fr). Vide : une adresse d'ou vous vous etes
+      # deja connecte, ou une adresse du reseau local (voir le README).
       VEILLE_URL: ${VEILLE_URL:-}
       # Ou vont les copies datees de la base, faites apres chaque import.
       # Par defaut a cote d'elle, DANS le volume Docker — ce qui protege de

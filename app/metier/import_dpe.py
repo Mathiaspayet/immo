@@ -237,7 +237,7 @@ def _demarrer(declencheur, quoi):
     """Prend le verrou et ouvre le journal. Leve si une moisson tourne deja."""
     with _verrou:
         if _etat["en_cours"]:
-            raise RuntimeError("Un import est deja en cours.")
+            raise RuntimeError("Un import est déjà en cours.")
         _etat.update({"en_cours": True, "declencheur": declencheur,
                       "debut": _maintenant(), "fin": None,
                       "etape": f"demarrage — {quoi}", "lignes": 0, "ajouts": 0,
@@ -276,7 +276,7 @@ def _terminer(journal_id, resume=None, erreur=None):
 
 
 def importer_commune(code_insee, declencheur="commune", jeux=None,
-                     avec_dpe=True, avec_cadastre=False):
+                     avec_dpe=True, avec_cadastre=False, journal_id=None):
     """
     Moissonne UNE commune : ses DPE, son cadastre, ou les deux.
 
@@ -286,16 +286,27 @@ def importer_commune(code_insee, declencheur="commune", jeux=None,
 
     Les deux travaux sont independants : demander le cadastre d'une commune
     dont les DPE sont a jour ne doit pas les retelecharger.
+
+    `journal_id` : la moisson a deja ete annoncee par l'appelant (voir
+    `lancer_en_tache_de_fond`), il n'y a plus qu'a la faire.
     """
     code_insee = str(code_insee).strip()
-    fiche = geo.commune_par_insee(code_insee) or {}
-    nom = fiche.get("nom") or code_insee
-
-    quoi = nom + ("" if avec_dpe else " — cadastre")
-    journal_id = _demarrer(declencheur, quoi)
+    # Le drapeau « en cours » se leve AVANT le premier appel reseau. Il se
+    # levait apres la lecture du nom de la commune au referentiel : tant
+    # que celui-ci n'avait pas repondu — trois secondes un jour de
+    # lenteur —, l'etat annoncait « rien ne tourne », et l'ecran qui
+    # suivait la moisson la croyait finie. La carte s'ouvrait vide, sans
+    # message, pendant que le telechargement commencait a peine.
+    if journal_id is None:
+        journal_id = _demarrer(declencheur, code_insee)
+    nom, fiche = code_insee, {}
     resume = {"lignes": 0, "ajouts": 0, "message": ""}
 
     try:
+        fiche = geo.commune_par_insee(code_insee) or {}
+        nom = fiche.get("nom") or code_insee
+        quoi = nom + ("" if avec_dpe else " — cadastre")
+        _publier(cible=quoi, etape=f"demarrage — {quoi}")
         if avec_dpe:
             resume = _moissonner([{"code_insee": code_insee, "nom": nom,
                                    "code_postal": fiche.get("code_postal")}], jeux)
@@ -339,7 +350,11 @@ def importer_commune(code_insee, declencheur="commune", jeux=None,
     return resume
 
 
-def importer(declencheur="planifie", jeux=None):
+RIEN_A_RAFRAICHIR = ("Aucune commune n'a encore été consultée : il n'y a rien à "
+                     "rafraîchir. Choisissez une commune depuis l'accueil.")
+
+
+def importer(declencheur="planifie", jeux=None, journal_id=None):
     """
     Rafraichit toutes les communes deja consultees.
 
@@ -348,11 +363,16 @@ def importer(declencheur="planifie", jeux=None):
     """
     communes = communes_suivies()
     if not communes:
-        raise ErreurSource(
-            "Aucune commune n'a encore ete consultee : il n'y a rien a "
-            "rafraichir. Choisissez une commune depuis l'accueil.")
+        erreur = ErreurSource(RIEN_A_RAFRAICHIR)
+        if journal_id is not None:
+            _terminer(journal_id, erreur=erreur)
+        raise erreur
 
-    journal_id = _demarrer(declencheur, f"{len(communes)} commune(s)")
+    quoi = f"{len(communes)} commune(s)"
+    if journal_id is None:
+        journal_id = _demarrer(declencheur, quoi)
+    else:
+        _publier(cible=quoi, etape=f"demarrage — {quoi}")
     try:
         resume = _moissonner(communes, jeux)
     except Exception as erreur:                      # noqa: BLE001
@@ -834,6 +854,13 @@ def preparer_commune(code_insee, seuil_heures=None, declencheur="consultation",
     except RuntimeError:
         return {"lance": False, "raison": "deja_en_cours", "age_heures": age,
                 "en_cache": age is not None, "cadastre": cadastre}
+    except Exception as erreur:                      # noqa: BLE001
+        # Le journal des imports est inaccessible (disque plein, base
+        # verrouillee) : deja publie dans l'etat. On ne leve pas pour
+        # autant — ce qui est en cache reste consultable.
+        logger.error("moisson de %s non lancee : %s", code_insee, erreur)
+        return {"lance": False, "raison": "indisponible", "age_heures": age,
+                "en_cache": age is not None, "cadastre": cadastre}
 
     return {"lance": True, "raison": raison,
             "age_heures": None if age is None else round(age, 2),
@@ -863,18 +890,39 @@ def lancer_en_tache_de_fond(declencheur="manuel", code_insee=None,
     """
     with _verrou:
         if _etat["en_cours"]:
-            raise RuntimeError("Un import est deja en cours.")
+            raise RuntimeError("Un import est déjà en cours.")
+    # Rien a rafraichir : on le dit tout de suite, a celui qui a clique.
+    # Leve dans le fil, ce refus n'atteignait personne — le bouton
+    # annoncait « moisson demarree », puis plus rien.
+    if not code_insee and not communes_suivies():
+        raise RuntimeError(RIEN_A_RAFRAICHIR)
+
+    # La moisson est ANNONCEE ICI, avant que le fil ne parte : celui qui
+    # recoit « c'est lance » doit pouvoir interroger l'etat aussitot et y
+    # lire « en cours ». Annoncee par le fil, elle laissait une fenetre
+    # ou l'etat disait encore « rien ne tourne ».
+    journal_id = _demarrer(declencheur, code_insee or "communes consultees")
 
     def travail():
         try:
             if code_insee:
                 importer_commune(code_insee, declencheur=declencheur,
-                                 avec_dpe=avec_dpe, avec_cadastre=avec_cadastre)
+                                 avec_dpe=avec_dpe, avec_cadastre=avec_cadastre,
+                                 journal_id=journal_id)
             else:
-                importer(declencheur=declencheur)
-        except Exception:                            # noqa: BLE001
-            pass      # deja journalise et publie dans l'etat
+                importer(declencheur=declencheur, journal_id=journal_id)
+        except Exception as erreur:                  # noqa: BLE001
+            # Deja journalise et publie dans l'etat — sauf si l'echec a
+            # precede la moisson elle-meme. Le drapeau, lui, ne doit
+            # JAMAIS rester leve : plus aucun import ne partirait.
+            courant = etat()
+            if courant["en_cours"] and courant["journal_id"] == journal_id:
+                _terminer(journal_id, erreur=erreur)
 
     fil = threading.Thread(target=travail, name="import-dpe", daemon=True)
-    fil.start()
+    try:
+        fil.start()
+    except Exception as erreur:
+        _terminer(journal_id, erreur=erreur)
+        raise
     return fil

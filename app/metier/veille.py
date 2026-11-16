@@ -357,12 +357,38 @@ def marquer_vus(numeros=None):
         return curseur.rowcount or 0
 
 
+def _cellule(valeur):
+    """
+    Une valeur, telle qu'Excel en configuration francaise la lit.
+
+    Le fichier lui est destine — point-virgule, BOM —, mais ses nombres
+    s'ecrivaient a l'anglaise : « 122.2 » y est un TEXTE, qu'on ne peut ni
+    trier ni additionner. La virgule en fait un nombre.
+
+    Et une adresse reste une adresse : la base de l'ADEME est saisie a la
+    main par des milliers de diagnostiqueurs, et un texte commencant par
+    « = » ou « @ » serait execute comme une formule a l'ouverture. Une
+    apostrophe devant le desamorce, sans s'afficher dans la cellule.
+    """
+    if valeur is None:
+        return ""
+    if isinstance(valeur, bool):
+        return "oui" if valeur else "non"
+    if isinstance(valeur, float):
+        texte = repr(valeur)
+        return (texte[:-2] if texte.endswith(".0") else texte).replace(".", ",")
+    if isinstance(valeur, str) and valeur[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + valeur
+    return valeur
+
+
 def exporter_csv(filtres=None):
     """
     Export CSV du tableau courant (CDC 7 : tout tableau est exportable).
 
-    Separateur point-virgule et BOM UTF-8 : c'est ce qu'attend Excel en
-    configuration francaise, sans quoi les accents sont illisibles.
+    Separateur point-virgule, BOM UTF-8 et virgule decimale : c'est ce
+    qu'attend Excel en configuration francaise, sans quoi les accents sont
+    illisibles et les nombres ne sont que du texte.
     """
     lignes = lister(filtres, limite=None)
     # `logements` part avec le reste : sans elle, le fichier laisse croire
@@ -374,5 +400,6 @@ def exporter_csv(filtres=None):
     redacteur = csv.DictWriter(tampon, fieldnames=colonnes, delimiter=";",
                                extrasaction="ignore")
     redacteur.writeheader()
-    redacteur.writerows(lignes)
+    redacteur.writerows({colonne: _cellule(ligne.get(colonne)) for colonne in colonnes}
+                        for ligne in lignes)
     return "﻿" + tampon.getvalue()

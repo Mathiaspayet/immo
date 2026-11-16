@@ -9,6 +9,23 @@ plusieurs milliers de lignes.
 """
 
 import math
+import re
+
+# Cinq caracteres : deux pour le departement — chiffres, ou 2A/2B en Corse
+# —, trois pour la commune. L'outre-mer (97xxx) entre dans le meme moule.
+CODE_INSEE = re.compile(r"(\d{2}|2[AB])\d{3}")
+
+
+def code_insee(valeur):
+    """
+    Le code INSEE d'une commune, nettoye, ou None s'il n'en a pas la forme.
+
+    Un code fantaisiste n'etait arrete nulle part : « abcde » lancait une
+    vraie moisson, qui interrogeait l'ADEME trois fois avant d'echouer et
+    de laisser sa ligne au journal.
+    """
+    code = str(valeur or "").strip().upper()
+    return code if CODE_INSEE.fullmatch(code) else None
 
 
 def nombre(valeur):

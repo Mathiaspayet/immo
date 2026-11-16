@@ -456,8 +456,8 @@
       <h2>Communes consultées</h2>
       <p class="explication">
         Ce registre se remplit tout seul&nbsp;: chaque commune que vous
-        consultez y entre, et c'est lui que le rafraîchissement hebdomadaire
-        parcourt. Rien à déclarer à l'avance.
+        consultez y entre, et c'est lui que l'import automatique parcourt.
+        Rien à déclarer à l'avance.
       </p>
       <div id="communes-couvertes"></div>
       <p>
@@ -511,7 +511,11 @@
       </div>
       <dl class="reglage-resume"></dl>
       <div class="reglage-edition" hidden>
-      <p class="explication">Ce que l'écran Veille affiche à l'ouverture.</p>
+      <p class="explication">
+        Les critères que reprend l'alerte par courriel&nbsp;: seuls les
+        diagnostics qui y répondent sont signalés. La carte a ses propres
+        filtres, réglés sur place.
+      </p>
       <div class="grille-champs">
         <div class="champ">
           <label for="r-fenetre">Fenêtre (jours)</label>
@@ -924,7 +928,9 @@
     <section>
       <h2>Journal des imports</h2>
       <p class="explication" id="prochain-import">Chaque import est tracé, réussi ou non.</p>
-      <table class="journal" id="journal"><tbody></tbody></table>
+      <!-- Le tableau défile dans SON cadre : sur téléphone, c'est toute
+           la page qu'il faisait déborder. -->
+      <div class="cadre-defilant"><table class="journal" id="journal"><tbody></tbody></table></div>
     </section>
 
     <section>
