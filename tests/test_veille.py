@@ -770,7 +770,7 @@ def test_l_import_quotidien_complete_les_mairies_manquantes(base, monkeypatch):
                      " VALUES ('40019', 'Aureilhan', 44.22, -1.20)")
     demandes = []
 
-    def referentiel(code_insee):
+    def referentiel(code_insee, rapide=False):
         demandes.append(code_insee)
         return {"nom": "Mimizan", "mairie": (44.2005, -1.2282)}
 
@@ -780,3 +780,128 @@ def test_l_import_quotidien_complete_les_mairies_manquantes(base, monkeypatch):
     assert demandes == ["40184"]                  # pas de requete pour qui l'a deja
     assert _mairie_en_base("40184") == (44.2005, -1.2282)
     assert _mairie_en_base("40019") == (44.22, -1.20)
+
+
+def test_choisir_une_commune_deja_connue_lit_sa_mairie(base, monkeypatch):
+    """
+    Le cas des Abrets en Dauphine : commune consultee la veille, donc pas
+    remoissonnee au clic — et la mairie n'etait lue qu'en moissonnant. La
+    carte s'ouvrait au mauvais endroit jusqu'a l'import du lendemain.
+    """
+    import datetime
+
+    from app.base.connexion import transaction
+    from app.metier import import_dpe
+    hier = (datetime.datetime.now() - datetime.timedelta(hours=3)).isoformat(timespec="seconds")
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom, derniere_maj_dpe, derniere_maj_cadastre)"
+                     " VALUES ('38001', 'Les Abrets en Dauphiné', ?, ?)", (hier, hier))
+    appels = []
+
+    def referentiel(code_insee, rapide=False):
+        appels.append((code_insee, rapide))
+        return {"nom": "Les Abrets en Dauphiné", "mairie": (45.5369, 5.5858)}
+
+    monkeypatch.setattr("app.sources.geo.commune_par_insee", referentiel)
+    etat = import_dpe.preparer_commune("38001", besoin="cadastre")
+
+    assert etat["raison"] == "a_jour" and etat["lance"] is False
+    assert appels == [("38001", True)]            # un essai bref : on attend l'ecran
+    assert _mairie_en_base("38001") == (45.5369, 5.5858)
+
+    import_dpe.preparer_commune("38001", besoin="cadastre")
+    assert len(appels) == 1                       # deja en base : plus de requete
+
+
+def test_un_referentiel_muet_au_choix_n_empeche_pas_de_consulter(base, monkeypatch):
+    from app.base.connexion import transaction
+    from app.metier import import_dpe
+    from app.sources.client_http import ErreurSource
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom, derniere_maj_dpe)"
+                     " VALUES ('38001', 'Les Abrets', '2999-01-01T00:00:00')")
+
+    def panne(code_insee, rapide=False):
+        raise ErreurSource("injoignable")
+
+    monkeypatch.setattr("app.sources.geo.commune_par_insee", panne)
+    assert import_dpe.preparer_commune("38001")["raison"] == "a_jour"
+    assert _mairie_en_base("38001") == (None, None)
+
+
+def test_une_moisson_du_seul_cadastre_note_aussi_la_mairie(base, monkeypatch):
+    """Commune deja connue pour ses DPE, ouverte pour la premiere fois sur
+    la carte : seul le cadastre est telecharge — et la mairie, lue avec le
+    nom, etait perdue."""
+    from app.base.connexion import transaction
+    from app.metier import import_dpe
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom) VALUES ('38001', 'Les Abrets')")
+    monkeypatch.setattr("app.sources.geo.commune_par_insee", lambda code_insee, rapide=False: {
+        "nom": "Les Abrets en Dauphiné", "mairie": (45.5369, 5.5858)})
+    monkeypatch.setattr("app.metier.parcelles.importer_cadastre",
+                        lambda code_insee, progression=None: {"message": "cadastre"})
+    monkeypatch.setattr("app.metier.mutations.importer",
+                        lambda code_insee, progression=None: {"message": "ventes"})
+
+    import_dpe.importer_commune("38001", avec_dpe=False, avec_cadastre=True)
+
+    assert _mairie_en_base("38001") == (45.5369, 5.5858)
+
+
+def test_sans_mairie_la_carte_s_ouvre_au_point_median_des_diagnostics(base):
+    """Le milieu du rectangle se laissait emporter par quelques diagnostics
+    places a Bayeux : Aureilhan s'ouvrait dans les Deux-Sevres."""
+    for numero in range(9):
+        inserer_dpe(n_dpe=f"ICI{numero}", code_insee="40019",
+                    latitude=44.218 + numero * 0.001, longitude=-1.205 + numero * 0.001)
+    inserer_dpe(n_dpe="BAYEUX", code_insee="40019", latitude=49.2764, longitude=-0.7078)
+
+    commune = veille.communes_en_cache()[0]
+
+    assert commune["mairie"] is None
+    assert 44.218 <= commune["centre"]["latitude"] <= 44.227
+    assert -1.205 <= commune["centre"]["longitude"] <= -1.196
+    assert commune["cadre"]["lat_max"] > 49          # le rectangle, lui, s'etire jusqu'a Bayeux
+
+
+def test_l_appel_bref_n_insiste_pas(monkeypatch):
+    from app.sources import client_http, geo
+    vus = []
+
+    def ouvrir(url, delai=None, tentatives=None, silencieux=False, methode="GET"):
+        vus.append((delai, tentatives))
+        raise OSError("coupure")
+
+    monkeypatch.setattr(client_http, "ouvrir", ouvrir)
+    assert geo.commune_par_insee("38001", rapide=True) is None
+    assert vus == [(geo.DELAI_RAPIDE, 1)]
+
+
+def test_une_commune_sans_nom_officiel_garde_un_nom(base):
+    """Referentiel muet au premier telechargement, base ancienne sans nom :
+    la commune s'affichait « None » dans la liste."""
+    from app.base.connexion import transaction
+    for numero in range(3):
+        inserer_dpe(n_dpe=f"ANC{numero}", code_insee="38001", commune=None)
+    inserer_dpe(n_dpe="REC", code_insee="38001", commune="Les Abrets en Dauphiné")
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom) VALUES ('38001', '38001')")
+
+    assert veille.communes_en_cache()[0]["nom"] == "Les Abrets en Dauphiné"
+
+
+def test_la_mairie_lue_au_choix_repare_aussi_le_nom(base, monkeypatch):
+    from app.base.connexion import connexion, transaction
+    from app.metier import import_dpe
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom) VALUES ('38001', '38001')")
+        conn.execute("INSERT INTO commune (code_insee, nom) VALUES ('40184', 'Mimizan')")
+    monkeypatch.setattr("app.sources.geo.commune_par_insee", lambda code_insee, rapide=False: {
+        "nom": "Officiel", "mairie": (45.5369, 5.5858)})
+
+    import_dpe._completer_mairies()
+
+    with connexion() as conn:
+        noms = dict(conn.execute("SELECT code_insee, nom FROM commune").fetchall())
+    assert noms == {"38001": "Officiel", "40184": "Mimizan"}      # un vrai nom n'est pas remplace

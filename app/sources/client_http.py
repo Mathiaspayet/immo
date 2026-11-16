@@ -99,16 +99,19 @@ def ouvrir(url, delai=DELAI, methode="GET", tentatives=TENTATIVES, silencieux=Fa
     raise AssertionError("inatteignable")             # pragma: no cover
 
 
-def appeler(url, silencieux=False):
+def appeler(url, silencieux=False, delai=DELAI, tentatives=TENTATIVES):
     """
     Appelle une URL et renvoie le JSON decode.
 
     Leve ErreurSource si le serveur refuse ou ne repond pas. Un incident
     passager est retente (voir `ouvrir`) ; une erreur HTTP franche (403,
     404) ne l'est pas, elle ne se resoudra pas toute seule.
+
+    `delai` et `tentatives` se reduisent quand quelqu'un attend la reponse
+    a l'ecran : mieux vaut s'en passer que de le faire patienter.
     """
     try:
-        corps, _ = ouvrir(url, silencieux=silencieux)
+        corps, _ = ouvrir(url, delai=delai, tentatives=tentatives, silencieux=silencieux)
         return json.loads(corps.decode("utf-8"))
     except urllib.error.HTTPError as erreur:
         detail = erreur.read().decode("utf-8", "ignore")[:200].strip()
@@ -117,7 +120,7 @@ def appeler(url, silencieux=False):
             logger.warning("%s sur %s", message, url[:120])
         raise ErreurSource(message) from erreur
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as erreur:
-        raise ErreurSource(f"injoignable apres {TENTATIVES} tentatives — "
+        raise ErreurSource(f"injoignable apres {tentatives} tentative(s) — "
                            f"{type(erreur).__name__} : {erreur}") from erreur
 
 

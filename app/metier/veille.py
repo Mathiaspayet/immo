@@ -35,6 +35,29 @@ COLONNES = [
 ]
 
 
+def _centre_des_diagnostics(conn, code_insee):
+    """
+    Le point median des diagnostics d'une commune : la ou la carte s'ouvre
+    quand on ne connait pas encore sa mairie.
+
+    Le milieu du rectangle, qui servait jusque-la, se laisse emporter par
+    un seul diagnostic mal place — et la base ancienne de l'ADEME en place
+    a Bayeux ou a Niort : Aureilhan s'ouvrait dans les Deux-Sevres. La
+    mediane, elle, ignore une poignee d'egares parmi deux mille.
+    """
+    filtre = ("FROM dpe WHERE code_insee = ? AND latitude IS NOT NULL"
+              " AND longitude IS NOT NULL")
+    nombre = conn.execute(f"SELECT count(*) {filtre}", (code_insee,)).fetchone()[0]
+    if not nombre:
+        return None
+    milieu = nombre // 2
+    latitude = conn.execute(f"SELECT latitude {filtre} ORDER BY latitude LIMIT 1 OFFSET ?",
+                            (code_insee, milieu)).fetchone()[0]
+    longitude = conn.execute(f"SELECT longitude {filtre} ORDER BY longitude LIMIT 1 OFFSET ?",
+                             (code_insee, milieu)).fetchone()[0]
+    return {"latitude": latitude, "longitude": longitude}
+
+
 def communes_en_cache():
     """
     Communes presentes en cache, avec leur nombre de DPE.
@@ -75,6 +98,9 @@ def communes_en_cache():
                 "       min(longitude) AS lon_min, max(longitude) AS lon_max"
                 "  FROM dpe WHERE code_insee IS NOT NULL AND latitude IS NOT NULL"
                 " GROUP BY code_insee")}
+        # Calcule seulement la ou la mairie manque : une fois lue, plus rien.
+        centres = {code: _centre_des_diagnostics(conn, code)
+                   for code in cadres if code not in mairies}
 
     par_insee = {}
     for ligne in lignes:
@@ -86,10 +112,20 @@ def communes_en_cache():
             "variantes": [],
             "cadre": cadres.get(ligne["code_insee"]),
             "mairie": mairies.get(ligne["code_insee"]),
+            "centre": centres.get(ligne["code_insee"]),
         })
         entree["dpe"] += ligne["dpe"]
         if ligne["commune"] and ligne["commune"] not in entree["variantes"]:
             entree["variantes"].append(ligne["commune"])
+
+    # Le groupe le plus fourni peut n'avoir AUCUN nom : la base ancienne de
+    # l'ADEME n'en porte pas, il se deduit du referentiel — et celui-ci a pu
+    # se taire au premier telechargement. La commune s'affichait alors sans
+    # nom. Le nom ecrit par un diagnostiqueur vaut mieux, et le code mieux
+    # que rien.
+    for entree in par_insee.values():
+        if not entree["nom"]:
+            entree["nom"] = (entree["variantes"] or [entree["code_insee"]])[0]
 
     return sorted(par_insee.values(), key=lambda c: -c["dpe"])
 

@@ -175,10 +175,17 @@ milieu tombe en pleine pinède (Mimizan, qui va de l'océan aux landes), et
 un seul diagnostic mal géolocalisé suffit à le déplacer de plusieurs
 centaines de kilomètres — Aureilhan s'ouvrait dans les Deux-Sèvres, à cause
 de vieux diagnostics que l'ADEME place à Bayeux ou à Niort. La position de
-la mairie vient du référentiel de l'État (`geo.api.gouv.fr`), lue au
-téléchargement de la commune et gardée en base : ouvrir la carte ne fait
-partir aucune requête. Les communes déjà en base la reçoivent au prochain
-import automatique.
+la mairie vient du référentiel de l'État (`geo.api.gouv.fr`) et se garde
+en base. Elle est lue au téléchargement de la commune, et, si elle manque
+encore, au **choix** de la commune — un clic, pas un simple affichage
+(CDC 4) —, en un seul essai de quatre secondes au plus ; l'import
+automatique comble les dernières. Le nom de la commune se répare au
+passage, quand le référentiel s'était tu au premier téléchargement.
+
+Faute de mairie connue, la carte s'ouvre au **point médian** des
+diagnostics de la commune : une poignée d'égarés parmi des milliers ne le
+déplace pas. Aux Abrets en Dauphiné, il tombe à 150 m de la mairie, là où
+le milieu du rectangle tombait en Saône-et-Loire.
 
 On parcourt la commune sur photo aérienne IGN, parcellaire en surimpression,
 chaque parcelle colorée selon ce qu'on en sait :

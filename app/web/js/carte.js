@@ -658,11 +658,12 @@ export function creerCarteExploration(identifiant,
      *
      * Et pas au milieu : sur une commune étendue, le milieu tombe en pleine
      * pinède. On se pose à la MAIRIE quand on la connaît — c'est là qu'on
-     * vit —, au milieu des diagnostics connus sinon.
+     * vit —, sinon au point médian des diagnostics, que le serveur donne
+     * aussi ; au milieu du cadre en dernier recours.
      */
-    cadrerSur(bornes, zoom = 16, mairie = null) {
-      if (mairie?.latitude != null && mairie?.longitude != null) {
-        carte.setView([mairie.latitude, mairie.longitude], zoom);
+    cadrerSur(bornes, zoom = 16, point = null) {
+      if (point?.latitude != null && point?.longitude != null) {
+        carte.setView([point.latitude, point.longitude], zoom);
         return;
       }
       const latitude = (bornes.lat_min + bornes.lat_max) / 2;

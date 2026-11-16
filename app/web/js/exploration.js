@@ -455,7 +455,7 @@ async function cadrerSurLaCommune() {
     const trouvee = communes.find((c) => c.code_insee === commune.code_insee);
     if (trouvee?.cadre) {
       communeCadree = commune.code_insee;
-      carte.cadrerSur(trouvee.cadre, 16, trouvee.mairie);
+      carte.cadrerSur(trouvee.cadre, 16, trouvee.mairie || trouvee.centre);
     }
   } catch (_) { /* on reste où on est : ce n'est pas bloquant */ }
 }

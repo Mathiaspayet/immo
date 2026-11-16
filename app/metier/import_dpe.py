@@ -345,6 +345,15 @@ def importer_commune(code_insee, declencheur="commune", jeux=None,
             resume["message"] = " · ".join(filter(None, [
                 resume["message"], f"ventes indisponibles ({erreur})"]))
 
+    # La mairie, lue avec le nom. La moisson des DPE l'inscrit avec la
+    # commune ; une moisson du seul cadastre, elle, la perdait — la commune
+    # deja connue ne la recevait qu'a l'import du lendemain.
+    if fiche.get("mairie"):
+        try:
+            _noter_mairie(code_insee, fiche["mairie"])
+        except Exception as erreur:                  # noqa: BLE001
+            logger.warning("mairie de %s non notee : %s", nom, erreur)
+
     if not resume["message"]:
         resume["message"] = f"{nom} — rien a faire"
     _terminer(journal_id, resume=resume)
@@ -401,25 +410,32 @@ def importer(declencheur="planifie", jeux=None, journal_id=None):
     return resume
 
 
-def _completer_mairies():
+def _noter_mairie(code_insee, mairie, nom=None):
+    """La mairie — et le nom, s'il manquait encore : la fiche les donne ensemble."""
+    with transaction() as conn:
+        conn.execute("UPDATE commune SET mairie_latitude = ?, mairie_longitude = ?,"
+                     " nom = CASE WHEN nom = code_insee AND ? IS NOT NULL THEN ? ELSE nom END"
+                     " WHERE code_insee = ?", (*mairie, nom, nom, code_insee))
+
+
+def _completer_mairies(codes=None, rapide=False):
     """
     Lit la mairie des communes deja consultees qui n'en ont pas encore.
 
-    Les communes moissonnees avant que l'application ne la retienne en
-    sont privees jusqu'a leur prochaine consultation, qui peut ne jamais
-    venir : l'import quotidien la leur donne. Une requete par commune, une
-    seule fois — ensuite elle est en base.
+    Une requete par commune, une seule fois — ensuite elle est en base.
+    Appele par l'import quotidien pour toutes, et au choix d'une commune
+    pour elle seule (`codes`, `rapide`) : c'est la qu'on l'attend.
     """
     with connexion() as conn:
         manquantes = [ligne["code_insee"] for ligne in conn.execute(
             "SELECT code_insee FROM commune WHERE mairie_latitude IS NULL")]
+    if codes is not None:
+        manquantes = [code for code in manquantes if code in set(codes)]
     for code_insee in manquantes:
-        fiche = geo.commune_par_insee(code_insee) or {}
+        fiche = geo.commune_par_insee(code_insee, rapide=rapide) or {}
         if not fiche.get("mairie"):
             continue
-        with transaction() as conn:
-            conn.execute("UPDATE commune SET mairie_latitude = ?, mairie_longitude = ?"
-                         " WHERE code_insee = ?", (*fiche["mairie"], code_insee))
+        _noter_mairie(code_insee, fiche["mairie"], fiche.get("nom"))
         logger.info("mairie de %s notee", fiche.get("nom") or code_insee)
 
 
@@ -859,6 +875,19 @@ def preparer_commune(code_insee, seuil_heures=None, declencheur="consultation",
     Ne leve jamais : ne pas pouvoir rafraichir n'empeche pas de consulter.
     """
     code_insee = str(code_insee).strip()
+
+    # La mairie, si la commune est connue mais pas elle : la carte va
+    # s'ouvrir dessus. Elle n'etait lue qu'en moissonnant, et une commune
+    # consultee la veille n'est pas remoissonnee — elle s'ouvrait donc au
+    # mauvais endroit jusqu'a l'import du lendemain. Lue ici, au CHOIX de
+    # la commune — une action, pas un simple affichage (CDC 4) —, en un
+    # seul essai bref : faute de reponse, la carte s'ouvre ailleurs, mais
+    # elle s'ouvre.
+    try:
+        _completer_mairies(codes=[code_insee], rapide=True)
+    except Exception as erreur:                      # noqa: BLE001
+        logger.warning("mairie de %s non lue : %s", code_insee, erreur)
+
     parametres = reglages.tous()
     seuil = parametres["rafraichir_apres_heures"] if seuil_heures is None else seuil_heures
     age = age_commune(code_insee)

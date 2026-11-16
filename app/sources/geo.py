@@ -102,18 +102,26 @@ def _point(geometrie):
     return latitude, longitude
 
 
-def commune_par_insee(code_insee):
+# Quand quelqu'un attend la reponse a l'ecran : un essai, quelques secondes.
+DELAI_RAPIDE = 4
+
+
+def commune_par_insee(code_insee, rapide=False):
     """
     Une commune precise, par son code INSEE.
 
     Avec sa mairie : c'est la que la carte s'ouvre. Le centre geometrique,
     que le referentiel donne aussi, tombe sur une commune etendue en pleine
     pinede — loin de tout ce qu'on vient y chercher.
+
+    `rapide` : un seul essai, bref. Pour une lecture faite pendant qu'on
+    attend l'ecran ; la moisson, elle, insiste.
     """
     url = construire_url(f"{BASE}/{code_insee}",
                          {"fields": "nom,code,codesPostaux,population,departement,mairie"})
     try:
-        entree = appeler(url)
+        entree = (appeler(url, delai=DELAI_RAPIDE, tentatives=1, silencieux=True) if rapide
+                  else appeler(url))
     except ErreurSource:
         return None
     if not entree:
