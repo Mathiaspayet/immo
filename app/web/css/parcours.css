@@ -168,3 +168,9 @@
 .reglages > .contexte {
   margin: calc(var(--pas) * -5) calc(var(--pas) * -5) calc(var(--pas) * 6);
 }
+
+/* Le clic a porté : la commune choisie le montre tant que le serveur
+   prépare, les autres attendent. */
+.commune[aria-busy="true"] { background: var(--papier-carte); cursor: progress; }
+.commune[aria-busy="true"] .pastille { border-color: var(--atlantique); color: var(--atlantique); }
+.commune:disabled:not([aria-busy="true"]) { opacity: 0.55; cursor: default; }

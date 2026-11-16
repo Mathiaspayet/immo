@@ -62,6 +62,8 @@ def acces_ouvert(monkeypatch):
     from app.metier import acces
     acces._oublier_echecs()
     acces._origines_vues.clear()
+    from app.metier import import_dpe
+    import_dpe._mairies_manquees.clear()
 
 
 # Toutes les tables que l'application remplit. Une table oubliee ici fuit

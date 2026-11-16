@@ -24,6 +24,7 @@ import datetime
 import json
 import logging
 import threading
+import time
 
 from app.base import reglages
 from app.base.connexion import connexion, transaction
@@ -418,6 +419,13 @@ def _noter_mairie(code_insee, mairie, nom=None):
                      " WHERE code_insee = ?", (*mairie, nom, nom, code_insee))
 
 
+# Quand la lecture rapide d'une mairie a echoue, on ne la retente pas a
+# chaque clic : le referentiel en panne coutait trois secondes A CHAQUE
+# ouverture de la commune. L'import quotidien, lui, retente toujours.
+RETENTER_MAIRIE_APRES = 3600       # secondes
+_mairies_manquees = {}
+
+
 def _completer_mairies(codes=None, rapide=False):
     """
     Lit la mairie des communes deja consultees qui n'en ont pas encore.
@@ -431,10 +439,18 @@ def _completer_mairies(codes=None, rapide=False):
             "SELECT code_insee FROM commune WHERE mairie_latitude IS NULL")]
     if codes is not None:
         manquantes = [code for code in manquantes if code in set(codes)]
+    if rapide:
+        maintenant = time.monotonic()
+        manquantes = [code for code in manquantes
+                      if maintenant - _mairies_manquees.get(code, -RETENTER_MAIRIE_APRES)
+                      >= RETENTER_MAIRIE_APRES]
     for code_insee in manquantes:
         fiche = geo.commune_par_insee(code_insee, rapide=rapide) or {}
         if not fiche.get("mairie"):
+            if rapide:
+                _mairies_manquees[code_insee] = time.monotonic()
             continue
+        _mairies_manquees.pop(code_insee, None)
         _noter_mairie(code_insee, fiche["mairie"], fiche.get("nom"))
         logger.info("mairie de %s notee", fiche.get("nom") or code_insee)
 

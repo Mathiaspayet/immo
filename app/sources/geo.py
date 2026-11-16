@@ -102,8 +102,9 @@ def _point(geometrie):
     return latitude, longitude
 
 
-# Quand quelqu'un attend la reponse a l'ecran : un essai, quelques secondes.
-DELAI_RAPIDE = 4
+# Quand quelqu'un attend la reponse a l'ecran : un essai, trois secondes.
+# Le referentiel repond d'ordinaire en moins d'une.
+DELAI_RAPIDE = 3
 
 
 def commune_par_insee(code_insee, rapide=False):

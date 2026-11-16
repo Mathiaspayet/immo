@@ -90,6 +90,11 @@ const MARGE = 0.3;
 let carte = null;
 let derniereRequete = 0;
 let communeCadree = null;
+// La demande de parcelles en route, et ce qu'elle demande : une demande
+// identique la rejoint au lieu d'en lancer une autre.
+let enVol = null;
+// Le cadrage en cours : deux ecrans le demandent a l'ouverture d'une commune.
+let cadrage = null;
 // Une position GPS qu'il faudra retrouver apres un changement de
 // commune. Voir `cadrerSurLaCommune`.
 let positionSouhaitee = null;
@@ -366,11 +371,23 @@ function peuplerSecteurs(zones) {
 }
 
 /** Rafraîchit la barre de contexte : la commune, et son nombre de DPE. */
+/**
+ * Le registre des communes. Le cadrage et la barre de contexte le
+ * demandent au même instant : une seule requête sert les deux.
+ */
+let communesEnVol = null;
+function lireCommunes() {
+  if (!communesEnVol) {
+    communesEnVol = api.communes().finally(() => { communesEnVol = null; });
+  }
+  return communesEnVol;
+}
+
 async function chargerContexte() {
   const commune = communeCourante();
   if (!commune) return;
   try {
-    const reponse = await api.communes();
+    const reponse = await lireCommunes();
     const trouvee = (reponse.communes || []).find(
       (c) => c.code_insee === commune.code_insee);
     peuplerSecteurs(reponse.zones);
@@ -438,6 +455,15 @@ async function chargerListe() {
  * du centre du bourg.
  */
 async function cadrerSurLaCommune() {
+  // Demandé deux fois de suite à l'ouverture d'une commune — l'écran qui
+  // s'affiche, la commune qui change : le second rejoint le premier.
+  if (!cadrage) {
+    cadrage = cadrer().finally(() => { cadrage = null; });
+  }
+  return cadrage;
+}
+
+async function cadrer() {
   const commune = communeCourante();
   if (!commune || communeCadree === commune.code_insee) return;
   // Une position GPS demandée l'emporte sur le centre du bourg : si on a
@@ -451,7 +477,7 @@ async function cadrerSurLaCommune() {
     return;
   }
   try {
-    const { communes } = await api.communes();
+    const { communes } = await lireCommunes();
     const trouvee = communes.find((c) => c.code_insee === commune.code_insee);
     if (trouvee?.cadre) {
       communeCadree = commune.code_insee;
@@ -499,14 +525,32 @@ async function rafraichir({ force = false } = {}) {
     return;
   }
 
-  // Un déplacement rapide peut lancer plusieurs requêtes ; seule la
-  // dernière compte. Sans ce numéro d'ordre, une réponse tardive
-  // écraserait l'affichage d'un cadre qu'on a déjà quitté.
-  const rang = ++derniereRequete;
   const cadre = carte.cadre(MARGE);
   // Contours ou marques : c'est le zoom qui tranche, et la réponse du
   // serveur n'emporte les géométries que si elles vont être tracées.
   const marques = carte.zoom() < ZOOM_CONTOURS;
+
+  // La même question est déjà posée : on attend sa réponse. Ouvrir une
+  // commune posait TROIS fois la même — l'écran qui s'affiche, la commune
+  // qui change, la carte qui se recentre —, et chacune annulait la
+  // précédente : le NAS calculait trois fois, la carte attendait la
+  // troisième.
+  const cle = JSON.stringify([commune.code_insee, cadre, marques, ecran.filtres]);
+  if (enVol && enVol.cle === cle) return enVol.promesse;
+  const promesse = charger(commune, cadre, marques);
+  enVol = { cle, promesse };
+  try {
+    return await promesse;
+  } finally {
+    if (enVol?.promesse === promesse) enVol = null;
+  }
+}
+
+async function charger(commune, cadre, marques) {
+  // Un déplacement rapide peut lancer plusieurs requêtes ; seule la
+  // dernière compte. Sans ce numéro d'ordre, une réponse tardive
+  // écraserait l'affichage d'un cadre qu'on a déjà quitté.
+  const rang = ++derniereRequete;
   // La carte GARDE ce qu'elle montre pendant le chargement : la vider
   // d'abord, ou annoncer « Chargement… » à sa place, donnait justement
   // l'impression d'un rechargement. Un discret témoin suffit, et
@@ -882,13 +926,18 @@ export async function initialiserExploration() {
   }
   ajusterHauteurCarte();
 
-  surCommunePrete(async () => {
+  surCommunePrete(async (commune) => {
     chargerContexte();
     // Une autre commune, d'autres parcelles : ce qui est tracé n'a plus
     // cours, et le cadre chargé non plus.
     carte.effacerParcelles();
     oublierLeCadre();
     if ($("#vue-carte").hidden) return;
+    // La carte est vide, et le restera le temps que le NAS réponde : on
+    // le dit. Au déplacement, elle garde ce qu'elle montre et un témoin
+    // discret suffit ; ici il n'y a rien à garder.
+    etat(`Chargement des parcelles de ${echapper(commune?.nom || "la commune")}…`);
+    attendre(true);
     await cadrerSurLaCommune();
     rafraichir({ force: true });
     chargerListe();

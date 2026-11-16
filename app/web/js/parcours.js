@@ -80,8 +80,32 @@ function gabaritCommune(commune, deja) {
 function brancherChoix(racine) {
   racine.querySelectorAll("[data-insee]").forEach((bouton) => {
     bouton.addEventListener("click", () =>
-      choisirCommune({ code_insee: bouton.dataset.insee, nom: bouton.dataset.nom }));
+      choisirCommune({ code_insee: bouton.dataset.insee, nom: bouton.dataset.nom }, bouton));
   });
+}
+
+/**
+ * Montre, sur le bouton même, que le clic a été pris.
+ *
+ * Le serveur répond vite d'ordinaire, mais pas toujours : il lit au
+ * passage la mairie de la commune, et le NAS n'est pas une machine de
+ * course. Rien ne bougeait pendant ce temps — on ne savait pas si le clic
+ * avait porté, et l'on recliquait.
+ */
+function marquerLeChoix(bouton, encours) {
+  document.querySelectorAll(".commune[data-insee]").forEach((autre) => {
+    autre.disabled = encours;
+  });
+  if (!bouton) return;
+  bouton.setAttribute("aria-busy", String(encours));
+  const pastille = bouton.querySelector(".pastille");
+  if (!pastille) return;
+  if (encours) {
+    pastille.dataset.avant = pastille.textContent;
+    pastille.textContent = "ouverture…";
+  } else if (pastille.dataset.avant) {
+    pastille.textContent = pastille.dataset.avant;
+  }
 }
 
 async function chercherCommunes(texte) {
@@ -128,18 +152,23 @@ async function chargerCommunesConnues() {
 //  Étape 3 — les résultats
 // --------------------------------------------------------------------
 
-async function choisirCommune(commune) {
+async function choisirCommune(commune, bouton = null) {
   masquerErreur();
   parcours.commune = commune;
 
   const besoin = BESOIN[parcours.intention] || "dpe";
 
+  marquerLeChoix(bouton, true);
+  afficherTravail(`Ouverture de ${commune.nom}…`);
   let etat;
   try {
     etat = await api.preparerCommune(commune.code_insee, besoin);
   } catch (erreur) {
+    masquerTravail();
     afficherErreur(`Impossible de préparer ${commune.nom}.`, erreur.message);
     return;
+  } finally {
+    marquerLeChoix(bouton, false);
   }
 
   if (!etat.lance) {

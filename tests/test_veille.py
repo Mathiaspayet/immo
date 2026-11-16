@@ -905,3 +905,30 @@ def test_la_mairie_lue_au_choix_repare_aussi_le_nom(base, monkeypatch):
     with connexion() as conn:
         noms = dict(conn.execute("SELECT code_insee, nom FROM commune").fetchall())
     assert noms == {"38001": "Officiel", "40184": "Mimizan"}      # un vrai nom n'est pas remplace
+
+
+def test_une_mairie_manquee_ne_fait_pas_attendre_chaque_clic(base, monkeypatch):
+    """Referentiel en panne : trois secondes a CHAQUE ouverture de la commune.
+    On ne retente qu'une heure plus tard ; l'import quotidien, lui, toujours."""
+    from app.base.connexion import transaction
+    from app.metier import import_dpe
+    with transaction() as conn:
+        conn.execute("INSERT INTO commune (code_insee, nom, derniere_maj_dpe)"
+                     " VALUES ('38001', 'Les Abrets', '2999-01-01T00:00:00')")
+    appels = []
+
+    def muet(code_insee, rapide=False):
+        appels.append(rapide)
+        return None
+
+    monkeypatch.setattr("app.sources.geo.commune_par_insee", muet)
+    import_dpe.preparer_commune("38001")
+    import_dpe.preparer_commune("38001")
+    assert appels == [True]
+
+    import_dpe._completer_mairies()                # l'import du matin
+    assert appels == [True, False]
+
+    monkeypatch.setattr(import_dpe, "RETENTER_MAIRIE_APRES", 0)
+    import_dpe.preparer_commune("38001")
+    assert appels == [True, False, True]
